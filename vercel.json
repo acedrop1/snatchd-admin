@@ -1,0 +1,5 @@
+{
+  "buildCommand": "cd snatchd-admin && npm install && npm run build",
+  "outputDirectory": "snatchd-admin/.next",
+  "installCommand": "cd snatchd-admin && npm install"
+}
