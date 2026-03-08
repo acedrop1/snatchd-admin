@@ -13,25 +13,26 @@ struct StoreProductsView: View {
     @State private var selectedProduct: Product? // For programmatic navigation
     @State private var cartScale: CGFloat = 1.0 // Animation state
     @Namespace private var categoryNamespace
-    
-    let categories = ["All", "Clothing", "Hygiene", "Beauty & Skincare", "Fine Jewelry"]
+
+    // Dynamically build category tabs from this store's actual product categories
+    var categories: [String] {
+        let storeProducts = databaseService.products.filter { $0.storeId == store.firestoreId }
+        let unique = Array(Set(storeProducts.map { $0.category })).filter { !$0.isEmpty }.sorted()
+        return ["All"] + unique
+    }
+
     let columns = [
         GridItem(.flexible()),
         GridItem(.flexible())
     ]
     
     var filteredProducts: [Product] {
-        let allProducts = databaseService.products + MockDataService.shared.trendingProducts
-        return allProducts.filter { product in
+        // Only show real products from Firestore — not mock data
+        // Filter by this store's Firestore document ID so each store shows its own inventory
+        return databaseService.products.filter { product in
             let categoryMatch = selectedCategory == "All" || product.category == selectedCategory
             let searchMatch = searchText.isEmpty || product.title.localizedCaseInsensitiveContains(searchText) || product.brand.localizedCaseInsensitiveContains(searchText)
-            
-            // Store Match: Check if store name contains the brand name
-            // Example: "Zara SoHo" contains "Zara", "Nike NYC" contains "Nike"
-            let storeName = store.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let brandName = product.brand.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let storeMatch = storeName.contains(brandName) || brandName.contains(storeName)
-            
+            let storeMatch = product.storeId == store.firestoreId
             return categoryMatch && searchMatch && storeMatch
         }
     }
@@ -363,5 +364,5 @@ struct StoreProductsView: View {
 }
 
 #Preview {
-    StoreProductsView(store: Store(name: "Louis Vuitton", category: "Luxury", imageName: "bag.fill", imageURL: nil, address: nil, latitude: nil, longitude: nil, deliveryRadius: nil, deliveryTime: "35 min"), showTabBar: .constant(true), selectedTab: .constant(.stores))
+    StoreProductsView(store: Store(firestoreId: "", name: "Louis Vuitton", category: "Luxury", imageName: "bag.fill", imageURL: nil, address: nil, latitude: nil, longitude: nil, deliveryRadius: nil, deliveryTime: "35 min"), showTabBar: .constant(true), selectedTab: .constant(.stores))
 }

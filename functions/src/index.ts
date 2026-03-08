@@ -1,4 +1,5 @@
 import { onRequest } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import * as admin from 'firebase-admin';
 import axios from 'axios';
 
@@ -159,110 +160,126 @@ export const checkStock = onRequest({ cors: true }, async (req, res) => {
 });
 
 /**
- * Cloud Function: updateZaraSohoStock
- * 
- * Manual Trigger: Updates stock status for all Zara products availability 
- * specifically for Zara SoHo (Store ID 11719).
- * 
- * Url Trigger: POST /updateZaraSohoStock
+ * Core stock sweep logic — shared by both the scheduled and HTTP-triggered functions.
+ * Checks all Zara products against the Zara SoHo store (ID: 11719) and updates
+ * the `in_stock_soho` field on each product in Firestore.
  */
-export const updateZaraSohoStock = onRequest({
-    timeoutSeconds: 300, // 5 min timeout for processing multiple items
-    cors: true
-}, async (req, res) => {
-    // Basic security: Check internal token or just rely on obscurity for now
-    // For testing simplification we allow GET/POST
-
-    console.log("🌚 Starting Manual Stock Check for Zara SoHo...");
-
+async function runZaraSohoStockSweep(): Promise<{ updatedCount: number; results: any[] }> {
     const ZARA_SOHO_ID = 11719;
     const SOHO_LAT = 40.7246;
     const SOHO_LNG = -73.9985;
 
-    try {
-        // 1. Get all Zara products
-        const snapshot = await db.collection("products")
-            .where("brand", "==", "Zara")
-            .get();
+    const snapshot = await db.collection("products")
+        .where("brand", "==", "Zara")
+        .get();
 
-        if (snapshot.empty) {
-            res.status(200).json({ message: "No Zara products found." });
-            return;
+    if (snapshot.empty) {
+        console.log("⚠️ No Zara products found in Firestore.");
+        return { updatedCount: 0, results: [] };
+    }
+
+    const batch = db.batch();
+    let counter = 0;
+    const results: any[] = [];
+
+    for (const doc of snapshot.docs) {
+        const data = doc.data();
+        const productId = doc.id;
+        const zaraProductId = data.zaraProductId;
+
+        if (!zaraProductId) {
+            console.log(`⚠️ Skipping ${productId}: No zaraProductId`);
+            continue;
         }
 
-        const batch = db.batch();
-        let counter = 0;
-        const results: any[] = [];
+        const url = `https://www.zara.com/us/en/stock-sharing/shops/by-physical-stock?lat=${SOHO_LAT}&lng=${SOHO_LNG}&productIds=${zaraProductId}`;
+        let isAvailable = false;
 
-        // Loop through docs
-        for (const doc of snapshot.docs) {
-            const data = doc.data();
-            const productId = doc.id;
-            const zaraProductId = data.zaraProductId; // Ensure this field exists!
-
-            if (!zaraProductId) {
-                console.log(`⚠️ Skipping ${productId}: No zaraProductId found`);
-                continue;
-            }
-
-            // 2. Ask Zara: "Is this item near SoHo?"
-            const url = `https://www.zara.com/us/en/stock-sharing/shops/by-physical-stock?lat=${SOHO_LAT}&lng=${SOHO_LNG}&productIds=${zaraProductId}`;
-
-            let isAvailable = false;
-
-            try {
-                const response = await axios.get(url, {
-                    headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1' }
-                });
-
-                // 3. The "Gold Filter" - strictly check for Store 11719
-                const shops = response.data.shops || [];
-
-                // Find SoHo store in the results
-                // Note: Zara API might return string or number for IDs, be safe with loose comparison or casting
-                const sohoStore = shops.find((shop: any) =>
-                    shop.id == ZARA_SOHO_ID || shop.shopId == ZARA_SOHO_ID
-                );
-
-                if (sohoStore && sohoStore.stockStatus === "in_stock") {
-                    isAvailable = true;
-                }
-
-                results.push({ productId, zaraProductId, isAvailable });
-
-            } catch (error: any) {
-                console.error(`Error checking ${productId}:`, error.message);
-                results.push({ productId, error: error.message });
-            }
-
-            // 4. Update the specific "SoHo" Flag
-            const docRef = db.collection("products").doc(productId);
-            batch.update(docRef, {
-                in_stock_soho: isAvailable,
-                last_checked_soho: admin.firestore.FieldValue.serverTimestamp()
+        try {
+            const response = await axios.get(url, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1' },
+                timeout: 8000
             });
 
-            counter++;
+            const shops = response.data.shops || [];
 
-            // Simple batching: Commit every 400 items (Firestore limit is 500)
-            // Since we are likely < 150, one batch is fine. 
-            // If > 400, strictly we should split batches.
+            // Log actual response shape on first product to catch Zara API changes
+            if (counter === 0 && shops.length > 0) {
+                console.log(`🔍 Zara API sample shop fields: ${Object.keys(shops[0]).join(', ')}`);
+                console.log(`🔍 Sample stock value: stockStatus=${shops[0].stockStatus}, stock=${shops[0].stock}, availability=${shops[0].availability}`);
+            }
 
-            // Slight delay to be polite to Zara API
-            await new Promise(r => setTimeout(r, 200));
+            const sohoStore = shops.find((shop: any) =>
+                shop.id == ZARA_SOHO_ID || shop.shopId == ZARA_SOHO_ID
+            );
+
+            if (sohoStore) {
+                // Flexible stock field detection — handles if Zara changes their API response format
+                isAvailable =
+                    sohoStore.stockStatus === "in_stock" ||
+                    sohoStore.stock === "in_stock" ||
+                    sohoStore.availability === true ||
+                    sohoStore.inStock === true ||
+                    sohoStore.available === true;
+            }
+
+            results.push({ productId, zaraProductId, isAvailable });
+        } catch (err: any) {
+            console.error(`❌ Error checking ${productId}:`, err.message);
+            results.push({ productId, error: err.message });
         }
 
-        await batch.commit();
-        console.log(`✅ Sweep complete. Updated ${counter} items for Zara SoHo.`);
-
-        res.status(200).json({
-            success: true,
-            updatedCount: counter,
-            details: results
+        const docRef = db.collection("products").doc(productId);
+        batch.update(docRef, {
+            in_stock_soho: isAvailable,
+            last_checked_soho: admin.firestore.FieldValue.serverTimestamp()
         });
 
+        counter++;
+
+        // Polite delay between Zara API requests
+        await new Promise(r => setTimeout(r, 200));
+    }
+
+    await batch.commit();
+    console.log(`✅ Sweep complete — updated ${counter} Zara products for SoHo.`);
+    return { updatedCount: counter, results };
+}
+
+/**
+ * Cloud Function: updateZaraSohoStock (HTTP)
+ *
+ * Manual trigger from Admin Portal → Dashboard "Check Zara SoHo Stock" button.
+ * POST /updateZaraSohoStock
+ */
+export const updateZaraSohoStock = onRequest({
+    timeoutSeconds: 300,
+    cors: true
+}, async (req, res) => {
+    console.log("🖐 Manual stock sweep triggered via HTTP...");
+    try {
+        const { updatedCount, results } = await runZaraSohoStockSweep();
+        res.status(200).json({ success: true, updatedCount, details: results });
     } catch (error: any) {
-        console.error("❌ Fatal error in sweep:", error);
+        console.error("❌ Fatal error in manual sweep:", error);
         res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Cloud Function: scheduledZaraSohoStock (Scheduled)
+ *
+ * Automatically runs every 15 minutes to keep Zara SoHo stock fresh.
+ * Enable Cloud Scheduler in Firebase Console if not already active.
+ */
+export const scheduledZaraSohoStock = onSchedule({
+    schedule: "every 15 minutes",
+    timeoutSeconds: 300,
+}, async (_context) => {
+    console.log("⏰ Scheduled stock sweep starting...");
+    try {
+        await runZaraSohoStockSweep();
+    } catch (error: any) {
+        console.error("❌ Fatal error in scheduled sweep:", error);
     }
 });

@@ -15,6 +15,12 @@
             ]
         }
     ],
+    "firestore": {
+        "rules": "firestore.rules"
+    },
+    "storage": {
+        "rules": "storage.rules"
+    },
     "hosting": {
         "source": "snatchd-admin",
         "site": "snatchd-app26",

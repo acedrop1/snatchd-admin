@@ -19,7 +19,7 @@ export default function NewProductPage() {
     const [price, setPrice] = useState("");
     const [sku, setSku] = useState(""); // Display reference (e.g., "1234/567")
     const [zaraProductId, setZaraProductId] = useState(""); // Numeric ID for stock API
-    const [category, setCategory] = useState("Coats"); // Default
+    const [category, setCategory] = useState(""); // Subcategory — free text, becomes a filter tab in the store
     const [selectedStoreId, setSelectedStoreId] = useState("");
 
     // Image State
@@ -87,14 +87,17 @@ export default function NewProductPage() {
                 title,
                 description,
                 price: parseFloat(price),
-                sku, // Display reference
-                zaraProductId: zaraProductId || null, // Numeric ID for stock API
+                sku,
+                zaraProductId: zaraProductId || null,
                 category,
                 storeId: selectedStoreId,
                 brand: brandName,
                 images: imageUrls,
+                inStock: true,           // Default in stock — update manually if needed
+                deliveryTime: "45 Mins", // Default delivery time
+                in_stock_soho: false,    // Updated by Cloud Function for Zara products
                 createdAt: serverTimestamp(),
-                isActive: true, // Default to visible in catalog
+                isActive: true,
             });
 
             router.push("/dashboard/products");
@@ -207,19 +210,46 @@ export default function NewProductPage() {
 
                     <div className="grid gap-2">
                         <label className="text-sm font-medium text-neutral-300">Category</label>
-                        <select
+                        <input
+                            type="text"
+                            required
+                            list="category-suggestions"
                             value={category}
                             onChange={e => setCategory(e.target.value)}
                             className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white focus:border-white focus:outline-none transition"
-                        >
-                            <option>Coats</option>
-                            <option>Jackets</option>
-                            <option>Pants</option>
-                            <option>Shoes</option>
-                            <option>Accessories</option>
-                            <option>Dresses</option>
-                            <option>T-Shirts</option>
-                        </select>
+                            placeholder="e.g. Coats, Jackets, Serums..."
+                        />
+                        <datalist id="category-suggestions">
+                            {/* Clothing */}
+                            <option value="Coats" />
+                            <option value="Jackets" />
+                            <option value="Pants" />
+                            <option value="Dresses" />
+                            <option value="Tops" />
+                            <option value="T-Shirts" />
+                            <option value="Shoes" />
+                            <option value="Accessories" />
+                            <option value="Bags" />
+                            <option value="Knitwear" />
+                            <option value="Denim" />
+                            {/* Beauty */}
+                            <option value="Serums" />
+                            <option value="Moisturizers" />
+                            <option value="Fragrance" />
+                            <option value="Body" />
+                            <option value="Makeup" />
+                            <option value="Hair" />
+                            {/* Hygiene */}
+                            <option value="Skincare" />
+                            <option value="Deodorant" />
+                            <option value="Oral Care" />
+                            {/* Jewelry */}
+                            <option value="Rings" />
+                            <option value="Necklaces" />
+                            <option value="Bracelets" />
+                            <option value="Earrings" />
+                        </datalist>
+                        <p className="text-xs text-neutral-500">Type a custom subcategory or pick from suggestions. This becomes a filter tab inside the store.</p>
                     </div>
                 </div>
 

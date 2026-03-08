@@ -5,141 +5,225 @@ import FirebaseFirestore
 class DatabaseService: ObservableObject {
     static let shared = DatabaseService()
     private let db = Firestore.firestore()
-    
+
     @Published var products: [Product] = []
     @Published var stores: [Store] = []
     @Published var zaraSohoProducts: [Product] = []
-    
-    // Fetch Products from Firestore
-    func fetchProducts() {
-        db.collection("products").getDocuments { snapshot, error in
-            if let error = error {
-                print("Error fetching products: \(error)")
-                return
-            }
-            
-            guard let documents = snapshot?.documents else { return }
-            
-            self.products = documents.compactMap { doc -> Product? in
-                let data = doc.data()
-                let title = data["title"] as? String ?? ""
-                let brand = data["brand"] as? String ?? ""
-                let price = data["price"] as? Double ?? 0.0
-                
-                // Get image URL from images array (admin stores as array)
-                let images = data["images"] as? [String] ?? []
-                let imageURL = images.first // Use first image from array
-                
-                // Fallback to imageName if no remote URL
-                let imageName = data["imageName"] as? String ?? "photo"
-                
-                let deliveryTime = data["deliveryTime"] as? String ?? "45 Mins"
-                let category = data["category"] as? String ?? ""
-                let inStock = data["inStock"] as? Bool ?? true
-                let zaraProductId = data["zaraProductId"] as? String
-                
-                return Product(title: title, brand: brand, price: price, imageName: imageName, imageURL: imageURL, deliveryTime: deliveryTime, category: category, inStock: inStock, zaraProductId: zaraProductId)
-            }
-        }
+
+    // Listener handles — kept so we can detach if needed
+    private var storesListener: ListenerRegistration?
+    private var productsListener: ListenerRegistration?
+    private var zaraSohoListener: ListenerRegistration?
+
+    private init() {
+        // Start all real-time listeners immediately on first access
+        startListening()
     }
-    
-    // Fetch Stores from Firestore
-    func fetchStores() {
-        db.collection("stores").getDocuments { snapshot, error in
+
+    // MARK: - Start All Listeners
+
+    func startListening() {
+        listenToStores()
+        listenToProducts()
+        listenToZaraSohoProducts()
+    }
+
+    // MARK: - Real-Time Stores Listener
+    // Any store added, edited, or deleted in the portal instantly updates the app.
+
+    func listenToStores() {
+        guard storesListener == nil else { return } // Already listening
+
+        storesListener = db.collection("stores").addSnapshotListener { [weak self] snapshot, error in
+            guard let self = self else { return }
+
             if let error = error {
-                print("❌ Error fetching stores: \(error)")
+                print("❌ Stores listener error: \(error.localizedDescription)")
                 return
             }
-            
+
             guard let documents = snapshot?.documents else {
                 print("⚠️ No store documents found")
                 return
             }
-            
-            print("📦 Fetched \(documents.count) stores from Firestore")
-            
-            self.stores = documents.compactMap { doc -> Store? in
-                let data = doc.data()
-                let name = data["name"] as? String ?? ""
-                let category = data["category"] as? String ?? ""
-                
-                // Get image URL - check multiple possible fields
-                // Admin stores: logo (store logo), image (banner), images (array)
-                var imageURL: String? = nil
-                
-                // Priority 1: Check 'images' array (for products/future stores)
-                if let images = data["images"] as? [String], let first = images.first {
-                    imageURL = first
+
+            print("🔄 Stores updated — \(documents.count) stores")
+
+            DispatchQueue.main.async {
+                self.stores = documents.compactMap { doc -> Store? in
+                    let data = doc.data()
+                    let firestoreId = doc.documentID
+                    let name = data["name"] as? String ?? ""
+                    let category = (data["categories"] as? [String])?.first ?? data["category"] as? String ?? ""
+
+                    // Image URL priority: banner image > logo > images array
+                    var imageURL: String? = nil
+                    if let bannerImage = data["image"] as? String, !bannerImage.isEmpty {
+                        imageURL = bannerImage
+                    } else if let logoImage = data["logo"] as? String, !logoImage.isEmpty {
+                        imageURL = logoImage
+                    } else if let images = data["images"] as? [String], let first = images.first {
+                        imageURL = first
+                    }
+
+                    let logoURL = data["logo"] as? String
+                    let imageName = data["imageName"] as? String ?? "storefront"
+                    let address = data["address"] as? String
+                    let latitude = data["latitude"] as? Double
+                    let longitude = data["longitude"] as? Double
+                    let deliveryRadius = data["deliveryRadius"] as? Double
+                    let deliveryTime = data["deliveryTime"] as? String ?? "45 Mins"
+                    let isSystemImage = imageURL == nil && logoURL == nil
+
+                    return Store(
+                        firestoreId: firestoreId,
+                        name: name,
+                        category: category,
+                        imageName: imageName,
+                        imageURL: imageURL ?? logoURL,
+                        address: address,
+                        latitude: latitude,
+                        longitude: longitude,
+                        deliveryRadius: deliveryRadius,
+                        deliveryTime: deliveryTime,
+                        isSystemImage: isSystemImage
+                    )
                 }
-                // Priority 2: Check 'image' field (banner/cover image)
-                else if let bannerImage = data["image"] as? String, !bannerImage.isEmpty {
-                    imageURL = bannerImage
-                }
-                // Priority 3: Check 'logo' field (store logo)
-                else if let logoImage = data["logo"] as? String, !logoImage.isEmpty {
-                    imageURL = logoImage
-                }
-                
-                // Debug logging
-                print("🏪 Store: \(name)")
-                print("   - logo field: \(data["logo"] as? String ?? "nil")")
-                print("   - image field: \(data["image"] as? String ?? "nil")")
-                print("   - images array: \(data["images"] as? [String] ?? [])")
-                print("   - Final imageURL: \(imageURL ?? "nil")")
-                
-                // Fallback to imageName
-                let imageName = data["imageName"] as? String ?? "storefront"
-                
-                let address = data["address"] as? String
-                let latitude = data["latitude"] as? Double
-                let longitude = data["longitude"] as? Double
-                let deliveryRadius = data["deliveryRadius"] as? Double
-                let deliveryTime = data["deliveryTime"] as? String ?? "45 Mins"
-                let isSystemImage = data["isSystemImage"] as? Bool ?? (imageURL == nil)
-                
-                return Store(name: name, category: category, imageName: imageName, imageURL: imageURL, address: address, latitude: latitude, longitude: longitude, deliveryRadius: deliveryRadius, deliveryTime: deliveryTime, isSystemImage: isSystemImage)
+
+                print("✅ Stores synced: \(self.stores.count)")
             }
-            
-            print("✅ Successfully mapped \(self.stores.count) stores")
         }
     }
-    
-    // Fetch Zara SoHo Products (Only items confirmed in stock)
-    func fetchZaraSohoProducts() {
-        db.collection("products")
-            .whereField("brand", isEqualTo: "Zara")
-            .whereField("in_stock_soho", isEqualTo: true)
-            .getDocuments { snapshot, error in
-                if let error = error {
-                    print("❌ Error fetching Zara SoHo products: \(error)")
-                    return
-                }
-                
-                guard let documents = snapshot?.documents else {
-                    print("⚠️ No Zara SoHo products found")
-                    return
-                }
-                
-                print("📦 Fetched \(documents.count) Zara SoHo products")
-                
-                self.zaraSohoProducts = documents.compactMap { doc -> Product? in
+
+    // MARK: - Real-Time Products Listener
+    // Any product added, edited, or deleted in the portal instantly updates the app.
+
+    func listenToProducts() {
+        guard productsListener == nil else { return }
+
+        productsListener = db.collection("products").addSnapshotListener { [weak self] snapshot, error in
+            guard let self = self else { return }
+
+            if let error = error {
+                print("❌ Products listener error: \(error.localizedDescription)")
+                return
+            }
+
+            guard let documents = snapshot?.documents else { return }
+
+            print("🔄 Products updated — \(documents.count) products")
+
+            DispatchQueue.main.async {
+                self.products = documents.compactMap { doc -> Product? in
                     let data = doc.data()
+                    let storeId = data["storeId"] as? String ?? ""
                     let title = data["title"] as? String ?? ""
                     let brand = data["brand"] as? String ?? ""
                     let price = data["price"] as? Double ?? 0.0
-                    
                     let images = data["images"] as? [String] ?? []
                     let imageURL = images.first
                     let imageName = data["imageName"] as? String ?? "photo"
                     let deliveryTime = data["deliveryTime"] as? String ?? "45 Mins"
                     let category = data["category"] as? String ?? ""
-                    let inStock = data["in_stock_soho"] as? Bool ?? true
+                    let inStock = data["inStock"] as? Bool ?? true
                     let zaraProductId = data["zaraProductId"] as? String
-                    
-                    return Product(title: title, brand: brand, price: price, imageName: imageName, imageURL: imageURL, deliveryTime: deliveryTime, category: category, inStock: inStock, zaraProductId: zaraProductId)
+
+                    return Product(
+                        storeId: storeId,
+                        title: title,
+                        brand: brand,
+                        price: price,
+                        imageName: imageName,
+                        imageURL: imageURL,
+                        deliveryTime: deliveryTime,
+                        category: category,
+                        inStock: inStock,
+                        zaraProductId: zaraProductId
+                    )
                 }
-                
-                print("✅ Successfully mapped \(self.zaraSohoProducts.count) Zara SoHo products")
+
+                print("✅ Products synced: \(self.products.count)")
             }
+        }
+    }
+
+    // MARK: - Real-Time Zara SoHo Products Listener
+
+    func listenToZaraSohoProducts() {
+        guard zaraSohoListener == nil else { return }
+
+        zaraSohoListener = db.collection("products")
+            .whereField("brand", isEqualTo: "Zara")
+            .whereField("in_stock_soho", isEqualTo: true)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self = self else { return }
+
+                if let error = error {
+                    print("❌ Zara SoHo listener error: \(error.localizedDescription)")
+                    return
+                }
+
+                guard let documents = snapshot?.documents else { return }
+
+                print("🔄 Zara SoHo products updated — \(documents.count) in stock")
+
+                DispatchQueue.main.async {
+                    self.zaraSohoProducts = documents.compactMap { doc -> Product? in
+                        let data = doc.data()
+                        let storeId = data["storeId"] as? String ?? ""
+                        let title = data["title"] as? String ?? ""
+                        let brand = data["brand"] as? String ?? ""
+                        let price = data["price"] as? Double ?? 0.0
+                        let images = data["images"] as? [String] ?? []
+                        let imageURL = images.first
+                        let imageName = data["imageName"] as? String ?? "photo"
+                        let deliveryTime = data["deliveryTime"] as? String ?? "45 Mins"
+                        let category = data["category"] as? String ?? ""
+                        let inStock = data["in_stock_soho"] as? Bool ?? true
+                        let zaraProductId = data["zaraProductId"] as? String
+
+                        return Product(
+                            storeId: storeId,
+                            title: title,
+                            brand: brand,
+                            price: price,
+                            imageName: imageName,
+                            imageURL: imageURL,
+                            deliveryTime: deliveryTime,
+                            category: category,
+                            inStock: inStock,
+                            zaraProductId: zaraProductId
+                        )
+                    }
+
+                    print("✅ Zara SoHo products synced: \(self.zaraSohoProducts.count)")
+                }
+            }
+    }
+
+    // MARK: - Legacy Fetch Methods (now just ensure listeners are running)
+    // These are kept so existing .onAppear { databaseService.fetchStores() } calls still compile.
+
+    func fetchStores() {
+        listenToStores()
+    }
+
+    func fetchProducts() {
+        listenToProducts()
+    }
+
+    func fetchZaraSohoProducts() {
+        listenToZaraSohoProducts()
+    }
+
+    // MARK: - Stop Listening (call on logout / deinit if needed)
+
+    func stopListening() {
+        storesListener?.remove()
+        productsListener?.remove()
+        zaraSohoListener?.remove()
+        storesListener = nil
+        productsListener = nil
+        zaraSohoListener = nil
     }
 }

@@ -16,11 +16,16 @@ struct HomeView: View {
     @Namespace private var categoryNamespace
     
     let categories = ["All", "Clothing", "Hygiene", "Beauty & Skincare", "Fine Jewelry"]
-    
+
     let columns = [
         GridItem(.flexible(), spacing: 15),
         GridItem(.flexible(), spacing: 15)
     ]
+
+    // Show Firestore stores when available, fall back to mock stores so the UI is never blank
+    var displayStores: [Store] {
+        databaseService.stores.isEmpty ? MockDataService.shared.stores : databaseService.stores
+    }
     
     var body: some View {
         ZStack {
@@ -129,8 +134,7 @@ struct HomeView: View {
                                 
                                 ScrollView(.horizontal, showsIndicators: false) {
                                     HStack(spacing: 15) {
-                                        // Using stores for this section as per mockup (Louis Vuitton, Nike)
-                                        ForEach(databaseService.stores) { store in
+                                        ForEach(displayStores) { store in
                                             NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
                                                 FeaturedStoreCard(store: store)
                                             }
@@ -149,7 +153,7 @@ struct HomeView: View {
                                 
                                 ScrollView(.horizontal, showsIndicators: false) {
                                     HStack(spacing: 15) {
-                                        ForEach(databaseService.stores) { store in
+                                        ForEach(displayStores) { store in
                                             NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
                                                 TrendingStoreCard(store: store)
                                             }
@@ -167,7 +171,7 @@ struct HomeView: View {
                                     .padding(.horizontal)
                                 
                                 LazyVGrid(columns: columns, spacing: 20) {
-                                    ForEach(databaseService.stores) { store in
+                                    ForEach(displayStores) { store in
                                         NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
                                             GridStoreCard(store: store)
                                         }
