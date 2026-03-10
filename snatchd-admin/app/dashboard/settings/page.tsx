@@ -492,65 +492,110 @@ const U = "https://images.unsplash.com/photo-";
 const Q = "?auto=format&fit=crop&w=800&q=80";
 
 const PRODUCT_IMAGES: Record<string, string> = {
-    // Apple — real product-matched Unsplash IDs
-    "iPhone 16 Pro":                    `${U}1669049776943-66b1bb724670${Q}`,
-    "AirPods Pro (2nd Gen)":            `${U}1695634463799-8cdf7a6a2595${Q}`,
-    "MacBook Air M3":                   `${U}1637329589604-4485001b3605${Q}`,
-    "Apple Watch Series 10":            `${U}1675703342282-94db4ec455e9${Q}`,
-    // Zara
-    "Structured Blazer":                `${U}1597582927786-bae43be837a0${Q}`,
-    "Wide Leg Trousers":                `${U}1762343291713-0d7f83e6c2e9${Q}`,
-    "Leather Crossbody Bag":            `${U}1760624089496-01ae68a92d58${Q}`,
-    "Oversized Trench Coat":            `${U}1760551937537-a29dbbfab30b${Q}`,
-    // Louis Vuitton
-    "Neverfull MM":                     `${U}1562330094-4a3730591558${Q}`,
+    // ── Apple SoHo ──────────────────────────────────────────────────────────────
+    // "a white cell phone sitting on top of a pink and blue background"
+    "iPhone 16 Pro":                    `${U}1680985551009-05107cd2752c${Q}`,
+    // "white apple airpods on brown wooden table"
+    "AirPods Pro (2nd Gen)":            `${U}1587523459887-e669248cf666${Q}`,
+    // "a laptop computer sitting on top of a table"
+    "MacBook Air M3":                   `${U}1681702114246-ffe628203982${Q}`,
+    // "black smart watch with white background"
+    "Apple Watch Series 10":            `${U}1624096104992-9b4fa3a279dd${Q}`,
+    // ── Zara SoHo ────────────────────────────────────────────────────────────────
+    // "A woman in a gray blazer and black skirt outdoors"
+    "Structured Blazer":                `${U}1770364020677-103b8eb265d4${Q}`,
+    // "A woman standing in the sand with her hand on her hip" (wide-leg silhouette)
+    "Wide Leg Trousers":                `${U}1723826753103-059ab0675e86${Q}`,
+    // "a person holding a black bag in their hand"
+    "Leather Crossbody Bag":            `${U}1671028547411-12a7fb233ddd${Q}`,
+    // "a person wearing a coat and a white shirt"
+    "Oversized Trench Coat":            `${U}1674719144570-0728faf14f96${Q}`,
+    // ── Louis Vuitton ─────────────────────────────────────────────────────────────
+    // "a brown and tan louis vuitton bag"
+    "Neverfull MM":                     `${U}1691480288782-142b953cf664${Q}`,
+    // "a hand holding a wallet with a credit card in it"
     "Card Holder":                      `${U}1678554832890-2ea5d37278af${Q}`,
-    "Speedy Bandoulière 25":            `${U}1562330094-4a3730591558${Q}`,
-    // Nike
-    "Air Force 1 '07":                  `${U}1763392701171-98c3e34d1693${Q}`,
-    "Air Max 90":                       `${U}1617033298110-a9ab5ab77a9d${Q}`,
-    "Tech Fleece Hoodie":               `${U}1667586680656-6b8e381cddb5${Q}`,
-    "Dri-FIT Training Shorts":          `${U}1602190420103-683df5093e86${Q}`,
-    // Aime Leon Dore
-    "New Balance 990v3 for ALD":        `${U}1617033298110-a9ab5ab77a9d${Q}`,
-    "Newport Short":                    `${U}1602190420103-683df5093e86${Q}`,
-    "Suede Track Jacket":               `${U}1650594506500-c87c4c82bb43${Q}`,
-    // Kith
-    "Williams III Hoodie":              `${U}1667586680656-6b8e381cddb5${Q}`,
-    "Classic Logo Tee":                 `${U}1618677603544-51162346e165${Q}`,
-    "Kith x Adidas Forum Low":          `${U}1763392701171-98c3e34d1693${Q}`,
-    // Miu Miu
-    "Wander Matelassé Bag":             `${U}1637759292654-a12cb2be085e${Q}`,
-    "Mary Jane Ballet Flats":           `${U}1769981654964-e65981aecd75${Q}`,
-    "Logo Mohair Cardigan":             `${U}1676040038506-0932c64a0223${Q}`,
-    // Jacquemus
-    "Le Chiquito Noeud":                `${U}1711113456820-639918258722${Q}`,
-    "Le T-shirt Camargue":              `${U}1618677603544-51162346e165${Q}`,
-    "Le Raphia Hat":                    `${U}1652481012368-30a7385492e8${Q}`,
-    // Bergdorf Goodman
-    "Bottega Veneta Pouch":             `${U}1749842622314-75a5c344ceab${Q}`,
-    "Loro Piana Cashmere Sweater":      `${U}1687275170170-a54128a6d2b5${Q}`,
-    "Amina Muaddi Heels":               `${U}1624242527040-8afb0c37e69b${Q}`,
-    // Alo
-    "Warrior Compression Legging":      `${U}1635101003219-3c1d41f12f3f${Q}`,
-    "Alosoft Finesse Bra":              `${U}1768853990312-0e20e64cf87f${Q}`,
-    "Chill Half-Zip Pullover":          `${U}1771414279996-e7d9aee99007${Q}`,
-    // Cos
-    "Fluid Trench Coat":                `${U}1760551937537-a29dbbfab30b${Q}`,
-    "Wide-Leg Trouser":                 `${U}1762343291713-0d7f83e6c2e9${Q}`,
-    "Structured Tote Bag":              `${U}1562330094-4a3730591558${Q}`,
-    // Aesop
-    "Parsley Seed Facial Serum":        `${U}1693734488312-87b12f1cbac2${Q}`,
-    "Reverence Aromatique Hand Wash":   `${U}1772038786507-647371ac686b${Q}`,
-    "Fabulous Face Cleanser":           `${U}1556227703-ab57dbc6f839${Q}`,
-    // Chanel
-    "N°5 Eau de Parfum":               `${U}1719175936556-dbd05e415913${Q}`,
-    "Le Volume de Chanel Mascara":      `${U}1758738880203-8968fb4eda82${Q}`,
-    "Coco Mademoiselle EDP":            `${U}1719175936556-dbd05e415913${Q}`,
-    // Skims
-    "Cotton Rib Bodysuit":              `${U}1627676369185-a57011b35fc9${Q}`,
-    "Fits Everybody Slip Dress":        `${U}1744124090807-f563bebfb979${Q}`,
-    "Soft Lounge Long Sleeve":          `${U}1762331654306-49a7e79763c5${Q}`,
+    // "A brown leather handbag rests on dark satin fabric"
+    "Speedy Bandoulière 25":            `${U}1759432614301-b75386875a20${Q}`,
+    // ── Nike ────────────────────────────────────────────────────────────────────
+    // "white nike air force 1"
+    "Air Force 1 '07":                  `${U}1617659512089-6fdec6c54406${Q}`,
+    // "person wearing black and pink nike athletic shoes"
+    "Air Max 90":                       `${U}1603036051295-debb6ea4fcd9${Q}`,
+    // "woman in gray hoodie standing"
+    "Tech Fleece Hoodie":               `${U}1597767938316-e3b197db76ee${Q}`,
+    // "Beautiful young athlete in sports clothe running on concrete path"
+    "Dri-FIT Training Shorts":          `${U}1663054541930-42c3cc9d5a47${Q}`,
+    // ── Aime Leon Dore ────────────────────────────────────────────────────────────
+    // "Person wears new balance sneakers on wooden planks"
+    "New Balance 990v3 for ALD":        `${U}1747679181924-c606d83f866d${Q}`,
+    // "A man sitting on the ground with his legs crossed"
+    "Newport Short":                    `${U}1727942411342-b16f0d576bfd${Q}`,
+    // "man in black suit jacket sitting beside brown wooden table"
+    "Suede Track Jacket":               `${U}1602331970455-e96bd5da0f0e${Q}`,
+    // ── Kith ─────────────────────────────────────────────────────────────────────
+    // "Fashion portrait of black man in yellow hoodie on color background"
+    "Williams III Hoodie":              `${U}1683147716541-6af3be6bf9e1${Q}`,
+    // "Woman wearing design space white tee"
+    "Classic Logo Tee":                 `${U}1726750926760-2e31bfdaded2${Q}`,
+    // "black and white adidas shoe"
+    "Kith x Adidas Forum Low":          `${U}1629955282615-8e86ac499410${Q}`,
+    // ── Miu Miu ──────────────────────────────────────────────────────────────────
+    // "quilted brown leather" — matches Wander Matelassé texture
+    "Wander Matelassé Bag":             `${U}1564842505181-8862a3b9b173${Q}`,
+    // "Close-up of ballet dancer's feet in pink satin shoes"
+    "Mary Jane Ballet Flats":           `${U}1770320476017-870f9e143a0a${Q}`,
+    // cardigan-fashion-women search result
+    "Logo Mohair Cardigan":             `${U}1737659209063-32e2b1a385a5${Q}`,
+    // ── Jacquemus ─────────────────────────────────────────────────────────────────
+    // "A woman holding a beige purse in her hand"
+    "Le Chiquito Noeud":                `${U}1723826750819-02ee8f2e5a0c${Q}`,
+    // "a woman wearing a tan shirt and blue jeans"
+    "Le T-shirt Camargue":              `${U}1690338237128-b32fedb44d55${Q}`,
+    // "Straw hats with decorative ribbons displayed outdoors"
+    "Le Raphia Hat":                    `${U}1758900494591-482f42d473a6${Q}`,
+    // ── Bergdorf Goodman ──────────────────────────────────────────────────────────
+    // "a brown leather handbag with a long strap"
+    "Bottega Veneta Pouch":             `${U}1637759292654-a12cb2be085e${Q}`,
+    // "woman in beige knit off shoulder top"
+    "Loro Piana Cashmere Sweater":      `${U}1601762267916-6668efcbc741${Q}`,
+    // "Sparkling heels with bows adorn elegant ankles"
+    "Amina Muaddi Heels":               `${U}1769787147452-921f573829bd${Q}`,
+    // ── Alo ───────────────────────────────────────────────────────────────────────
+    // "woman in black sports bra and black pants standing on gray concrete stairs"
+    "Warrior Compression Legging":      `${U}1596641211273-938aeaf926a9${Q}`,
+    // "a woman in a green sports bra top"
+    "Alosoft Finesse Bra":              `${U}1682523426986-92746735ccc2${Q}`,
+    // "Green knitted sweater with zipper detail"
+    "Chill Half-Zip Pullover":          `${U}1758742058908-075e3618f5f4${Q}`,
+    // ── Cos ───────────────────────────────────────────────────────────────────────
+    // "Close-up of a woman's arm in a light pink coat"
+    "Fluid Trench Coat":                `${U}1764601209394-8912e66c9455${Q}`,
+    // "a woman in a black shirt and blue jeans" (wide-leg silhouette)
+    "Wide-Leg Trouser":                 `${U}1690820317396-8e774f98482e${Q}`,
+    // "A woman standing outside of a store with a tote bag"
+    "Structured Tote Bag":              `${U}1721111260492-afe3d9e5bd76${Q}`,
+    // ── Aesop ────────────────────────────────────────────────────────────────────
+    // "Niacinamide serum bottle with lab equipment"
+    "Parsley Seed Facial Serum":        `${U}1766940095250-5c7715ab57ea${Q}`,
+    // "a bottle of soap next to a soap bar"
+    "Reverence Aromatique Hand Wash":   `${U}1671379513621-bd4bff9f7557${Q}`,
+    // "Foaming cleanser bottle with natural elements"
+    "Fabulous Face Cleanser":           `${U}1763622499218-37fdfc7a590a${Q}`,
+    // ── Chanel ────────────────────────────────────────────────────────────────────
+    // "a bottle of chanel no 5 on a white surface"
+    "N°5 Eau de Parfum":               `${U}1681237398100-4d3b1618b6c4${Q}`,
+    // "Close-up of black mascara wands and tubes"
+    "Le Volume de Chanel Mascara":      `${U}1762164049428-118844de34d6${Q}`,
+    // "A bottle of perfume sitting on top of a table"
+    "Coco Mademoiselle EDP":            `${U}1739831741094-dbe81337661a${Q}`,
+    // ── Skims ────────────────────────────────────────────────────────────────────
+    // "a woman in a tan bodysuit posing for the camera"
+    "Cotton Rib Bodysuit":              `${U}1671717726282-7f2f479f0c87${Q}`,
+    // "A woman's dress flows across pavement"
+    "Fits Everybody Slip Dress":        `${U}1744886856928-13a745203445${Q}`,
+    // "Woman wearing navy blue silk pajamas with white trim"
+    "Soft Lounge Long Sleeve":          `${U}1766056278944-ca0e4f49e61f${Q}`,
 };
 
 type SeedStatus = "idle" | "running" | "done" | "error";
