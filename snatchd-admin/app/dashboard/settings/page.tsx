@@ -492,65 +492,65 @@ const U = "https://images.unsplash.com/photo-";
 const Q = "?auto=format&fit=crop&w=800&q=80";
 
 const PRODUCT_IMAGES: Record<string, string> = {
-    // Apple
-    "iPhone 16 Pro":                    `${U}1510557880182-3d4d3cba35a5${Q}`,
-    "AirPods Pro (2nd Gen)":            `${U}1600294037681-c80b4cb5b434${Q}`,
-    "MacBook Air M3":                   `${U}1517336714731-489689fd1ca8${Q}`,
-    "Apple Watch Series 10":            `${U}1434493789847-2f02dc6ca35d${Q}`,
+    // Apple — real product-matched Unsplash IDs
+    "iPhone 16 Pro":                    `${U}1669049776943-66b1bb724670${Q}`,
+    "AirPods Pro (2nd Gen)":            `${U}1695634463799-8cdf7a6a2595${Q}`,
+    "MacBook Air M3":                   `${U}1637329589604-4485001b3605${Q}`,
+    "Apple Watch Series 10":            `${U}1675703342282-94db4ec455e9${Q}`,
     // Zara
-    "Structured Blazer":                `${U}1594938298603-c8148c4b984a${Q}`,
-    "Wide Leg Trousers":                `${U}1583744946564-b52ac1c389c8${Q}`,
-    "Leather Crossbody Bag":            `${U}1548036328-c9fa89d128fa${Q}`,
-    "Oversized Trench Coat":            `${U}1434389677669-e08b4cac3105${Q}`,
+    "Structured Blazer":                `${U}1597582927786-bae43be837a0${Q}`,
+    "Wide Leg Trousers":                `${U}1762343291713-0d7f83e6c2e9${Q}`,
+    "Leather Crossbody Bag":            `${U}1760624089496-01ae68a92d58${Q}`,
+    "Oversized Trench Coat":            `${U}1760551937537-a29dbbfab30b${Q}`,
     // Louis Vuitton
-    "Neverfull MM":                     `${U}1547949003-9792a18a2601${Q}`,
-    "Card Holder":                      `${U}1556742400-b5b7a508ef81${Q}`,
-    "Speedy Bandoulière 25":            `${U}1548036328-c9fa89d128fa${Q}`,
+    "Neverfull MM":                     `${U}1562330094-4a3730591558${Q}`,
+    "Card Holder":                      `${U}1678554832890-2ea5d37278af${Q}`,
+    "Speedy Bandoulière 25":            `${U}1562330094-4a3730591558${Q}`,
     // Nike
-    "Air Force 1 '07":                  `${U}1542291026-7eec264c27ff${Q}`,
-    "Air Max 90":                       `${U}1542291026-7eec264c27ff${Q}`,
-    "Tech Fleece Hoodie":               `${U}1556821840-3a63f15732ce${Q}`,
-    "Dri-FIT Training Shorts":          `${U}1506629082955-511b1aa562c8${Q}`,
+    "Air Force 1 '07":                  `${U}1763392701171-98c3e34d1693${Q}`,
+    "Air Max 90":                       `${U}1617033298110-a9ab5ab77a9d${Q}`,
+    "Tech Fleece Hoodie":               `${U}1667586680656-6b8e381cddb5${Q}`,
+    "Dri-FIT Training Shorts":          `${U}1602190420103-683df5093e86${Q}`,
     // Aime Leon Dore
-    "New Balance 990v3 for ALD":        `${U}1542291026-7eec264c27ff${Q}`,
-    "Newport Short":                    `${U}1506629082955-511b1aa562c8${Q}`,
-    "Suede Track Jacket":               `${U}1490481651871-ab68de25d43d${Q}`,
+    "New Balance 990v3 for ALD":        `${U}1617033298110-a9ab5ab77a9d${Q}`,
+    "Newport Short":                    `${U}1602190420103-683df5093e86${Q}`,
+    "Suede Track Jacket":               `${U}1650594506500-c87c4c82bb43${Q}`,
     // Kith
-    "Williams III Hoodie":              `${U}1556821840-3a63f15732ce${Q}`,
-    "Classic Logo Tee":                 `${U}1576566588405-a71e28c3a31e${Q}`,
-    "Kith x Adidas Forum Low":          `${U}1542291026-7eec264c27ff${Q}`,
+    "Williams III Hoodie":              `${U}1667586680656-6b8e381cddb5${Q}`,
+    "Classic Logo Tee":                 `${U}1618677603544-51162346e165${Q}`,
+    "Kith x Adidas Forum Low":          `${U}1763392701171-98c3e34d1693${Q}`,
     // Miu Miu
-    "Wander Matelassé Bag":             `${U}1548036328-c9fa89d128fa${Q}`,
-    "Mary Jane Ballet Flats":           `${U}1551107696-a4b0c5a0d9a2${Q}`,
-    "Logo Mohair Cardigan":             `${U}1594938298603-c8148c4b984a${Q}`,
+    "Wander Matelassé Bag":             `${U}1637759292654-a12cb2be085e${Q}`,
+    "Mary Jane Ballet Flats":           `${U}1769981654964-e65981aecd75${Q}`,
+    "Logo Mohair Cardigan":             `${U}1676040038506-0932c64a0223${Q}`,
     // Jacquemus
-    "Le Chiquito Noeud":                `${U}1548036328-c9fa89d128fa${Q}`,
-    "Le T-shirt Camargue":              `${U}1576566588405-a71e28c3a31e${Q}`,
-    "Le Raphia Hat":                    `${U}1521369909029-2afed882baee${Q}`,
+    "Le Chiquito Noeud":                `${U}1711113456820-639918258722${Q}`,
+    "Le T-shirt Camargue":              `${U}1618677603544-51162346e165${Q}`,
+    "Le Raphia Hat":                    `${U}1652481012368-30a7385492e8${Q}`,
     // Bergdorf Goodman
-    "Bottega Veneta Pouch":             `${U}1548036328-c9fa89d128fa${Q}`,
-    "Loro Piana Cashmere Sweater":      `${U}1576566588405-a71e28c3a31e${Q}`,
-    "Amina Muaddi Heels":               `${U}1551107696-a4b0c5a0d9a2${Q}`,
+    "Bottega Veneta Pouch":             `${U}1749842622314-75a5c344ceab${Q}`,
+    "Loro Piana Cashmere Sweater":      `${U}1687275170170-a54128a6d2b5${Q}`,
+    "Amina Muaddi Heels":               `${U}1624242527040-8afb0c37e69b${Q}`,
     // Alo
-    "Warrior Compression Legging":      `${U}1506629082955-511b1aa562c8${Q}`,
-    "Alosoft Finesse Bra":              `${U}1571019613454-1cb2f99b2d8b${Q}`,
-    "Chill Half-Zip Pullover":          `${U}1556821840-3a63f15732ce${Q}`,
+    "Warrior Compression Legging":      `${U}1635101003219-3c1d41f12f3f${Q}`,
+    "Alosoft Finesse Bra":              `${U}1768853990312-0e20e64cf87f${Q}`,
+    "Chill Half-Zip Pullover":          `${U}1771414279996-e7d9aee99007${Q}`,
     // Cos
-    "Fluid Trench Coat":                `${U}1434389677669-e08b4cac3105${Q}`,
-    "Wide-Leg Trouser":                 `${U}1583744946564-b52ac1c389c8${Q}`,
-    "Structured Tote Bag":              `${U}1548036328-c9fa89d128fa${Q}`,
+    "Fluid Trench Coat":                `${U}1760551937537-a29dbbfab30b${Q}`,
+    "Wide-Leg Trouser":                 `${U}1762343291713-0d7f83e6c2e9${Q}`,
+    "Structured Tote Bag":              `${U}1562330094-4a3730591558${Q}`,
     // Aesop
-    "Parsley Seed Facial Serum":        `${U}1608248543803-ba4f8c70ae0b${Q}`,
-    "Reverence Aromatique Hand Wash":   `${U}1608248543803-ba4f8c70ae0b${Q}`,
-    "Fabulous Face Cleanser":           `${U}1608248543803-ba4f8c70ae0b${Q}`,
+    "Parsley Seed Facial Serum":        `${U}1693734488312-87b12f1cbac2${Q}`,
+    "Reverence Aromatique Hand Wash":   `${U}1772038786507-647371ac686b${Q}`,
+    "Fabulous Face Cleanser":           `${U}1556227703-ab57dbc6f839${Q}`,
     // Chanel
-    "N°5 Eau de Parfum":               `${U}1541099649105-f69ad21f3246${Q}`,
-    "Le Volume de Chanel Mascara":      `${U}1522335789203-aabd1fc54bc9${Q}`,
-    "Coco Mademoiselle EDP":            `${U}1541099649105-f69ad21f3246${Q}`,
+    "N°5 Eau de Parfum":               `${U}1719175936556-dbd05e415913${Q}`,
+    "Le Volume de Chanel Mascara":      `${U}1758738880203-8968fb4eda82${Q}`,
+    "Coco Mademoiselle EDP":            `${U}1719175936556-dbd05e415913${Q}`,
     // Skims
-    "Cotton Rib Bodysuit":              `${U}1515886657613-9f3515b0c78f${Q}`,
-    "Fits Everybody Slip Dress":        `${U}1515886657613-9f3515b0c78f${Q}`,
-    "Soft Lounge Long Sleeve":          `${U}1576566588405-a71e28c3a31e${Q}`,
+    "Cotton Rib Bodysuit":              `${U}1627676369185-a57011b35fc9${Q}`,
+    "Fits Everybody Slip Dress":        `${U}1744124090807-f563bebfb979${Q}`,
+    "Soft Lounge Long Sleeve":          `${U}1762331654306-49a7e79763c5${Q}`,
 };
 
 type SeedStatus = "idle" | "running" | "done" | "error";
