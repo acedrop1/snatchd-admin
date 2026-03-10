@@ -576,6 +576,10 @@ export default function SettingsPage() {
     const [imageSeedResults, setImageSeedResults] = useState<StoreResult[]>([]);
     const [imageSeedProgress, setImageSeedProgress] = useState(0);
 
+    // Revert store images state
+    const [revertStatus, setRevertStatus] = useState<SeedStatus>("idle");
+    const [revertResults, setRevertResults] = useState<StoreResult[]>([]);
+
     // Test mode state
     const [testMode, setTestMode] = useState<boolean>(false);
     const [testModeLoading, setTestModeLoading] = useState(false);
@@ -767,6 +771,33 @@ export default function SettingsPage() {
     const imageSeedAdded = imageSeedResults.filter(r => r.status === "added").length;
     const imageSeedSkipped = imageSeedResults.filter(r => r.status === "skipped").length;
     const imageSeedErrors = imageSeedResults.filter(r => r.status === "error").length;
+
+    // ── Revert Store Images Handler ─────────────────────────────────────────
+    // Clears image + logo on every store so manually-uploaded images can be re-added.
+    const handleRevertStoreImages = async () => {
+        setRevertStatus("running");
+        setRevertResults([]);
+        const newResults: StoreResult[] = [];
+        try {
+            const snap = await getDocs(collection(db, "stores"));
+            for (const d of snap.docs) {
+                try {
+                    await updateDoc(doc(db, "stores", d.id), { image: "", logo: "" });
+                    newResults.push({ name: d.data().name ?? d.id, status: "added" });
+                } catch (err: any) {
+                    newResults.push({ name: d.data().name ?? d.id, status: "error", message: err.message });
+                }
+                setRevertResults([...newResults]);
+            }
+        } catch (err: any) {
+            newResults.push({ name: "Fetch all stores", status: "error", message: err.message });
+            setRevertResults([...newResults]);
+        }
+        setRevertStatus(newResults.some(r => r.status === "error") ? "error" : "done");
+    };
+
+    const revertDone = revertResults.filter(r => r.status === "added").length;
+    const revertErrors = revertResults.filter(r => r.status === "error").length;
 
     // ── Test Mode Handler ───────────────────────────────────────────────────
     const toggleTestMode = async () => {
@@ -1010,6 +1041,55 @@ export default function SettingsPage() {
                     {productSeedStatus === "running" ? <><Loader2 className="h-4 w-4 animate-spin" /> Seeding...</>
                     : productSeedStatus === "done" ? <><CheckCircle className="h-4 w-4" /> Seed Again</>
                     : <><Upload className="h-4 w-4" /> Seed All Products (~46 items)</>}
+                </button>
+            </div>
+
+            {/* Revert Store Images */}
+            <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6 space-y-4">
+                <div>
+                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                        <XCircle className="h-5 w-5 text-red-400" />
+                        Revert Store Images
+                    </h3>
+                    <p className="text-sm text-neutral-400 mt-1">
+                        Clears the <code className="text-red-300">image</code> and <code className="text-red-300">logo</code> fields
+                        on every store back to empty — undoing any accidental overwrites.
+                        After running this, go to the <strong className="text-white">Stores page</strong> and
+                        re-upload your original images for each store.
+                    </p>
+                </div>
+                <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 flex gap-2 text-sm text-red-300">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>This clears store image URLs for <strong>all</strong> stores. Re-upload via the Stores page after running.</span>
+                </div>
+
+                {revertResults.length > 0 && (
+                    <div className="space-y-2">
+                        {(revertStatus === "done" || revertStatus === "error") && (
+                            <p className="text-sm font-medium text-neutral-300">{revertDone} cleared · {revertErrors} errors</p>
+                        )}
+                        <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto pr-1">
+                            {revertResults.map((r, i) => (
+                                <div key={i} className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs border ${
+                                    r.status === "added" ? "border-green-500/30 bg-green-500/10 text-green-300"
+                                    : "border-red-500/30 bg-red-500/10 text-red-300"
+                                }`}>
+                                    {r.status === "added" ? <CheckCircle className="h-3 w-3 shrink-0" /> : <XCircle className="h-3 w-3 shrink-0" />}
+                                    <span className="truncate">{r.name}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                <button
+                    onClick={handleRevertStoreImages}
+                    disabled={revertStatus === "running"}
+                    className="flex items-center gap-2 rounded-lg bg-red-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-red-600 transition disabled:opacity-50"
+                >
+                    {revertStatus === "running" ? <><Loader2 className="h-4 w-4 animate-spin" /> Clearing...</>
+                    : revertStatus === "done" ? <><CheckCircle className="h-4 w-4" /> Done — Re-upload via Stores page</>
+                    : <><XCircle className="h-4 w-4" /> Clear All Store Images</>}
                 </button>
             </div>
 
