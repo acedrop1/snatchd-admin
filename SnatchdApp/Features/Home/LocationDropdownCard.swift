@@ -1,9 +1,12 @@
 import SwiftUI
 import MapKit
+import CoreLocation
 
 struct LocationDropdownCard: View {
     @Binding var isShowing: Bool
     @Binding var selectedLocation: String
+    /// Set when user picks a specific address/result — drives HomeView's store filter
+    @Binding var selectedCoordinate: CLLocation?
     @StateObject private var locationManager = LocationManager()
     @EnvironmentObject var addressManager: AddressManager
     @State private var searchQuery = ""
@@ -52,10 +55,13 @@ struct LocationDropdownCard: View {
                     if !locationManager.searchResults.isEmpty {
                         ForEach(locationManager.searchResults, id: \.self) { mapItem in
                             Button(action: {
-                                // Extract neighborhood from search result
+                                // Update display label
                                 if let name = mapItem.name {
                                     selectedLocation = extractNeighborhood(from: name)
                                 }
+                                // Set coordinate so HomeView filters stores by this location
+                                let coord = mapItem.placemark.coordinate
+                                selectedCoordinate = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
                                 searchQuery = ""
                                 locationManager.searchResults = []
                                 isShowing = false
@@ -92,8 +98,9 @@ struct LocationDropdownCard: View {
                     } else {
                         // Current Location Button
                         Button(action: {
+                            // Clear manual pick — HomeView's GPS locationManager takes over
+                            selectedCoordinate = nil
                             locationManager.getCurrentLocation()
-                            // Update selected location once we have the address
                             if !locationManager.currentAddress.isEmpty && locationManager.currentAddress != "Fetching location..." {
                                 selectedLocation = extractNeighborhood(from: locationManager.currentAddress)
                                 isShowing = false
@@ -141,9 +148,11 @@ struct LocationDropdownCard: View {
                             locationManager.getCurrentLocation()
                         }
                         .onChange(of: locationManager.currentAddress) { newAddress in
-                            // Auto-update and close when location is fetched
+                            // Auto-update header and close when GPS resolves
                             if !newAddress.isEmpty && newAddress != "Fetching location..." {
                                 selectedLocation = extractNeighborhood(from: newAddress)
+                                selectedCoordinate = nil // Use HomeView's GPS locationManager
+                                isShowing = false
                             }
                         }
                         
@@ -168,6 +177,10 @@ struct LocationDropdownCard: View {
                                 isSelected: address.isDefault,
                                 onSelect: {
                                     selectedLocation = extractNeighborhood(from: address.address)
+                                    // Geocode the saved address to get coordinates for store filtering
+                                    geocodeAddress(address.address) { location in
+                                        selectedCoordinate = location
+                                    }
                                     isShowing = false
                                 }
                             )
@@ -226,14 +239,23 @@ struct LocationDropdownCard: View {
     private func extractNeighborhood(from address: String) -> String {
         // Try to extract neighborhood (e.g., "SoHo" from "123 Spring St, SoHo, NY 10012")
         let components = address.components(separatedBy: ", ")
-        
+
         // If we have at least 2 components, the second one is usually the neighborhood
         if components.count >= 2 {
             return components[1]
         }
-        
+
         // Otherwise return the first component or the full address
         return components.first ?? address
+    }
+
+    /// Forward-geocode a saved address string into a CLLocation for store proximity filtering
+    private func geocodeAddress(_ address: String, completion: @escaping (CLLocation?) -> Void) {
+        CLGeocoder().geocodeAddressString(address) { placemarks, _ in
+            DispatchQueue.main.async {
+                completion(placemarks?.first?.location)
+            }
+        }
     }
 }
 

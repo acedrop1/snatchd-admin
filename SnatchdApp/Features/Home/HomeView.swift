@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 struct HomeView: View {
     @Binding var showTabBar: Bool
@@ -10,11 +11,14 @@ struct HomeView: View {
     @Binding var isAtRoot: Bool
     var navID: UUID
     @StateObject private var databaseService = DatabaseService.shared
+    @StateObject private var locationManager = LocationManager()
     @State private var selectedCategory = "All"
     @State private var showLocationSheet = false
     @State private var selectedLocation = AppConfig.defaultLocationName
+    /// Set when the user manually picks an address from the dropdown (overrides GPS for filtering)
+    @State private var manualCoordinate: CLLocation?
     @Namespace private var categoryNamespace
-    
+
     let categories = ["All", "Clothing", "Hygiene", "Beauty & Skincare", "Fine Jewelry"]
 
     let columns = [
@@ -22,9 +26,38 @@ struct HomeView: View {
         GridItem(.flexible(), spacing: 15)
     ]
 
-    // Show Firestore stores when available, fall back to mock stores so the UI is never blank
+    // True once GPS or a manual pick has resolved
+    var locationDetermined: Bool {
+        manualCoordinate != nil || locationManager.currentLocation != nil
+    }
+
+    // Active location: manual pick wins over GPS
+    var activeLocation: CLLocation? {
+        manualCoordinate ?? locationManager.currentLocation
+    }
+
+    // Nearby Firestore stores sorted by distance; empty when location is known but no stores are in range
     var displayStores: [Store] {
-        databaseService.stores.isEmpty ? MockDataService.shared.stores : databaseService.stores
+        let allStores = databaseService.stores.isEmpty ? MockDataService.shared.stores : databaseService.stores
+
+        guard let location = activeLocation else {
+            // Location not yet determined — show everything while waiting
+            return allStores
+        }
+
+        let userLat = location.coordinate.latitude
+        let userLon = location.coordinate.longitude
+
+        // No fallback: return empty so the UI shows "No stores in your area"
+        return allStores
+            .filter { $0.isWithinDeliveryRange(of: userLat, userLongitude: userLon) }
+            .sorted { a, b in
+                guard let latA = a.latitude, let lonA = a.longitude,
+                      let latB = b.latitude, let lonB = b.longitude else { return false }
+                let distA = CLLocation(latitude: latA, longitude: lonA).distance(from: location)
+                let distB = CLLocation(latitude: latB, longitude: lonB).distance(from: location)
+                return distA < distB
+            }
     }
     
     var body: some View {
@@ -125,61 +158,98 @@ struct HomeView: View {
                                 .padding(.horizontal)
                             }
                             
-                            // Snatchd For You (Vertical Featured Cards)
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("Snatchd For You")
-                                    .font(.custom("Montserrat-Bold", size: 18))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal)
-                                
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 15) {
-                                        ForEach(displayStores) { store in
-                                            NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
-                                                FeaturedStoreCard(store: store)
-                                            }
-                                        }
+                            if locationDetermined && displayStores.isEmpty {
+                                // ── No stores in range ────────────────────────────
+                                VStack(spacing: 20) {
+                                    Image(systemName: "location.slash")
+                                        .font(.system(size: 52))
+                                        .foregroundColor(.white.opacity(0.25))
+
+                                    VStack(spacing: 8) {
+                                        Text("No stores in your area")
+                                            .font(.custom("Montserrat-Bold", size: 20))
+                                            .foregroundColor(.white)
+
+                                        Text("We don't have any Snatchd stores near \(selectedLocation) yet.\nTry a different location.")
+                                            .font(.custom("Montserrat-Regular", size: 14))
+                                            .foregroundColor(.gray)
+                                            .multilineTextAlignment(.center)
                                     }
-                                    .padding(.horizontal)
-                                }
-                            }
-                            
-                            // Trending in Your Area (Wide Cards)
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("Trending in Your Area")
-                                    .font(.custom("Montserrat-Bold", size: 18))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal)
-                                
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 15) {
-                                        ForEach(displayStores) { store in
-                                            NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
-                                                TrendingStoreCard(store: store)
-                                            }
+
+                                    Button(action: {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                            showLocationSheet = true
                                         }
-                                    }
-                                    .padding(.horizontal)
-                                }
-                            }
-                            
-                            // Under 60 minutes (Grid)
-                            VStack(alignment: .leading, spacing: 15) {
-                                Text("Under 60 minutes")
-                                    .font(.custom("Montserrat-Bold", size: 18))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal)
-                                
-                                LazyVGrid(columns: columns, spacing: 20) {
-                                    ForEach(displayStores) { store in
-                                        NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
-                                            GridStoreCard(store: store)
-                                        }
+                                    }) {
+                                        Text("Change Location")
+                                            .font(.custom("Montserrat-SemiBold", size: 15))
+                                            .foregroundColor(.black)
+                                            .padding(.horizontal, 28)
+                                            .padding(.vertical, 13)
+                                            .background(Color.white)
+                                            .cornerRadius(24)
                                     }
                                 }
+                                .frame(maxWidth: .infinity)
                                 .padding(.horizontal)
+                                .padding(.vertical, 60)
+                            } else {
+                                // ── Snatchd For You (Vertical Featured Cards) ─────
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text("Snatchd For You")
+                                        .font(.custom("Montserrat-Bold", size: 18))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal)
+
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(spacing: 15) {
+                                            ForEach(displayStores) { store in
+                                                NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
+                                                    FeaturedStoreCard(store: store)
+                                                }
+                                            }
+                                        }
+                                        .padding(.horizontal)
+                                    }
+                                }
+
+                                // ── Trending in Your Area (Wide Cards) ───────────
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text("Trending in Your Area")
+                                        .font(.custom("Montserrat-Bold", size: 18))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal)
+
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(spacing: 15) {
+                                            ForEach(displayStores) { store in
+                                                NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
+                                                    TrendingStoreCard(store: store)
+                                                }
+                                            }
+                                        }
+                                        .padding(.horizontal)
+                                    }
+                                }
+
+                                // ── Under 60 minutes (Grid) ───────────────────────
+                                VStack(alignment: .leading, spacing: 15) {
+                                    Text("Under 60 minutes")
+                                        .font(.custom("Montserrat-Bold", size: 18))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal)
+
+                                    LazyVGrid(columns: columns, spacing: 20) {
+                                        ForEach(displayStores) { store in
+                                            NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
+                                                GridStoreCard(store: store)
+                                            }
+                                        }
+                                    }
+                                    .padding(.horizontal)
+                                }
                             }
-                            
+
                             Spacer(minLength: 100)
                         }
                     }
@@ -199,9 +269,18 @@ struct HomeView: View {
                     isAtRoot = true
                     databaseService.fetchStores()
                     databaseService.fetchProducts()
+                    locationManager.requestLocationPermission()
                 }
                 .onDisappear {
                     isAtRoot = false
+                }
+                .onChange(of: locationManager.currentAddress) { address in
+                    // Only update header from GPS when user hasn't manually picked a location
+                    if manualCoordinate == nil,
+                       address != "Fetching location...",
+                       address != "Unable to fetch location" {
+                        selectedLocation = address
+                    }
                 }
                 .zIndex(1) // Above dimmed
                 .navigationBarHidden(true)
@@ -223,7 +302,7 @@ struct HomeView: View {
                     
                     // Dropdown card
                     VStack {
-                        LocationDropdownCard(isShowing: $showLocationSheet, selectedLocation: $selectedLocation)
+                        LocationDropdownCard(isShowing: $showLocationSheet, selectedLocation: $selectedLocation, selectedCoordinate: $manualCoordinate)
                             .padding(.top, 60)
                         
                         Spacer()
@@ -285,9 +364,10 @@ struct FeaturedStoreCard: View {
                     Text(store.name)
                         .font(.custom("Montserrat-Bold", size: 20)) // Larger title
                         .foregroundColor(.white)
-                    Text("Madison Ave")
+                    Text(store.address ?? store.category)
                         .font(.custom("Montserrat-Regular", size: 14))
                         .foregroundColor(.white.opacity(0.8))
+                        .lineLimit(1)
                 }
                 Spacer()
                 

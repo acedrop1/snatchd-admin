@@ -9,11 +9,14 @@ class DatabaseService: ObservableObject {
     @Published var products: [Product] = []
     @Published var stores: [Store] = []
     @Published var zaraSohoProducts: [Product] = []
+    /// true when the portal's Test Mode toggle is on — checkout skips real payment
+    @Published var testMode: Bool = false
 
     // Listener handles — kept so we can detach if needed
     private var storesListener: ListenerRegistration?
     private var productsListener: ListenerRegistration?
     private var zaraSohoListener: ListenerRegistration?
+    private var configListener: ListenerRegistration?
 
     private init() {
         // Start all real-time listeners immediately on first access
@@ -26,6 +29,26 @@ class DatabaseService: ObservableObject {
         listenToStores()
         listenToProducts()
         listenToZaraSohoProducts()
+        listenToConfig()
+    }
+
+    // MARK: - App Config Listener (test mode, feature flags)
+
+    func listenToConfig() {
+        guard configListener == nil else { return }
+        configListener = db.collection("config").document("app")
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self = self else { return }
+                if let error = error {
+                    print("❌ Config listener error: \(error.localizedDescription)")
+                    return
+                }
+                let isTestMode = snapshot?.data()?["testMode"] as? Bool ?? false
+                DispatchQueue.main.async {
+                    self.testMode = isTestMode
+                    print("⚙️ Test mode: \(isTestMode)")
+                }
+            }
     }
 
     // MARK: - Real-Time Stores Listener

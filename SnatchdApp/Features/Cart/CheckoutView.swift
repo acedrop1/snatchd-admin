@@ -4,7 +4,8 @@ struct CheckoutView: View {
     @Environment(\.presentationMode) var presentationMode
     @EnvironmentObject var cartManager: CartManager
     @EnvironmentObject var addressManager: AddressManager
-    
+    @StateObject private var db = DatabaseService.shared
+
     @State private var isPlacingOrder = false
     @State private var showTracking = false
     
@@ -25,9 +26,10 @@ struct CheckoutView: View {
         }
     }
     
+    // Stripe test cards pre-loaded so you can test without a real card
     @State private var paymentMethods = [
-        PaymentMethod(id: UUID(), cardNumber: "5002", cardholderName: "John Doe", expirationMonth: 12, expirationYear: 2025, cardType: .amex, isDefault: true),
-        PaymentMethod(id: UUID(), cardNumber: "4242", cardholderName: "John Doe", expirationMonth: 8, expirationYear: 2026, cardType: .visa, isDefault: false),
+        PaymentMethod(id: UUID(), cardNumber: "4242", cardholderName: "Test User", expirationMonth: 12, expirationYear: 2028, cardType: .visa, isDefault: true),
+        PaymentMethod(id: UUID(), cardNumber: "5555", cardholderName: "Test User", expirationMonth: 8, expirationYear: 2028, cardType: .amex, isDefault: false),
         PaymentMethod(id: UUID(), cardNumber: "0000", cardholderName: "Apple Pay", expirationMonth: 1, expirationYear: 2099, cardType: .unknown, isDefault: false)
     ]
     @State private var selectedPayment: PaymentMethod?
@@ -47,11 +49,29 @@ struct CheckoutView: View {
     var body: some View {
         ZStack {
             Color.black.edgesIgnoringSafeArea(.all)
-            
+
             VStack(spacing: 0) {
+                // ── Test Mode Banner ─────────────────────────────────────────
+                if db.testMode {
+                    HStack(spacing: 8) {
+                        Image(systemName: "flask.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("TEST MODE — No real charges")
+                            .font(.custom("Montserrat-SemiBold", size: 13))
+                        Spacer()
+                        Text("Stripe Test Cards Active")
+                            .font(.custom("Montserrat-Regular", size: 11))
+                            .opacity(0.8)
+                    }
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color.yellow)
+                }
+
                 // Header
                 headerView
-                
+
                 ScrollView {
                     VStack(alignment: .leading, spacing: 25) {
                         // Delivery Address
@@ -121,12 +141,21 @@ struct CheckoutView: View {
     
     func placeOrder() {
         isPlacingOrder = true
-        
-        // Simulate network request
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            isPlacingOrder = false
-            cartManager.clearCart()
-            showTracking = true
+
+        if db.testMode {
+            // In test mode: instant success, no network call
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                isPlacingOrder = false
+                cartManager.clearCart()
+                showTracking = true
+            }
+        } else {
+            // Simulated order (Stripe integration goes here in production)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                isPlacingOrder = false
+                cartManager.clearCart()
+                showTracking = true
+            }
         }
     }
     
@@ -378,9 +407,18 @@ struct CheckoutView: View {
             HStack {
                 if let payment = selectedPayment {
                     Image(systemName: payment.cardType.icon)
-                        .foregroundColor(.blue)
+                        .foregroundColor(db.testMode ? .yellow : .blue)
                     Text("\(payment.cardType.rawValue) ending in \(payment.cardNumber)")
                         .foregroundColor(.white)
+                    if db.testMode {
+                        Text("TEST")
+                            .font(.custom("Montserrat-Bold", size: 9))
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.yellow)
+                            .cornerRadius(3)
+                    }
                 } else {
                     Text("Select Payment Method")
                         .foregroundColor(.white)
@@ -392,6 +430,10 @@ struct CheckoutView: View {
             .padding()
             .background(Color.white.opacity(0.05))
             .cornerRadius(15)
+            .overlay(
+                RoundedRectangle(cornerRadius: 15)
+                    .stroke(db.testMode ? Color.yellow.opacity(0.4) : Color.white.opacity(0.1), lineWidth: 1)
+            )
         }
     }
 }
