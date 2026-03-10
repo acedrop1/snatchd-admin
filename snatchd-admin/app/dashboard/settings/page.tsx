@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Settings, Upload, CheckCircle, XCircle, Loader2, AlertTriangle, FlaskConical, ToggleLeft, ToggleRight } from "lucide-react";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, getDocs, query, where, serverTimestamp, doc, setDoc, getDoc } from "firebase/firestore";
+import { collection, addDoc, getDocs, query, where, serverTimestamp, doc, setDoc, getDoc, updateDoc } from "firebase/firestore";
 
 // ── Product Catalog Seed ────────────────────────────────────────────────────
 // One set per brand. The seed function looks up the storeId by name first.
@@ -484,6 +484,103 @@ const SEED_STORES = [
     },
 ];
 
+// ── Image URLs ───────────────────────────────────────────────────────────────
+// High-quality Unsplash photos, one per store / product title.
+// The "Patch Images" tool updates existing Firestore docs with these URLs so the
+// iOS app can display real imagery without manual portal uploads.
+const U = "https://images.unsplash.com/photo-";
+const Q = "?auto=format&fit=crop&w=800&q=80";
+const SQ = "?auto=format&fit=crop&w=300&h=300&q=80"; // square logo crop
+
+const STORE_IMAGES: Record<string, { image: string; logo: string }> = {
+    "Apple SoHo":             { image: `${U}1491553895911-0055eca6402d${Q}`, logo: `${U}1491553895911-0055eca6402d${SQ}` },
+    "Apple Fifth Avenue":     { image: `${U}1491553895911-0055eca6402d${Q}`, logo: `${U}1491553895911-0055eca6402d${SQ}` },
+    "Apple Upper West Side":  { image: `${U}1491553895911-0055eca6402d${Q}`, logo: `${U}1491553895911-0055eca6402d${SQ}` },
+    "Apple Grand Central":    { image: `${U}1491553895911-0055eca6402d${Q}`, logo: `${U}1491553895911-0055eca6402d${SQ}` },
+    "Zara SoHo":              { image: `${U}1558618666-fcd25c85cd64${Q}`, logo: `${U}1558618666-fcd25c85cd64${SQ}` },
+    "Zara Fifth Avenue":      { image: `${U}1558618666-fcd25c85cd64${Q}`, logo: `${U}1558618666-fcd25c85cd64${SQ}` },
+    "Zara Columbus Circle":   { image: `${U}1558618666-fcd25c85cd64${Q}`, logo: `${U}1558618666-fcd25c85cd64${SQ}` },
+    "Zara Midtown East":      { image: `${U}1558618666-fcd25c85cd64${Q}`, logo: `${U}1558618666-fcd25c85cd64${SQ}` },
+    "Louis Vuitton":          { image: `${U}1547949003-9792a18a2601${Q}`, logo: `${U}1547949003-9792a18a2601${SQ}` },
+    "Nike":                   { image: `${U}1542291026-7eec264c27ff${Q}`, logo: `${U}1542291026-7eec264c27ff${SQ}` },
+    "Aime Leon Dore":         { image: `${U}1490481651871-ab68de25d43d${Q}`, logo: `${U}1490481651871-ab68de25d43d${SQ}` },
+    "Kith":                   { image: `${U}1556821840-3a63f15732ce${Q}`, logo: `${U}1556821840-3a63f15732ce${SQ}` },
+    "Miu Miu":                { image: `${U}1548036328-c9fa89d128fa${Q}`, logo: `${U}1548036328-c9fa89d128fa${SQ}` },
+    "Jacquemus":              { image: `${U}1515886657613-9f3515b0c78f${Q}`, logo: `${U}1515886657613-9f3515b0c78f${SQ}` },
+    "Bergdorf Goodman":       { image: `${U}1441984904996-e0b6ba687e04${Q}`, logo: `${U}1441984904996-e0b6ba687e04${SQ}` },
+    "Alo":                    { image: `${U}1571019613454-1cb2f99b2d8b${Q}`, logo: `${U}1571019613454-1cb2f99b2d8b${SQ}` },
+    "Alo Upper East Side":    { image: `${U}1571019613454-1cb2f99b2d8b${Q}`, logo: `${U}1571019613454-1cb2f99b2d8b${SQ}` },
+    "Alo Flatiron":           { image: `${U}1571019613454-1cb2f99b2d8b${Q}`, logo: `${U}1571019613454-1cb2f99b2d8b${SQ}` },
+    "Cos":                    { image: `${U}1445205170230-053b83016050${Q}`, logo: `${U}1445205170230-053b83016050${SQ}` },
+    "Aesop":                  { image: `${U}1608248543803-ba4f8c70ae0b${Q}`, logo: `${U}1608248543803-ba4f8c70ae0b${SQ}` },
+    "Aesop West Village":     { image: `${U}1608248543803-ba4f8c70ae0b${Q}`, logo: `${U}1608248543803-ba4f8c70ae0b${SQ}` },
+    "Aesop Upper East Side":  { image: `${U}1608248543803-ba4f8c70ae0b${Q}`, logo: `${U}1608248543803-ba4f8c70ae0b${SQ}` },
+    "Chanel":                 { image: `${U}1541099649105-f69ad21f3246${Q}`, logo: `${U}1541099649105-f69ad21f3246${SQ}` },
+    "Skims":                  { image: `${U}1515886657613-9f3515b0c78f${Q}`, logo: `${U}1515886657613-9f3515b0c78f${SQ}` },
+};
+
+const PRODUCT_IMAGES: Record<string, string> = {
+    // Apple
+    "iPhone 16 Pro":                    `${U}1510557880182-3d4d3cba35a5${Q}`,
+    "AirPods Pro (2nd Gen)":            `${U}1600294037681-c80b4cb5b434${Q}`,
+    "MacBook Air M3":                   `${U}1517336714731-489689fd1ca8${Q}`,
+    "Apple Watch Series 10":            `${U}1434493789847-2f02dc6ca35d${Q}`,
+    // Zara
+    "Structured Blazer":                `${U}1594938298603-c8148c4b984a${Q}`,
+    "Wide Leg Trousers":                `${U}1583744946564-b52ac1c389c8${Q}`,
+    "Leather Crossbody Bag":            `${U}1548036328-c9fa89d128fa${Q}`,
+    "Oversized Trench Coat":            `${U}1434389677669-e08b4cac3105${Q}`,
+    // Louis Vuitton
+    "Neverfull MM":                     `${U}1547949003-9792a18a2601${Q}`,
+    "Card Holder":                      `${U}1556742400-b5b7a508ef81${Q}`,
+    "Speedy Bandoulière 25":            `${U}1548036328-c9fa89d128fa${Q}`,
+    // Nike
+    "Air Force 1 '07":                  `${U}1542291026-7eec264c27ff${Q}`,
+    "Air Max 90":                       `${U}1542291026-7eec264c27ff${Q}`,
+    "Tech Fleece Hoodie":               `${U}1556821840-3a63f15732ce${Q}`,
+    "Dri-FIT Training Shorts":          `${U}1506629082955-511b1aa562c8${Q}`,
+    // Aime Leon Dore
+    "New Balance 990v3 for ALD":        `${U}1542291026-7eec264c27ff${Q}`,
+    "Newport Short":                    `${U}1506629082955-511b1aa562c8${Q}`,
+    "Suede Track Jacket":               `${U}1490481651871-ab68de25d43d${Q}`,
+    // Kith
+    "Williams III Hoodie":              `${U}1556821840-3a63f15732ce${Q}`,
+    "Classic Logo Tee":                 `${U}1576566588405-a71e28c3a31e${Q}`,
+    "Kith x Adidas Forum Low":          `${U}1542291026-7eec264c27ff${Q}`,
+    // Miu Miu
+    "Wander Matelassé Bag":             `${U}1548036328-c9fa89d128fa${Q}`,
+    "Mary Jane Ballet Flats":           `${U}1551107696-a4b0c5a0d9a2${Q}`,
+    "Logo Mohair Cardigan":             `${U}1594938298603-c8148c4b984a${Q}`,
+    // Jacquemus
+    "Le Chiquito Noeud":                `${U}1548036328-c9fa89d128fa${Q}`,
+    "Le T-shirt Camargue":              `${U}1576566588405-a71e28c3a31e${Q}`,
+    "Le Raphia Hat":                    `${U}1521369909029-2afed882baee${Q}`,
+    // Bergdorf Goodman
+    "Bottega Veneta Pouch":             `${U}1548036328-c9fa89d128fa${Q}`,
+    "Loro Piana Cashmere Sweater":      `${U}1576566588405-a71e28c3a31e${Q}`,
+    "Amina Muaddi Heels":               `${U}1551107696-a4b0c5a0d9a2${Q}`,
+    // Alo
+    "Warrior Compression Legging":      `${U}1506629082955-511b1aa562c8${Q}`,
+    "Alosoft Finesse Bra":              `${U}1571019613454-1cb2f99b2d8b${Q}`,
+    "Chill Half-Zip Pullover":          `${U}1556821840-3a63f15732ce${Q}`,
+    // Cos
+    "Fluid Trench Coat":                `${U}1434389677669-e08b4cac3105${Q}`,
+    "Wide-Leg Trouser":                 `${U}1583744946564-b52ac1c389c8${Q}`,
+    "Structured Tote Bag":              `${U}1548036328-c9fa89d128fa${Q}`,
+    // Aesop
+    "Parsley Seed Facial Serum":        `${U}1608248543803-ba4f8c70ae0b${Q}`,
+    "Reverence Aromatique Hand Wash":   `${U}1608248543803-ba4f8c70ae0b${Q}`,
+    "Fabulous Face Cleanser":           `${U}1608248543803-ba4f8c70ae0b${Q}`,
+    // Chanel
+    "N°5 Eau de Parfum":               `${U}1541099649105-f69ad21f3246${Q}`,
+    "Le Volume de Chanel Mascara":      `${U}1522335789203-aabd1fc54bc9${Q}`,
+    "Coco Mademoiselle EDP":            `${U}1541099649105-f69ad21f3246${Q}`,
+    // Skims
+    "Cotton Rib Bodysuit":              `${U}1515886657613-9f3515b0c78f${Q}`,
+    "Fits Everybody Slip Dress":        `${U}1515886657613-9f3515b0c78f${Q}`,
+    "Soft Lounge Long Sleeve":          `${U}1576566588405-a71e28c3a31e${Q}`,
+};
+
 type SeedStatus = "idle" | "running" | "done" | "error";
 type StoreResult = { name: string; status: "added" | "skipped" | "error"; message?: string };
 
@@ -501,6 +598,11 @@ export default function SettingsPage() {
     const [productSeedStatus, setProductSeedStatus] = useState<SeedStatus>("idle");
     const [productResults, setProductResults] = useState<StoreResult[]>([]);
     const [productProgress, setProductProgress] = useState(0);
+
+    // Image seed state
+    const [imageSeedStatus, setImageSeedStatus] = useState<SeedStatus>("idle");
+    const [imageSeedResults, setImageSeedResults] = useState<StoreResult[]>([]);
+    const [imageSeedProgress, setImageSeedProgress] = useState(0);
 
     // Test mode state
     const [testMode, setTestMode] = useState<boolean>(false);
@@ -656,6 +758,63 @@ export default function SettingsPage() {
     const productAdded = productResults.filter(r => r.status === "added").length;
     const productSkipped = productResults.filter(r => r.status === "skipped").length;
     const productErrors = productResults.filter(r => r.status === "error").length;
+
+    // ── Image Patch Handler ─────────────────────────────────────────────────
+    const handleSeedImages = async () => {
+        setImageSeedStatus("running");
+        setImageSeedResults([]);
+        setImageSeedProgress(0);
+        const newResults: StoreResult[] = [];
+
+        const storeNames = Object.keys(STORE_IMAGES);
+        const productTitles = Object.keys(PRODUCT_IMAGES);
+        const total = storeNames.length + productTitles.length;
+        let done = 0;
+
+        // Patch stores
+        for (const storeName of storeNames) {
+            const { image, logo } = STORE_IMAGES[storeName];
+            try {
+                const snap = await getDocs(query(collection(db, "stores"), where("name", "==", storeName)));
+                if (snap.empty) {
+                    newResults.push({ name: storeName, status: "skipped", message: "Not found" });
+                } else {
+                    for (const d of snap.docs) await updateDoc(doc(db, "stores", d.id), { image, logo });
+                    newResults.push({ name: storeName, status: "added" });
+                }
+            } catch (err: any) {
+                newResults.push({ name: storeName, status: "error", message: err.message });
+            }
+            done++;
+            setImageSeedProgress(Math.round((done / total) * 100));
+            setImageSeedResults([...newResults]);
+        }
+
+        // Patch products
+        for (const title of productTitles) {
+            const imageUrl = PRODUCT_IMAGES[title];
+            try {
+                const snap = await getDocs(query(collection(db, "products"), where("title", "==", title)));
+                if (snap.empty) {
+                    newResults.push({ name: title, status: "skipped", message: "Not found" });
+                } else {
+                    for (const d of snap.docs) await updateDoc(doc(db, "products", d.id), { images: [imageUrl] });
+                    newResults.push({ name: title, status: "added" });
+                }
+            } catch (err: any) {
+                newResults.push({ name: title, status: "error", message: err.message });
+            }
+            done++;
+            setImageSeedProgress(Math.round((done / total) * 100));
+            setImageSeedResults([...newResults]);
+        }
+
+        setImageSeedStatus(newResults.some(r => r.status === "error") ? "error" : "done");
+    };
+
+    const imageSeedAdded = imageSeedResults.filter(r => r.status === "added").length;
+    const imageSeedSkipped = imageSeedResults.filter(r => r.status === "skipped").length;
+    const imageSeedErrors = imageSeedResults.filter(r => r.status === "error").length;
 
     // ── Test Mode Handler ───────────────────────────────────────────────────
     const toggleTestMode = async () => {
@@ -899,6 +1058,69 @@ export default function SettingsPage() {
                     {productSeedStatus === "running" ? <><Loader2 className="h-4 w-4 animate-spin" /> Seeding...</>
                     : productSeedStatus === "done" ? <><CheckCircle className="h-4 w-4" /> Seed Again</>
                     : <><Upload className="h-4 w-4" /> Seed All Products (~46 items)</>}
+                </button>
+            </div>
+
+            {/* Patch Images */}
+            <div className="rounded-xl border border-white/10 bg-neutral-900/50 p-6 space-y-4">
+                <div>
+                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                        <Upload className="h-5 w-5 text-pink-400" />
+                        Patch Images on Stores &amp; Products
+                    </h3>
+                    <p className="text-sm text-neutral-400 mt-1">
+                        Updates every seeded store and product in Firestore with real Unsplash image URLs
+                        so they appear immediately in the iOS app. Safe to re-run — overwrites image fields only,
+                        leaves all other data untouched.
+                    </p>
+                </div>
+                <div className="rounded-lg border border-pink-500/30 bg-pink-500/10 p-3 flex gap-2 text-sm text-pink-300">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>Run this <strong>after</strong> seeding stores and products. Items not yet in Firestore will be skipped.</span>
+                </div>
+
+                {imageSeedStatus === "running" && (
+                    <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-neutral-400">
+                            <span>Patching images...</span><span>{imageSeedProgress}%</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-neutral-800 overflow-hidden">
+                            <div className="h-full bg-pink-500 rounded-full transition-all duration-300" style={{ width: `${imageSeedProgress}%` }} />
+                        </div>
+                    </div>
+                )}
+
+                {imageSeedResults.length > 0 && (
+                    <div className="space-y-2">
+                        {(imageSeedStatus === "done" || imageSeedStatus === "error") && (
+                            <p className="text-sm font-medium text-neutral-300">{imageSeedAdded} updated · {imageSeedSkipped} skipped · {imageSeedErrors} errors</p>
+                        )}
+                        <div className="grid grid-cols-2 gap-1.5 max-h-60 overflow-y-auto pr-1">
+                            {imageSeedResults.map((r, i) => (
+                                <div key={i} className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs border ${
+                                    r.status === "added" ? "border-green-500/30 bg-green-500/10 text-green-300"
+                                    : r.status === "skipped" ? "border-neutral-700 bg-neutral-800/50 text-neutral-400"
+                                    : "border-red-500/30 bg-red-500/10 text-red-300"
+                                }`}>
+                                    {r.status === "added" ? <CheckCircle className="h-3 w-3 shrink-0" />
+                                    : r.status === "skipped" ? <span className="shrink-0">—</span>
+                                    : <XCircle className="h-3 w-3 shrink-0" />}
+                                    <span className="truncate">{r.name}</span>
+                                    {r.message && <span className="text-xs opacity-60 truncate">({r.message})</span>}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                <button
+                    onClick={handleSeedImages}
+                    disabled={imageSeedStatus === "running"}
+                    className="flex items-center gap-2 rounded-lg bg-pink-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-pink-500 transition disabled:opacity-50"
+                >
+                    {imageSeedStatus === "running" ? <><Loader2 className="h-4 w-4 animate-spin" /> Patching...</>
+                    : imageSeedStatus === "done" ? <><CheckCircle className="h-4 w-4" /> Patch Again</>
+                    : <><Upload className="h-4 w-4" /> Patch All Images</>}
                 </button>
             </div>
 
