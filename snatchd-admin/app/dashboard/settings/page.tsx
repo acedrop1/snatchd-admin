@@ -484,40 +484,12 @@ const SEED_STORES = [
     },
 ];
 
-// ── Image URLs ───────────────────────────────────────────────────────────────
-// High-quality Unsplash photos, one per store / product title.
-// The "Patch Images" tool updates existing Firestore docs with these URLs so the
-// iOS app can display real imagery without manual portal uploads.
+// ── Product Image URLs ────────────────────────────────────────────────────────
+// Curated Unsplash photos for each seeded product.
+// "Patch Product Images" writes these into products.images[0] in Firestore.
+// Store images are managed separately via the Stores page — not touched here.
 const U = "https://images.unsplash.com/photo-";
 const Q = "?auto=format&fit=crop&w=800&q=80";
-const SQ = "?auto=format&fit=crop&w=300&h=300&q=80"; // square logo crop
-
-const STORE_IMAGES: Record<string, { image: string; logo: string }> = {
-    "Apple SoHo":             { image: `${U}1491553895911-0055eca6402d${Q}`, logo: `${U}1491553895911-0055eca6402d${SQ}` },
-    "Apple Fifth Avenue":     { image: `${U}1491553895911-0055eca6402d${Q}`, logo: `${U}1491553895911-0055eca6402d${SQ}` },
-    "Apple Upper West Side":  { image: `${U}1491553895911-0055eca6402d${Q}`, logo: `${U}1491553895911-0055eca6402d${SQ}` },
-    "Apple Grand Central":    { image: `${U}1491553895911-0055eca6402d${Q}`, logo: `${U}1491553895911-0055eca6402d${SQ}` },
-    "Zara SoHo":              { image: `${U}1558618666-fcd25c85cd64${Q}`, logo: `${U}1558618666-fcd25c85cd64${SQ}` },
-    "Zara Fifth Avenue":      { image: `${U}1558618666-fcd25c85cd64${Q}`, logo: `${U}1558618666-fcd25c85cd64${SQ}` },
-    "Zara Columbus Circle":   { image: `${U}1558618666-fcd25c85cd64${Q}`, logo: `${U}1558618666-fcd25c85cd64${SQ}` },
-    "Zara Midtown East":      { image: `${U}1558618666-fcd25c85cd64${Q}`, logo: `${U}1558618666-fcd25c85cd64${SQ}` },
-    "Louis Vuitton":          { image: `${U}1547949003-9792a18a2601${Q}`, logo: `${U}1547949003-9792a18a2601${SQ}` },
-    "Nike":                   { image: `${U}1542291026-7eec264c27ff${Q}`, logo: `${U}1542291026-7eec264c27ff${SQ}` },
-    "Aime Leon Dore":         { image: `${U}1490481651871-ab68de25d43d${Q}`, logo: `${U}1490481651871-ab68de25d43d${SQ}` },
-    "Kith":                   { image: `${U}1556821840-3a63f15732ce${Q}`, logo: `${U}1556821840-3a63f15732ce${SQ}` },
-    "Miu Miu":                { image: `${U}1548036328-c9fa89d128fa${Q}`, logo: `${U}1548036328-c9fa89d128fa${SQ}` },
-    "Jacquemus":              { image: `${U}1515886657613-9f3515b0c78f${Q}`, logo: `${U}1515886657613-9f3515b0c78f${SQ}` },
-    "Bergdorf Goodman":       { image: `${U}1441984904996-e0b6ba687e04${Q}`, logo: `${U}1441984904996-e0b6ba687e04${SQ}` },
-    "Alo":                    { image: `${U}1571019613454-1cb2f99b2d8b${Q}`, logo: `${U}1571019613454-1cb2f99b2d8b${SQ}` },
-    "Alo Upper East Side":    { image: `${U}1571019613454-1cb2f99b2d8b${Q}`, logo: `${U}1571019613454-1cb2f99b2d8b${SQ}` },
-    "Alo Flatiron":           { image: `${U}1571019613454-1cb2f99b2d8b${Q}`, logo: `${U}1571019613454-1cb2f99b2d8b${SQ}` },
-    "Cos":                    { image: `${U}1445205170230-053b83016050${Q}`, logo: `${U}1445205170230-053b83016050${SQ}` },
-    "Aesop":                  { image: `${U}1608248543803-ba4f8c70ae0b${Q}`, logo: `${U}1608248543803-ba4f8c70ae0b${SQ}` },
-    "Aesop West Village":     { image: `${U}1608248543803-ba4f8c70ae0b${Q}`, logo: `${U}1608248543803-ba4f8c70ae0b${SQ}` },
-    "Aesop Upper East Side":  { image: `${U}1608248543803-ba4f8c70ae0b${Q}`, logo: `${U}1608248543803-ba4f8c70ae0b${SQ}` },
-    "Chanel":                 { image: `${U}1541099649105-f69ad21f3246${Q}`, logo: `${U}1541099649105-f69ad21f3246${SQ}` },
-    "Skims":                  { image: `${U}1515886657613-9f3515b0c78f${Q}`, logo: `${U}1515886657613-9f3515b0c78f${SQ}` },
-};
 
 const PRODUCT_IMAGES: Record<string, string> = {
     // Apple
@@ -760,43 +732,23 @@ export default function SettingsPage() {
     const productErrors = productResults.filter(r => r.status === "error").length;
 
     // ── Image Patch Handler ─────────────────────────────────────────────────
+    // Only patches products — store images are uploaded manually via Stores page.
     const handleSeedImages = async () => {
         setImageSeedStatus("running");
         setImageSeedResults([]);
         setImageSeedProgress(0);
         const newResults: StoreResult[] = [];
 
-        const storeNames = Object.keys(STORE_IMAGES);
         const productTitles = Object.keys(PRODUCT_IMAGES);
-        const total = storeNames.length + productTitles.length;
+        const total = productTitles.length;
         let done = 0;
 
-        // Patch stores
-        for (const storeName of storeNames) {
-            const { image, logo } = STORE_IMAGES[storeName];
-            try {
-                const snap = await getDocs(query(collection(db, "stores"), where("name", "==", storeName)));
-                if (snap.empty) {
-                    newResults.push({ name: storeName, status: "skipped", message: "Not found" });
-                } else {
-                    for (const d of snap.docs) await updateDoc(doc(db, "stores", d.id), { image, logo });
-                    newResults.push({ name: storeName, status: "added" });
-                }
-            } catch (err: any) {
-                newResults.push({ name: storeName, status: "error", message: err.message });
-            }
-            done++;
-            setImageSeedProgress(Math.round((done / total) * 100));
-            setImageSeedResults([...newResults]);
-        }
-
-        // Patch products
         for (const title of productTitles) {
             const imageUrl = PRODUCT_IMAGES[title];
             try {
                 const snap = await getDocs(query(collection(db, "products"), where("title", "==", title)));
                 if (snap.empty) {
-                    newResults.push({ name: title, status: "skipped", message: "Not found" });
+                    newResults.push({ name: title, status: "skipped", message: "Not found — seed products first" });
                 } else {
                     for (const d of snap.docs) await updateDoc(doc(db, "products", d.id), { images: [imageUrl] });
                     newResults.push({ name: title, status: "added" });
@@ -1061,22 +1013,22 @@ export default function SettingsPage() {
                 </button>
             </div>
 
-            {/* Patch Images */}
+            {/* Patch Product Images */}
             <div className="rounded-xl border border-white/10 bg-neutral-900/50 p-6 space-y-4">
                 <div>
                     <h3 className="text-lg font-semibold text-white flex items-center gap-2">
                         <Upload className="h-5 w-5 text-pink-400" />
-                        Patch Images on Stores &amp; Products
+                        Patch Product Images
                     </h3>
                     <p className="text-sm text-neutral-400 mt-1">
-                        Updates every seeded store and product in Firestore with real Unsplash image URLs
-                        so they appear immediately in the iOS app. Safe to re-run — overwrites image fields only,
-                        leaves all other data untouched.
+                        Writes a product photo into each seeded product's <code className="text-pink-300">images</code> array
+                        in Firestore — so the iOS app shows real product imagery. Store images are managed
+                        separately via the Stores page and are not touched here.
                     </p>
                 </div>
                 <div className="rounded-lg border border-pink-500/30 bg-pink-500/10 p-3 flex gap-2 text-sm text-pink-300">
                     <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span>Run this <strong>after</strong> seeding stores and products. Items not yet in Firestore will be skipped.</span>
+                    <span>Run this <strong>after</strong> Seed Product Catalog. Products not yet in Firestore will be skipped.</span>
                 </div>
 
                 {imageSeedStatus === "running" && (
@@ -1120,7 +1072,7 @@ export default function SettingsPage() {
                 >
                     {imageSeedStatus === "running" ? <><Loader2 className="h-4 w-4 animate-spin" /> Patching...</>
                     : imageSeedStatus === "done" ? <><CheckCircle className="h-4 w-4" /> Patch Again</>
-                    : <><Upload className="h-4 w-4" /> Patch All Images</>}
+                    : <><Upload className="h-4 w-4" /> Patch All Product Images (~46 items)</>}
                 </button>
             </div>
 
