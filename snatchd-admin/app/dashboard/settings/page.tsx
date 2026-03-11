@@ -377,6 +377,13 @@ export default function SettingsPage() {
     const [zaraCount, setZaraCount] = useState(0);
     const [zaraError, setZaraError] = useState<string | null>(null);
 
+    // Skims product seed state
+    const [skimsStatus, setSkimsStatus] = useState<SeedStatus>("idle");
+    const [skimsProgress, setSkimsProgress] = useState(0);
+    const [skimsTotal, setSkimsTotal] = useState(0);
+    const [skimsCount, setSkimsCount] = useState(0);
+    const [skimsError, setSkimsError] = useState<string | null>(null);
+
     // Revert store images state
     const [revertStatus, setRevertStatus] = useState<SeedStatus>("idle");
     const [revertResults, setRevertResults] = useState<StoreResult[]>([]);
@@ -541,6 +548,53 @@ export default function SettingsPage() {
         } catch (err: any) {
             setZaraError(err.message ?? "Unknown error");
             setZaraStatus("error");
+        }
+    };
+
+    // ── Seed Skims Products Handler ─────────────────────────────────────────
+    const handleSeedSkimsProducts = async () => {
+        setSkimsStatus("running");
+        setSkimsProgress(0);
+        setSkimsCount(0);
+        setSkimsTotal(0);
+        setSkimsError(null);
+
+        try {
+            // Look up the Skims store ID dynamically
+            const storeSnap = await getDocs(
+                query(collection(db, "stores"), where("name", "==", "Skims"))
+            );
+            if (storeSnap.empty) {
+                throw new Error('Skims store not found in Firestore — run "Seed All Stores" first.');
+            }
+            const skimsStoreId = storeSnap.docs[0].id;
+
+            const res = await fetch("/api/skims-seed");
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                throw new Error(body.error ?? `HTTP ${res.status}`);
+            }
+            const { products } = await res.json();
+            setSkimsTotal(products.length);
+
+            let written = 0;
+            for (const product of products) {
+                const docId = `skims_${product.externalId}_${skimsStoreId}`;
+                await setDoc(doc(db, "products", docId), {
+                    ...product,
+                    storeId: skimsStoreId,
+                    createdAt: serverTimestamp(),
+                    updatedAt: serverTimestamp(),
+                });
+                written++;
+                setSkimsCount(written);
+                setSkimsProgress(Math.round((written / products.length) * 100));
+            }
+
+            setSkimsStatus("done");
+        } catch (err: any) {
+            setSkimsError(err.message ?? "Unknown error");
+            setSkimsStatus("error");
         }
     };
 
@@ -800,6 +854,67 @@ export default function SettingsPage() {
                         <><CheckCircle className="h-4 w-4" /> Seed Again</>
                     ) : (
                         <><Upload className="h-4 w-4" /> Seed Zara Products</>
+                    )}
+                </button>
+            </div>
+
+            {/* Seed Skims Products */}
+            <div className="rounded-xl border border-pink-500/30 bg-pink-500/5 p-6 space-y-4">
+                <div>
+                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                        <Upload className="h-5 w-5 text-pink-400" />
+                        Seed Skims — Products
+                    </h3>
+                    <p className="text-sm text-neutral-400 mt-1">
+                        Fetches up to 30 live products from Skims' public Shopify store and writes
+                        them to the Skims location in Firestore. Uses Shopify's free
+                        <code className="text-pink-300"> /products.json</code> endpoint — no scraping, no auth needed.
+                        Safe to re-run; existing products are upserted with the latest data.
+                    </p>
+                </div>
+
+                <div className="rounded-lg border border-pink-500/30 bg-pink-500/10 p-3 flex gap-2 text-sm text-pink-300">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>Requires the Skims store to exist in Firestore — run <strong>Seed All Stores</strong> first if you haven't already.</span>
+                </div>
+
+                {skimsStatus === "running" && (
+                    <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-neutral-400">
+                            <span>Writing products… ({skimsCount} / {skimsTotal || "?"})</span>
+                            <span>{skimsProgress}%</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-neutral-800 overflow-hidden">
+                            <div className="h-full bg-pink-500 rounded-full transition-all duration-300" style={{ width: `${skimsProgress}%` }} />
+                        </div>
+                    </div>
+                )}
+
+                {skimsStatus === "done" && (
+                    <p className="text-sm text-green-300 font-medium">
+                        <CheckCircle className="inline h-4 w-4 mr-1" />
+                        {skimsCount} Skims products written to Firestore.
+                    </p>
+                )}
+
+                {skimsStatus === "error" && (
+                    <p className="text-sm text-red-300 font-medium">
+                        <XCircle className="inline h-4 w-4 mr-1" />
+                        {skimsError ?? "Something went wrong. Check the console."}
+                    </p>
+                )}
+
+                <button
+                    onClick={handleSeedSkimsProducts}
+                    disabled={skimsStatus === "running"}
+                    className="flex items-center gap-2 rounded-lg bg-pink-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-pink-600 transition disabled:opacity-50"
+                >
+                    {skimsStatus === "running" ? (
+                        <><Loader2 className="h-4 w-4 animate-spin" /> Seeding Skims…</>
+                    ) : skimsStatus === "done" ? (
+                        <><CheckCircle className="h-4 w-4" /> Seed Again</>
+                    ) : (
+                        <><Upload className="h-4 w-4" /> Seed Skims Products</>
                     )}
                 </button>
             </div>
