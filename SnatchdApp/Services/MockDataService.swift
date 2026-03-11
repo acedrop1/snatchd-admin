@@ -10,10 +10,11 @@ struct Product: Identifiable {
     let imageURL: String? // Remote image URL from admin
     let deliveryTime: String
     let category: String
+    let gender: String       // "Men" | "Women" | "Kids" | "Unisex" | ""
     var inStock: Bool = true
     var zaraProductId: String? = nil
 
-    init(id: UUID = UUID(), storeId: String = "", title: String, brand: String, price: Double, imageName: String, imageURL: String? = nil, deliveryTime: String, category: String, inStock: Bool = true, zaraProductId: String? = nil) {
+    init(id: UUID = UUID(), storeId: String = "", title: String, brand: String, price: Double, imageName: String, imageURL: String? = nil, deliveryTime: String, category: String, gender: String = "", inStock: Bool = true, zaraProductId: String? = nil) {
         self.id = id
         self.storeId = storeId
         self.title = title
@@ -23,6 +24,7 @@ struct Product: Identifiable {
         self.imageURL = imageURL
         self.deliveryTime = deliveryTime
         self.category = category
+        self.gender = gender
         self.inStock = inStock
         self.zaraProductId = zaraProductId
     }

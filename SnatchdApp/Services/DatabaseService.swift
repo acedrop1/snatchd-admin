@@ -148,6 +148,7 @@ class DatabaseService: ObservableObject {
                     let imageName = data["imageName"] as? String ?? "photo"
                     let deliveryTime = data["deliveryTime"] as? String ?? "45 Mins"
                     let category = data["category"] as? String ?? ""
+                    let gender = data["gender"] as? String ?? ""
                     let inStock = data["inStock"] as? Bool ?? true
                     let zaraProductId = data["zaraProductId"] as? String
 
@@ -160,6 +161,7 @@ class DatabaseService: ObservableObject {
                         imageURL: imageURL,
                         deliveryTime: deliveryTime,
                         category: category,
+                        gender: gender,
                         inStock: inStock,
                         zaraProductId: zaraProductId
                     )

@@ -8,15 +8,29 @@ struct StoreProductsView: View {
     @EnvironmentObject var cartManager: CartManager
     @ObservedObject private var databaseService = DatabaseService.shared // Use shared instance
     
+    @State private var selectedGender = "All"
     @State private var selectedCategory = "All"
     @State private var searchText = ""
     @State private var selectedProduct: Product? // For programmatic navigation
     @State private var cartScale: CGFloat = 1.0 // Animation state
+    @Namespace private var genderNamespace
     @Namespace private var categoryNamespace
 
-    // Dynamically build category tabs from this store's actual product categories
-    var categories: [String] {
+    // Dynamically build gender tabs from this store's products
+    var genders: [String] {
         let storeProducts = databaseService.products.filter { $0.storeId == store.firestoreId }
+        let order = ["Men", "Women", "Kids", "Unisex"]
+        let present = Set(storeProducts.map { $0.gender }).filter { !$0.isEmpty }
+        let sorted = order.filter { present.contains($0) }
+        return sorted.count > 1 ? ["All"] + sorted : [] // only show if 2+ genders exist
+    }
+
+    // Dynamically build category tabs — scoped to the selected gender
+    var categories: [String] {
+        let storeProducts = databaseService.products.filter {
+            $0.storeId == store.firestoreId &&
+            (selectedGender == "All" || $0.gender == selectedGender)
+        }
         let unique = Array(Set(storeProducts.map { $0.category })).filter { !$0.isEmpty }.sorted()
         return ["All"] + unique
     }
@@ -27,13 +41,12 @@ struct StoreProductsView: View {
     ]
     
     var filteredProducts: [Product] {
-        // Only show real products from Firestore — not mock data
-        // Filter by this store's Firestore document ID so each store shows its own inventory
         return databaseService.products.filter { product in
+            let storeMatch = product.storeId == store.firestoreId
+            let genderMatch = selectedGender == "All" || product.gender == selectedGender || product.gender.isEmpty
             let categoryMatch = selectedCategory == "All" || product.category == selectedCategory
             let searchMatch = searchText.isEmpty || product.title.localizedCaseInsensitiveContains(searchText) || product.brand.localizedCaseInsensitiveContains(searchText)
-            let storeMatch = product.storeId == store.firestoreId
-            return categoryMatch && searchMatch && storeMatch
+            return storeMatch && genderMatch && categoryMatch && searchMatch
         }
     }
     
@@ -151,7 +164,41 @@ struct StoreProductsView: View {
                         alignment: .topTrailing
                     )
                     
-                    // Filter Bar
+                    // Gender Filter (only shown when products span multiple genders)
+                    if !genders.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                ForEach(genders, id: \.self) { gender in
+                                    Button(action: {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                            selectedGender = gender
+                                            selectedCategory = "All"
+                                        }
+                                    }) {
+                                        Text(gender)
+                                            .font(.custom("Montserrat-SemiBold", size: 13))
+                                            .foregroundColor(selectedGender == gender ? .white : .white.opacity(0.6))
+                                            .padding(.vertical, 6)
+                                            .padding(.horizontal, 24)
+                                            .background(
+                                                ZStack {
+                                                    if selectedGender == gender {
+                                                        LiquidGlassBubble()
+                                                            .matchedGeometryEffect(id: "genderBubble", in: genderNamespace)
+                                                    }
+                                                }
+                                            )
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                        }
+                        .liquidGlassBackground()
+                        .padding(.horizontal)
+                        .padding(.bottom, 10)
+                    }
+
+                    // Category Filter Bar
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {
                             ForEach(categories, id: \.self) { category in
