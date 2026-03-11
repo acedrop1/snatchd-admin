@@ -192,28 +192,7 @@ struct StoreProductsView: View {
                                 }
                             }
                         }
-                        .padding(.vertical, 3)
-                        .padding(.horizontal, 3)
-                        .background(
-                            ZStack {
-                                VisualEffectBlur(blurStyle: .systemUltraThinMaterialDark)
-                                RoundedRectangle(cornerRadius: 22)
-                                    .strokeBorder(
-                                        LinearGradient(
-                                            gradient: Gradient(colors: [
-                                                Color.white.opacity(0.45),
-                                                Color.white.opacity(0.1),
-                                                Color.white.opacity(0.25)
-                                            ]),
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        ),
-                                        lineWidth: 1
-                                    )
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: 22))
-                            .shadow(color: Color.black.opacity(0.25), radius: 10, x: 0, y: 4)
-                        )
+                        .liquidGlassBackground()
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.bottom, 10)
                     }
