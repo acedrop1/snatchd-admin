@@ -166,37 +166,55 @@ struct StoreProductsView: View {
                         alignment: .topTrailing
                     )
                     
-                    // Gender Filter (only shown when products span multiple genders)
+                    // Gender Filter — compact liquid glass pill, centered
                     if !genders.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 12) {
-                                ForEach(genders, id: \.self) { gender in
-                                    Button(action: {
-                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                            selectedGender = gender
-                                            selectedCategory = "All"
-                                        }
-                                    }) {
-                                        Text(gender)
-                                            .font(.custom("Montserrat-SemiBold", size: 13))
-                                            .foregroundColor(selectedGender == gender ? .white : .white.opacity(0.6))
-                                            .padding(.vertical, 6)
-                                            .padding(.horizontal, 24)
-                                            .background(
-                                                ZStack {
-                                                    if selectedGender == gender {
-                                                        LiquidGlassBubble()
-                                                            .matchedGeometryEffect(id: "genderBubble", in: genderNamespace)
-                                                    }
-                                                }
-                                            )
+                        HStack(spacing: 2) {
+                            ForEach(genders, id: \.self) { gender in
+                                Button(action: {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                        selectedGender = gender
+                                        selectedCategory = "All"
                                     }
+                                }) {
+                                    Text(gender)
+                                        .font(.custom("Montserrat-SemiBold", size: 12))
+                                        .foregroundColor(selectedGender == gender ? .white : .white.opacity(0.5))
+                                        .padding(.vertical, 6)
+                                        .padding(.horizontal, 16)
+                                        .background(
+                                            ZStack {
+                                                if selectedGender == gender {
+                                                    LiquidGlassBubble()
+                                                        .matchedGeometryEffect(id: "genderBubble", in: genderNamespace)
+                                                }
+                                            }
+                                        )
                                 }
                             }
-                            .padding(.horizontal, 20)
                         }
-                        .liquidGlassBackground()
-                        .padding(.horizontal)
+                        .padding(.vertical, 3)
+                        .padding(.horizontal, 3)
+                        .background(
+                            ZStack {
+                                VisualEffectBlur(blurStyle: .systemUltraThinMaterialDark)
+                                RoundedRectangle(cornerRadius: 22)
+                                    .strokeBorder(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [
+                                                Color.white.opacity(0.45),
+                                                Color.white.opacity(0.1),
+                                                Color.white.opacity(0.25)
+                                            ]),
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        ),
+                                        lineWidth: 1
+                                    )
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 22))
+                            .shadow(color: Color.black.opacity(0.25), radius: 10, x: 0, y: 4)
+                        )
+                        .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.bottom, 10)
                     }
 
