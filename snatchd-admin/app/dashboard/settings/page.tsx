@@ -1,142 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Settings, Upload, CheckCircle, XCircle, Loader2, AlertTriangle, FlaskConical, ToggleLeft, ToggleRight } from "lucide-react";
+import { Settings, Upload, CheckCircle, XCircle, Loader2, AlertTriangle, FlaskConical, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, getDocs, query, where, serverTimestamp, doc, setDoc, getDoc, updateDoc } from "firebase/firestore";
+import { collection, addDoc, getDocs, query, where, serverTimestamp, doc, setDoc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
 
-// ── Product Catalog Seed ────────────────────────────────────────────────────
-// One set per brand. The seed function looks up the storeId by name first.
-type ProductSeed = {
-    title: string;
-    brand: string;
-    price: number;
-    category: string;
-    deliveryTime: string;
-    description?: string;
-    inStock: boolean;
-    imageName: string;
-};
-
-const SEED_PRODUCTS: { storeName: string; products: ProductSeed[] }[] = [
-    {
-        storeName: "Apple SoHo",
-        products: [
-            { title: "iPhone 16 Pro", brand: "Apple", price: 999, category: "Electronics", deliveryTime: "35 Mins", description: "6.3-inch Super Retina XDR display, 48MP Fusion camera system.", inStock: true, imageName: "iphone" },
-            { title: "AirPods Pro (2nd Gen)", brand: "Apple", price: 249, category: "Electronics", deliveryTime: "35 Mins", description: "Active Noise Cancellation, Adaptive Audio, USB-C.", inStock: true, imageName: "airpodspro" },
-            { title: "MacBook Air M3", brand: "Apple", price: 1099, category: "Electronics", deliveryTime: "35 Mins", description: '13-inch Liquid Retina display, up to 18h battery.', inStock: true, imageName: "laptopcomputer" },
-            { title: "Apple Watch Series 10", brand: "Apple", price: 399, category: "Electronics", deliveryTime: "35 Mins", description: "Thinnest Apple Watch ever. Advanced health sensors.", inStock: true, imageName: "applewatch" },
-        ],
-    },
-    {
-        storeName: "Zara SoHo",
-        products: [
-            { title: "Structured Blazer", brand: "Zara", price: 129, category: "Clothing", deliveryTime: "35 Mins", description: "Tailored fit single-button blazer in ecru.", inStock: true, imageName: "tshirt" },
-            { title: "Wide Leg Trousers", brand: "Zara", price: 59, category: "Clothing", deliveryTime: "35 Mins", description: "High-waist wide-leg trousers in navy blue.", inStock: true, imageName: "tshirt" },
-            { title: "Leather Crossbody Bag", brand: "Zara", price: 79, category: "Accessories", deliveryTime: "35 Mins", description: "Mini crossbody bag with chain strap in black.", inStock: true, imageName: "bag" },
-            { title: "Oversized Trench Coat", brand: "Zara", price: 149, category: "Clothing", deliveryTime: "35 Mins", description: "Double-breasted trench in camel.", inStock: true, imageName: "tshirt" },
-        ],
-    },
-    {
-        storeName: "Louis Vuitton",
-        products: [
-            { title: "Neverfull MM", brand: "Louis Vuitton", price: 1700, category: "Accessories", deliveryTime: "35 Mins", description: "Iconic tote in Monogram canvas. Spacious and versatile.", inStock: true, imageName: "bag" },
-            { title: "Card Holder", brand: "Louis Vuitton", price: 310, category: "Accessories", deliveryTime: "35 Mins", description: "6-slot card holder in Monogram canvas.", inStock: true, imageName: "creditcard" },
-            { title: "Speedy Bandoulière 25", brand: "Louis Vuitton", price: 1560, category: "Accessories", deliveryTime: "35 Mins", description: "Classic Boston bag with detachable shoulder strap.", inStock: true, imageName: "bag" },
-        ],
-    },
-    {
-        storeName: "Nike",
-        products: [
-            { title: "Air Force 1 '07", brand: "Nike", price: 115, category: "Shoes", deliveryTime: "45 Mins", description: "The iconic low-top in white leather.", inStock: true, imageName: "shoe" },
-            { title: "Air Max 90", brand: "Nike", price: 130, category: "Shoes", deliveryTime: "45 Mins", description: "Retro running heritage. MAX air unit heel.", inStock: true, imageName: "shoe" },
-            { title: "Tech Fleece Hoodie", brand: "Nike", price: 110, category: "Clothing", deliveryTime: "45 Mins", description: "Lightweight warmth with a modern silhouette.", inStock: true, imageName: "tshirt" },
-            { title: "Dri-FIT Training Shorts", brand: "Nike", price: 40, category: "Clothing", deliveryTime: "45 Mins", description: "Moisture-wicking 7-inch training shorts.", inStock: true, imageName: "tshirt" },
-        ],
-    },
-    {
-        storeName: "Aime Leon Dore",
-        products: [
-            { title: "New Balance 990v3 for ALD", brand: "ALD", price: 200, category: "Shoes", deliveryTime: "50 Mins", description: "ALD x New Balance collab in Forest Green.", inStock: true, imageName: "shoe" },
-            { title: "Newport Short", brand: "ALD", price: 135, category: "Clothing", deliveryTime: "50 Mins", description: "Signature ALD short in heavyweight cotton.", inStock: true, imageName: "tshirt" },
-            { title: "Suede Track Jacket", brand: "ALD", price: 495, category: "Clothing", deliveryTime: "50 Mins", description: "80s Italian-inspired track jacket in suede.", inStock: true, imageName: "tshirt" },
-        ],
-    },
-    {
-        storeName: "Kith",
-        products: [
-            { title: "Williams III Hoodie", brand: "Kith", price: 175, category: "Clothing", deliveryTime: "40 Mins", description: "Heavyweight French terry pullover hoodie.", inStock: true, imageName: "tshirt" },
-            { title: "Classic Logo Tee", brand: "Kith", price: 65, category: "Clothing", deliveryTime: "40 Mins", description: "Cotton jersey tee with tonal Kith box logo.", inStock: true, imageName: "tshirt" },
-            { title: "Kith x Adidas Forum Low", brand: "Kith", price: 160, category: "Shoes", deliveryTime: "40 Mins", description: "Kith collab on the classic Adidas Forum Low.", inStock: true, imageName: "shoe" },
-        ],
-    },
-    {
-        storeName: "Miu Miu",
-        products: [
-            { title: "Wander Matelassé Bag", brand: "Miu Miu", price: 1750, category: "Accessories", deliveryTime: "35 Mins", description: "Nappa leather bag with signature Miu Miu lettering.", inStock: true, imageName: "bag" },
-            { title: "Mary Jane Ballet Flats", brand: "Miu Miu", price: 850, category: "Shoes", deliveryTime: "35 Mins", description: "Patent leather Mary Janes with chunky buckle.", inStock: true, imageName: "shoe" },
-            { title: "Logo Mohair Cardigan", brand: "Miu Miu", price: 1290, category: "Clothing", deliveryTime: "35 Mins", description: "Cropped mohair-blend cardigan with logo lettering.", inStock: true, imageName: "tshirt" },
-        ],
-    },
-    {
-        storeName: "Jacquemus",
-        products: [
-            { title: "Le Chiquito Noeud", brand: "Jacquemus", price: 590, category: "Accessories", deliveryTime: "45 Mins", description: "Mini top-handle bag in leather with bow detail.", inStock: true, imageName: "bag" },
-            { title: "Le T-shirt Camargue", brand: "Jacquemus", price: 130, category: "Clothing", deliveryTime: "45 Mins", description: "Oversized tee with embroidered logo.", inStock: true, imageName: "tshirt" },
-            { title: "Le Raphia Hat", brand: "Jacquemus", price: 195, category: "Accessories", deliveryTime: "45 Mins", description: "Wide-brim woven raffia hat.", inStock: true, imageName: "hat" },
-        ],
-    },
-    {
-        storeName: "Bergdorf Goodman",
-        products: [
-            { title: "Bottega Veneta Pouch", brand: "Bottega Veneta", price: 2200, category: "Accessories", deliveryTime: "60 Mins", description: "Intrecciato leather clutch in dark brown.", inStock: true, imageName: "bag" },
-            { title: "Loro Piana Cashmere Sweater", brand: "Loro Piana", price: 1450, category: "Clothing", deliveryTime: "60 Mins", description: "Baby cashmere crewneck in ivory.", inStock: true, imageName: "tshirt" },
-            { title: "Amina Muaddi Heels", brand: "Amina Muaddi", price: 695, category: "Shoes", deliveryTime: "60 Mins", description: "Begum Glass crystal pumps in clear.", inStock: true, imageName: "shoe" },
-        ],
-    },
-    {
-        storeName: "Alo",
-        products: [
-            { title: "Warrior Compression Legging", brand: "Alo", price: 128, category: "Clothing", deliveryTime: "30 Mins", description: "High-waist compression performance legging.", inStock: true, imageName: "tshirt" },
-            { title: "Alosoft Finesse Bra", brand: "Alo", price: 78, category: "Clothing", deliveryTime: "30 Mins", description: "Buttery soft medium-support bra.", inStock: true, imageName: "tshirt" },
-            { title: "Chill Half-Zip Pullover", brand: "Alo", price: 118, category: "Clothing", deliveryTime: "30 Mins", description: "Cozy brushed half-zip in Espresso.", inStock: true, imageName: "tshirt" },
-        ],
-    },
-    {
-        storeName: "Cos",
-        products: [
-            { title: "Fluid Trench Coat", brand: "Cos", price: 295, category: "Clothing", deliveryTime: "40 Mins", description: "Relaxed-fit trench in fluid fabric.", inStock: true, imageName: "tshirt" },
-            { title: "Wide-Leg Trouser", brand: "Cos", price: 115, category: "Clothing", deliveryTime: "40 Mins", description: "High-waist wide-leg trouser in beige.", inStock: true, imageName: "tshirt" },
-            { title: "Structured Tote Bag", brand: "Cos", price: 89, category: "Accessories", deliveryTime: "40 Mins", description: "Minimal structured tote in natural canvas.", inStock: true, imageName: "bag" },
-        ],
-    },
-    {
-        storeName: "Aesop",
-        products: [
-            { title: "Parsley Seed Facial Serum", brand: "Aesop", price: 98, category: "Beauty & Skincare", deliveryTime: "60 Mins", description: "Intensely hydrating antioxidant serum for all skin types.", inStock: true, imageName: "drop" },
-            { title: "Reverence Aromatique Hand Wash", brand: "Aesop", price: 42, category: "Hygiene", deliveryTime: "60 Mins", description: "Botanical hand wash with Vetiver and Sandalwood.", inStock: true, imageName: "drop" },
-            { title: "Fabulous Face Cleanser", brand: "Aesop", price: 55, category: "Beauty & Skincare", deliveryTime: "60 Mins", description: "Gentle gel cleanser for all skin types.", inStock: true, imageName: "drop" },
-        ],
-    },
-    {
-        storeName: "Chanel",
-        products: [
-            { title: "N°5 Eau de Parfum", brand: "Chanel", price: 185, category: "Beauty & Skincare", deliveryTime: "55 Mins", description: "The iconic floral aldehyde fragrance. 50ml.", inStock: true, imageName: "flask" },
-            { title: "Le Volume de Chanel Mascara", brand: "Chanel", price: 42, category: "Beauty & Skincare", deliveryTime: "55 Mins", description: "Volumizing mascara in Noir.", inStock: true, imageName: "pencil" },
-            { title: "Coco Mademoiselle EDP", brand: "Chanel", price: 175, category: "Beauty & Skincare", deliveryTime: "55 Mins", description: "Fresh oriental fragrance. 50ml.", inStock: true, imageName: "flask" },
-        ],
-    },
-    {
-        storeName: "Skims",
-        products: [
-            { title: "Cotton Rib Bodysuit", brand: "Skims", price: 62, category: "Clothing", deliveryTime: "40 Mins", description: "Stretchy long-sleeve cotton rib bodysuit.", inStock: true, imageName: "tshirt" },
-            { title: "Fits Everybody Slip Dress", brand: "Skims", price: 88, category: "Clothing", deliveryTime: "40 Mins", description: "Second-skin slip dress in ultra-stretch fabric.", inStock: true, imageName: "tshirt" },
-            { title: "Soft Lounge Long Sleeve", brand: "Skims", price: 54, category: "Clothing", deliveryTime: "40 Mins", description: "Ultra-soft slim long-sleeve top.", inStock: true, imageName: "tshirt" },
-        ],
-    },
-];
-
-// Multi-location stores — each entry is a distinct physical location (separate Firestore doc)
+// ── Multi-location stores — each entry is a distinct physical location ───────
 const SEED_MULTI_LOCATION_STORES = [
     // ── Apple ────────────────────────────────────────────────────────────────
     {
@@ -252,7 +121,7 @@ const SEED_MULTI_LOCATION_STORES = [
         logo: "",
         image: "",
     },
-    // ── Aesop (extra locations) ───────────────────────────────────────────────
+    // ── Aesop ─────────────────────────────────────────────────────────────────
     {
         name: "Aesop West Village",
         description: "Aesop skincare boutique in the West Village.",
@@ -312,7 +181,7 @@ const SEED_MULTI_LOCATION_STORES = [
     },
 ];
 
-// All 12 stores from the Snatchd app — seeded into Firestore so the app shows real data
+// ── All 12 core Snatchd stores ────────────────────────────────────────────────
 const SEED_STORES = [
     {
         name: "Louis Vuitton",
@@ -484,120 +353,6 @@ const SEED_STORES = [
     },
 ];
 
-// ── Product Image URLs ────────────────────────────────────────────────────────
-// Curated Unsplash photos for each seeded product.
-// "Patch Product Images" writes these into products.images[0] in Firestore.
-// Store images are managed separately via the Stores page — not touched here.
-const U = "https://images.unsplash.com/photo-";
-const Q = "?auto=format&fit=crop&w=800&q=80";
-
-const PRODUCT_IMAGES: Record<string, string> = {
-    // ── Apple SoHo ──────────────────────────────────────────────────────────────
-    // "a white cell phone sitting on top of a pink and blue background"
-    "iPhone 16 Pro":                    `${U}1680985551009-05107cd2752c${Q}`,
-    // "white apple airpods on brown wooden table"
-    "AirPods Pro (2nd Gen)":            `${U}1587523459887-e669248cf666${Q}`,
-    // "a laptop computer sitting on top of a table"
-    "MacBook Air M3":                   `${U}1681702114246-ffe628203982${Q}`,
-    // "black smart watch with white background"
-    "Apple Watch Series 10":            `${U}1624096104992-9b4fa3a279dd${Q}`,
-    // ── Zara SoHo ────────────────────────────────────────────────────────────────
-    // "A woman in a gray blazer and black skirt outdoors"
-    "Structured Blazer":                `${U}1770364020677-103b8eb265d4${Q}`,
-    // "A woman standing in the sand with her hand on her hip" (wide-leg silhouette)
-    "Wide Leg Trousers":                `${U}1723826753103-059ab0675e86${Q}`,
-    // "a person holding a black bag in their hand"
-    "Leather Crossbody Bag":            `${U}1671028547411-12a7fb233ddd${Q}`,
-    // "a person wearing a coat and a white shirt"
-    "Oversized Trench Coat":            `${U}1674719144570-0728faf14f96${Q}`,
-    // ── Louis Vuitton ─────────────────────────────────────────────────────────────
-    // "a brown and tan louis vuitton bag"
-    "Neverfull MM":                     `${U}1691480288782-142b953cf664${Q}`,
-    // "a hand holding a wallet with a credit card in it"
-    "Card Holder":                      `${U}1678554832890-2ea5d37278af${Q}`,
-    // "A brown leather handbag rests on dark satin fabric"
-    "Speedy Bandoulière 25":            `${U}1759432614301-b75386875a20${Q}`,
-    // ── Nike ────────────────────────────────────────────────────────────────────
-    // "white nike air force 1"
-    "Air Force 1 '07":                  `${U}1617659512089-6fdec6c54406${Q}`,
-    // "person wearing black and pink nike athletic shoes"
-    "Air Max 90":                       `${U}1603036051295-debb6ea4fcd9${Q}`,
-    // "woman in gray hoodie standing"
-    "Tech Fleece Hoodie":               `${U}1597767938316-e3b197db76ee${Q}`,
-    // "Beautiful young athlete in sports clothe running on concrete path"
-    "Dri-FIT Training Shorts":          `${U}1663054541930-42c3cc9d5a47${Q}`,
-    // ── Aime Leon Dore ────────────────────────────────────────────────────────────
-    // "Person wears new balance sneakers on wooden planks"
-    "New Balance 990v3 for ALD":        `${U}1747679181924-c606d83f866d${Q}`,
-    // "A man sitting on the ground with his legs crossed"
-    "Newport Short":                    `${U}1727942411342-b16f0d576bfd${Q}`,
-    // "man in black suit jacket sitting beside brown wooden table"
-    "Suede Track Jacket":               `${U}1602331970455-e96bd5da0f0e${Q}`,
-    // ── Kith ─────────────────────────────────────────────────────────────────────
-    // "Fashion portrait of black man in yellow hoodie on color background"
-    "Williams III Hoodie":              `${U}1683147716541-6af3be6bf9e1${Q}`,
-    // "Woman wearing design space white tee"
-    "Classic Logo Tee":                 `${U}1726750926760-2e31bfdaded2${Q}`,
-    // "black and white adidas shoe"
-    "Kith x Adidas Forum Low":          `${U}1629955282615-8e86ac499410${Q}`,
-    // ── Miu Miu ──────────────────────────────────────────────────────────────────
-    // "quilted brown leather" — matches Wander Matelassé texture
-    "Wander Matelassé Bag":             `${U}1564842505181-8862a3b9b173${Q}`,
-    // "Close-up of ballet dancer's feet in pink satin shoes"
-    "Mary Jane Ballet Flats":           `${U}1770320476017-870f9e143a0a${Q}`,
-    // cardigan-fashion-women search result
-    "Logo Mohair Cardigan":             `${U}1737659209063-32e2b1a385a5${Q}`,
-    // ── Jacquemus ─────────────────────────────────────────────────────────────────
-    // "A woman holding a beige purse in her hand"
-    "Le Chiquito Noeud":                `${U}1723826750819-02ee8f2e5a0c${Q}`,
-    // "a woman wearing a tan shirt and blue jeans"
-    "Le T-shirt Camargue":              `${U}1690338237128-b32fedb44d55${Q}`,
-    // "Straw hats with decorative ribbons displayed outdoors"
-    "Le Raphia Hat":                    `${U}1758900494591-482f42d473a6${Q}`,
-    // ── Bergdorf Goodman ──────────────────────────────────────────────────────────
-    // "a brown leather handbag with a long strap"
-    "Bottega Veneta Pouch":             `${U}1637759292654-a12cb2be085e${Q}`,
-    // "woman in beige knit off shoulder top"
-    "Loro Piana Cashmere Sweater":      `${U}1601762267916-6668efcbc741${Q}`,
-    // "Sparkling heels with bows adorn elegant ankles"
-    "Amina Muaddi Heels":               `${U}1769787147452-921f573829bd${Q}`,
-    // ── Alo ───────────────────────────────────────────────────────────────────────
-    // "woman in black sports bra and black pants standing on gray concrete stairs"
-    "Warrior Compression Legging":      `${U}1596641211273-938aeaf926a9${Q}`,
-    // "a woman in a green sports bra top"
-    "Alosoft Finesse Bra":              `${U}1682523426986-92746735ccc2${Q}`,
-    // "Green knitted sweater with zipper detail"
-    "Chill Half-Zip Pullover":          `${U}1758742058908-075e3618f5f4${Q}`,
-    // ── Cos ───────────────────────────────────────────────────────────────────────
-    // "Close-up of a woman's arm in a light pink coat"
-    "Fluid Trench Coat":                `${U}1764601209394-8912e66c9455${Q}`,
-    // "a woman in a black shirt and blue jeans" (wide-leg silhouette)
-    "Wide-Leg Trouser":                 `${U}1690820317396-8e774f98482e${Q}`,
-    // "A woman standing outside of a store with a tote bag"
-    "Structured Tote Bag":              `${U}1721111260492-afe3d9e5bd76${Q}`,
-    // ── Aesop ────────────────────────────────────────────────────────────────────
-    // "Niacinamide serum bottle with lab equipment"
-    "Parsley Seed Facial Serum":        `${U}1766940095250-5c7715ab57ea${Q}`,
-    // "a bottle of soap next to a soap bar"
-    "Reverence Aromatique Hand Wash":   `${U}1671379513621-bd4bff9f7557${Q}`,
-    // "Foaming cleanser bottle with natural elements"
-    "Fabulous Face Cleanser":           `${U}1763622499218-37fdfc7a590a${Q}`,
-    // ── Chanel ────────────────────────────────────────────────────────────────────
-    // "a bottle of chanel no 5 on a white surface"
-    "N°5 Eau de Parfum":               `${U}1681237398100-4d3b1618b6c4${Q}`,
-    // "Close-up of black mascara wands and tubes"
-    "Le Volume de Chanel Mascara":      `${U}1762164049428-118844de34d6${Q}`,
-    // "A bottle of perfume sitting on top of a table"
-    "Coco Mademoiselle EDP":            `${U}1739831741094-dbe81337661a${Q}`,
-    // ── Skims ────────────────────────────────────────────────────────────────────
-    // "a woman in a tan bodysuit posing for the camera"
-    "Cotton Rib Bodysuit":              `${U}1671717726282-7f2f479f0c87${Q}`,
-    // "A woman's dress flows across pavement"
-    "Fits Everybody Slip Dress":        `${U}1744886856928-13a745203445${Q}`,
-    // "Woman wearing navy blue silk pajamas with white trim"
-    "Soft Lounge Long Sleeve":          `${U}1766056278944-ca0e4f49e61f${Q}`,
-};
-
 type SeedStatus = "idle" | "running" | "done" | "error";
 type StoreResult = { name: string; status: "added" | "skipped" | "error"; message?: string };
 
@@ -611,15 +366,9 @@ export default function SettingsPage() {
     const [multiResults, setMultiResults] = useState<StoreResult[]>([]);
     const [multiProgress, setMultiProgress] = useState(0);
 
-    // Product seed state
-    const [productSeedStatus, setProductSeedStatus] = useState<SeedStatus>("idle");
-    const [productResults, setProductResults] = useState<StoreResult[]>([]);
-    const [productProgress, setProductProgress] = useState(0);
-
-    // Image seed state
-    const [imageSeedStatus, setImageSeedStatus] = useState<SeedStatus>("idle");
-    const [imageSeedResults, setImageSeedResults] = useState<StoreResult[]>([]);
-    const [imageSeedProgress, setImageSeedProgress] = useState(0);
+    // Delete all products state
+    const [deleteProductsStatus, setDeleteProductsStatus] = useState<SeedStatus>("idle");
+    const [deleteProductsCount, setDeleteProductsCount] = useState(0);
 
     // Revert store images state
     const [revertStatus, setRevertStatus] = useState<SeedStatus>("idle");
@@ -648,7 +397,6 @@ export default function SettingsPage() {
         for (let i = 0; i < SEED_STORES.length; i++) {
             const store = SEED_STORES[i];
             try {
-                // Check if store already exists (avoid duplicates)
                 const existing = await getDocs(
                     query(collection(db, "stores"), where("name", "==", store.name))
                 );
@@ -721,104 +469,27 @@ export default function SettingsPage() {
     const multiSkipped = multiResults.filter(r => r.status === "skipped").length;
     const multiErrors = multiResults.filter(r => r.status === "error").length;
 
-    // ── Product Seed Handler ────────────────────────────────────────────────
-    const handleSeedProducts = async () => {
-        setProductSeedStatus("running");
-        setProductResults([]);
-        setProductProgress(0);
-        const newResults: StoreResult[] = [];
-        const total = SEED_PRODUCTS.reduce((acc, s) => acc + s.products.length, 0);
-        let done = 0;
-
-        for (const storeSeed of SEED_PRODUCTS) {
-            // Look up store by name to get its Firestore ID
-            const storeSnap = await getDocs(query(collection(db, "stores"), where("name", "==", storeSeed.storeName)));
-            if (storeSnap.empty) {
-                storeSeed.products.forEach(p => newResults.push({ name: `${storeSeed.storeName} / ${p.title}`, status: "error", message: "Store not found — seed stores first" }));
-                done += storeSeed.products.length;
-                setProductProgress(Math.round((done / total) * 100));
-                setProductResults([...newResults]);
-                continue;
+    // ── Delete All Products ─────────────────────────────────────────────────
+    // One-time cleanup: removes every document in the products collection.
+    const handleDeleteAllProducts = async () => {
+        setDeleteProductsStatus("running");
+        setDeleteProductsCount(0);
+        try {
+            const snap = await getDocs(collection(db, "products"));
+            let count = 0;
+            for (const d of snap.docs) {
+                await deleteDoc(doc(db, "products", d.id));
+                count++;
+                setDeleteProductsCount(count);
             }
-            const storeId = storeSnap.docs[0].id;
-
-            for (const product of storeSeed.products) {
-                const key = `${storeSeed.storeName} / ${product.title}`;
-                try {
-                    // Skip if already exists
-                    const existing = await getDocs(query(collection(db, "products"), where("storeId", "==", storeId), where("title", "==", product.title)));
-                    if (!existing.empty) {
-                        newResults.push({ name: key, status: "skipped", message: "Already exists" });
-                    } else {
-                        await addDoc(collection(db, "products"), {
-                            storeId,
-                            title: product.title,
-                            brand: product.brand,
-                            price: product.price,
-                            category: product.category,
-                            deliveryTime: product.deliveryTime,
-                            description: product.description ?? "",
-                            inStock: product.inStock,
-                            imageName: product.imageName,
-                            images: [],
-                            createdAt: serverTimestamp(),
-                        });
-                        newResults.push({ name: key, status: "added" });
-                    }
-                } catch (err: any) {
-                    newResults.push({ name: key, status: "error", message: err.message });
-                }
-                done++;
-                setProductProgress(Math.round((done / total) * 100));
-                setProductResults([...newResults]);
-            }
+            setDeleteProductsStatus("done");
+        } catch (err: any) {
+            console.error("Delete products error:", err);
+            setDeleteProductsStatus("error");
         }
-        setProductSeedStatus(newResults.some(r => r.status === "error") ? "error" : "done");
     };
-
-    const productAdded = productResults.filter(r => r.status === "added").length;
-    const productSkipped = productResults.filter(r => r.status === "skipped").length;
-    const productErrors = productResults.filter(r => r.status === "error").length;
-
-    // ── Image Patch Handler ─────────────────────────────────────────────────
-    // Only patches products — store images are uploaded manually via Stores page.
-    const handleSeedImages = async () => {
-        setImageSeedStatus("running");
-        setImageSeedResults([]);
-        setImageSeedProgress(0);
-        const newResults: StoreResult[] = [];
-
-        const productTitles = Object.keys(PRODUCT_IMAGES);
-        const total = productTitles.length;
-        let done = 0;
-
-        for (const title of productTitles) {
-            const imageUrl = PRODUCT_IMAGES[title];
-            try {
-                const snap = await getDocs(query(collection(db, "products"), where("title", "==", title)));
-                if (snap.empty) {
-                    newResults.push({ name: title, status: "skipped", message: "Not found — seed products first" });
-                } else {
-                    for (const d of snap.docs) await updateDoc(doc(db, "products", d.id), { images: [imageUrl] });
-                    newResults.push({ name: title, status: "added" });
-                }
-            } catch (err: any) {
-                newResults.push({ name: title, status: "error", message: err.message });
-            }
-            done++;
-            setImageSeedProgress(Math.round((done / total) * 100));
-            setImageSeedResults([...newResults]);
-        }
-
-        setImageSeedStatus(newResults.some(r => r.status === "error") ? "error" : "done");
-    };
-
-    const imageSeedAdded = imageSeedResults.filter(r => r.status === "added").length;
-    const imageSeedSkipped = imageSeedResults.filter(r => r.status === "skipped").length;
-    const imageSeedErrors = imageSeedResults.filter(r => r.status === "error").length;
 
     // ── Revert Store Images Handler ─────────────────────────────────────────
-    // Clears image + logo on every store so manually-uploaded images can be re-added.
     const handleRevertStoreImages = async () => {
         setRevertStatus("running");
         setRevertResults([]);
@@ -867,27 +538,24 @@ export default function SettingsPage() {
 
             {/* Seed Stores */}
             <div className="rounded-xl border border-white/10 bg-neutral-900/50 p-6 space-y-4">
-                <div className="flex items-start justify-between">
-                    <div>
-                        <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                            <Upload className="h-5 w-5 text-blue-400" />
-                            Seed All Stores to Firestore
-                        </h3>
-                        <p className="text-sm text-neutral-400 mt-1">
-                            Pushes all 12 Snatchd stores (Louis Vuitton, Nike, ALD, Kith, Miu Miu, Jacquemus,
-                            Bergdorf, Alo, Cos, Aesop, Chanel, Skims) into Firestore with their names,
-                            descriptions, addresses, and coordinates. Skips any store that already exists.
-                            After seeding, upload images via the Stores page.
-                        </p>
-                    </div>
+                <div>
+                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                        <Upload className="h-5 w-5 text-blue-400" />
+                        Seed All Stores to Firestore
+                    </h3>
+                    <p className="text-sm text-neutral-400 mt-1">
+                        Pushes all 12 Snatchd stores (Louis Vuitton, Nike, ALD, Kith, Miu Miu, Jacquemus,
+                        Bergdorf, Alo, Cos, Aesop, Chanel, Skims) into Firestore with their names,
+                        descriptions, addresses, and coordinates. Skips any store that already exists.
+                        After seeding, upload images via the Stores page.
+                    </p>
                 </div>
 
                 <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 flex gap-2 text-sm text-yellow-300">
                     <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span>This is safe to run multiple times — it skips stores that already exist. Only runs <strong>adds</strong>, never deletes.</span>
+                    <span>Safe to run multiple times — skips stores that already exist. Never deletes.</span>
                 </div>
 
-                {/* Progress Bar */}
                 {seedStatus === "running" && (
                     <div className="space-y-1">
                         <div className="flex justify-between text-xs text-neutral-400">
@@ -895,15 +563,11 @@ export default function SettingsPage() {
                             <span>{progress}%</span>
                         </div>
                         <div className="h-2 rounded-full bg-neutral-800 overflow-hidden">
-                            <div
-                                className="h-full bg-white rounded-full transition-all duration-300"
-                                style={{ width: `${progress}%` }}
-                            />
+                            <div className="h-full bg-white rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
                         </div>
                     </div>
                 )}
 
-                {/* Results */}
                 {results.length > 0 && (
                     <div className="space-y-2">
                         {(seedStatus === "done" || seedStatus === "error") && (
@@ -955,24 +619,22 @@ export default function SettingsPage() {
 
             {/* Seed Multi-Location Stores */}
             <div className="rounded-xl border border-white/10 bg-neutral-900/50 p-6 space-y-4">
-                <div className="flex items-start justify-between">
-                    <div>
-                        <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                            <Upload className="h-5 w-5 text-purple-400" />
-                            Seed Multi-Location Stores (Location Filtering)
-                        </h3>
-                        <p className="text-sm text-neutral-400 mt-1">
-                            Seeds Apple (SoHo, 5th Ave, UWS, Grand Central), Zara (SoHo, 5th Ave, Columbus Circle,
-                            Midtown East), Aesop (West Village, UES), and Alo (UES, Flatiron) — each as a separate
-                            Firestore document with neighborhood-specific lat/lng. The iOS app uses GPS to show
-                            only the stores near the user.
-                        </p>
-                    </div>
+                <div>
+                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                        <Upload className="h-5 w-5 text-purple-400" />
+                        Seed Multi-Location Stores (Location Filtering)
+                    </h3>
+                    <p className="text-sm text-neutral-400 mt-1">
+                        Seeds Apple (SoHo, 5th Ave, UWS, Grand Central), Zara (SoHo, 5th Ave, Columbus Circle,
+                        Midtown East), Aesop (West Village, UES), and Alo (UES, Flatiron) — each as a separate
+                        Firestore document with neighborhood-specific lat/lng. The iOS app uses GPS to show
+                        only the stores near the user.
+                    </p>
                 </div>
 
                 <div className="rounded-lg border border-purple-500/30 bg-purple-500/10 p-3 flex gap-2 text-sm text-purple-300">
                     <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span>Run this <strong>after</strong> the main seed above. Each location is its own Firestore document — add products to each separately via the Stores page.</span>
+                    <span>Run this <strong>after</strong> the main seed above. Add products to each location separately via the Stores page.</span>
                 </div>
 
                 {multiSeedStatus === "running" && (
@@ -1027,65 +689,49 @@ export default function SettingsPage() {
                 </button>
             </div>
 
-            {/* Seed Products */}
-            <div className="rounded-xl border border-white/10 bg-neutral-900/50 p-6 space-y-4">
+            {/* Delete All Products */}
+            <div className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-6 space-y-4">
                 <div>
                     <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                        <Upload className="h-5 w-5 text-green-400" />
-                        Seed Product Catalog
+                        <Trash2 className="h-5 w-5 text-orange-400" />
+                        Delete All Products
                     </h3>
                     <p className="text-sm text-neutral-400 mt-1">
-                        Seeds 3–4 real products for each of the 14 brands (Apple, Zara, LV, Nike, ALD, Kith, Miu Miu,
-                        Jacquemus, Bergdorf, Alo, Cos, Aesop, Chanel, Skims). Looks up each store by name to attach
-                        the correct <code className="text-green-300">storeId</code>. Run the Store seeds first.
+                        Permanently deletes every document in the <code className="text-orange-300">products</code> collection.
+                        Use this to start fresh before adding real products through the Stores page.
+                        Store records and images are not affected.
                     </p>
                 </div>
-                <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 flex gap-2 text-sm text-yellow-300">
+                <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 p-3 flex gap-2 text-sm text-orange-300">
                     <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span>Safe to re-run — skips products that already exist for that store.</span>
+                    <span><strong>Irreversible.</strong> All products will be permanently removed from Firestore.</span>
                 </div>
 
-                {productSeedStatus === "running" && (
-                    <div className="space-y-1">
-                        <div className="flex justify-between text-xs text-neutral-400">
-                            <span>Seeding products...</span><span>{productProgress}%</span>
-                        </div>
-                        <div className="h-2 rounded-full bg-neutral-800 overflow-hidden">
-                            <div className="h-full bg-green-500 rounded-full transition-all duration-300" style={{ width: `${productProgress}%` }} />
-                        </div>
-                    </div>
+                {deleteProductsStatus === "done" && (
+                    <p className="text-sm text-green-300 font-medium">
+                        <CheckCircle className="inline h-4 w-4 mr-1" />
+                        {deleteProductsCount} product{deleteProductsCount !== 1 ? "s" : ""} deleted.
+                    </p>
                 )}
-
-                {productResults.length > 0 && (
-                    <div className="space-y-2">
-                        {(productSeedStatus === "done" || productSeedStatus === "error") && (
-                            <p className="text-sm font-medium text-neutral-300">{productAdded} added · {productSkipped} skipped · {productErrors} errors</p>
-                        )}
-                        <div className="grid grid-cols-2 gap-1.5 max-h-60 overflow-y-auto pr-1">
-                            {productResults.map((r, i) => (
-                                <div key={i} className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs border ${
-                                    r.status === "added" ? "border-green-500/30 bg-green-500/10 text-green-300"
-                                    : r.status === "skipped" ? "border-neutral-700 bg-neutral-800/50 text-neutral-400"
-                                    : "border-red-500/30 bg-red-500/10 text-red-300"
-                                }`}>
-                                    {r.status === "added" ? <CheckCircle className="h-3 w-3 shrink-0" />
-                                    : r.status === "skipped" ? <span className="shrink-0">—</span>
-                                    : <XCircle className="h-3 w-3 shrink-0" />}
-                                    <span className="truncate">{r.name}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
+                {deleteProductsStatus === "error" && (
+                    <p className="text-sm text-red-300 font-medium">
+                        <XCircle className="inline h-4 w-4 mr-1" />
+                        Something went wrong. Check the console.
+                    </p>
                 )}
 
                 <button
-                    onClick={handleSeedProducts}
-                    disabled={productSeedStatus === "running"}
-                    className="flex items-center gap-2 rounded-lg bg-green-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-green-500 transition disabled:opacity-50"
+                    onClick={handleDeleteAllProducts}
+                    disabled={deleteProductsStatus === "running" || deleteProductsStatus === "done"}
+                    className="flex items-center gap-2 rounded-lg bg-orange-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-orange-600 transition disabled:opacity-50"
                 >
-                    {productSeedStatus === "running" ? <><Loader2 className="h-4 w-4 animate-spin" /> Seeding...</>
-                    : productSeedStatus === "done" ? <><CheckCircle className="h-4 w-4" /> Seed Again</>
-                    : <><Upload className="h-4 w-4" /> Seed All Products (~46 items)</>}
+                    {deleteProductsStatus === "running" ? (
+                        <><Loader2 className="h-4 w-4 animate-spin" /> Deleting ({deleteProductsCount} so far)...</>
+                    ) : deleteProductsStatus === "done" ? (
+                        <><CheckCircle className="h-4 w-4" /> Done</>
+                    ) : (
+                        <><Trash2 className="h-4 w-4" /> Delete All Products</>
+                    )}
                 </button>
             </div>
 
@@ -1105,7 +751,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 flex gap-2 text-sm text-red-300">
                     <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span>This clears store image URLs for <strong>all</strong> stores. Re-upload via the Stores page after running.</span>
+                    <span>Clears store image URLs for <strong>all</strong> stores. Re-upload via the Stores page after running.</span>
                 </div>
 
                 {revertResults.length > 0 && (
@@ -1135,69 +781,6 @@ export default function SettingsPage() {
                     {revertStatus === "running" ? <><Loader2 className="h-4 w-4 animate-spin" /> Clearing...</>
                     : revertStatus === "done" ? <><CheckCircle className="h-4 w-4" /> Done — Re-upload via Stores page</>
                     : <><XCircle className="h-4 w-4" /> Clear All Store Images</>}
-                </button>
-            </div>
-
-            {/* Patch Product Images */}
-            <div className="rounded-xl border border-white/10 bg-neutral-900/50 p-6 space-y-4">
-                <div>
-                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                        <Upload className="h-5 w-5 text-pink-400" />
-                        Patch Product Images
-                    </h3>
-                    <p className="text-sm text-neutral-400 mt-1">
-                        Writes a product photo into each seeded product's <code className="text-pink-300">images</code> array
-                        in Firestore — so the iOS app shows real product imagery. Store images are managed
-                        separately via the Stores page and are not touched here.
-                    </p>
-                </div>
-                <div className="rounded-lg border border-pink-500/30 bg-pink-500/10 p-3 flex gap-2 text-sm text-pink-300">
-                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span>Run this <strong>after</strong> Seed Product Catalog. Products not yet in Firestore will be skipped.</span>
-                </div>
-
-                {imageSeedStatus === "running" && (
-                    <div className="space-y-1">
-                        <div className="flex justify-between text-xs text-neutral-400">
-                            <span>Patching images...</span><span>{imageSeedProgress}%</span>
-                        </div>
-                        <div className="h-2 rounded-full bg-neutral-800 overflow-hidden">
-                            <div className="h-full bg-pink-500 rounded-full transition-all duration-300" style={{ width: `${imageSeedProgress}%` }} />
-                        </div>
-                    </div>
-                )}
-
-                {imageSeedResults.length > 0 && (
-                    <div className="space-y-2">
-                        {(imageSeedStatus === "done" || imageSeedStatus === "error") && (
-                            <p className="text-sm font-medium text-neutral-300">{imageSeedAdded} updated · {imageSeedSkipped} skipped · {imageSeedErrors} errors</p>
-                        )}
-                        <div className="grid grid-cols-2 gap-1.5 max-h-60 overflow-y-auto pr-1">
-                            {imageSeedResults.map((r, i) => (
-                                <div key={i} className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs border ${
-                                    r.status === "added" ? "border-green-500/30 bg-green-500/10 text-green-300"
-                                    : r.status === "skipped" ? "border-neutral-700 bg-neutral-800/50 text-neutral-400"
-                                    : "border-red-500/30 bg-red-500/10 text-red-300"
-                                }`}>
-                                    {r.status === "added" ? <CheckCircle className="h-3 w-3 shrink-0" />
-                                    : r.status === "skipped" ? <span className="shrink-0">—</span>
-                                    : <XCircle className="h-3 w-3 shrink-0" />}
-                                    <span className="truncate">{r.name}</span>
-                                    {r.message && <span className="text-xs opacity-60 truncate">({r.message})</span>}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                <button
-                    onClick={handleSeedImages}
-                    disabled={imageSeedStatus === "running"}
-                    className="flex items-center gap-2 rounded-lg bg-pink-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-pink-500 transition disabled:opacity-50"
-                >
-                    {imageSeedStatus === "running" ? <><Loader2 className="h-4 w-4 animate-spin" /> Patching...</>
-                    : imageSeedStatus === "done" ? <><CheckCircle className="h-4 w-4" /> Patch Again</>
-                    : <><Upload className="h-4 w-4" /> Patch All Product Images (~46 items)</>}
                 </button>
             </div>
 
