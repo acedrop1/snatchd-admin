@@ -17,6 +17,15 @@ const typeToCategory = (productType: string, tags: string[]): string => {
     return "Clothing";
 };
 
+const extractGender = (productType: string, tags: string[], title: string): string => {
+    const all = [productType, ...tags, title].join(" ").toLowerCase();
+    // Check women first (so "women" doesn't match the "men" check)
+    if (all.includes("women") || all.includes("wmns") || all.includes("wmen")) return "Women";
+    if (all.includes("men") || all.includes("mens") || all.includes("male")) return "Men";
+    if (all.includes("kid") || all.includes("youth") || all.includes("infant") || all.includes("toddler")) return "Kids";
+    return "Unisex";
+};
+
 export async function GET() {
     try {
         const res = await fetch(SKIMS_URL, {
@@ -52,6 +61,7 @@ export async function GET() {
                     brand: "Kith",
                     price,
                     category: typeToCategory(p.product_type, p.tags ?? []),
+                    gender: extractGender(p.product_type, p.tags ?? [], p.title),
                     deliveryTime: "40 Mins",
                     description: p.body_html
                         ? p.body_html.replace(/<[^>]+>/g, "").slice(0, 120).trim()
