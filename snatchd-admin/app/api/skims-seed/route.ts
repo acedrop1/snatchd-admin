@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const SKIMS_URL = "https://skims.com/products.json?limit=30";
+const SKIMS_URL = "https://kith.com/products.json?limit=30";
 
 const toTitleCase = (s: string) =>
     s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -49,7 +49,7 @@ export async function GET() {
                 return {
                     externalId: String(p.id),
                     title: toTitleCase(p.title),
-                    brand: "Skims",
+                    brand: "Kith",
                     price,
                     category: typeToCategory(p.product_type, p.tags ?? []),
                     deliveryTime: "40 Mins",
@@ -59,7 +59,7 @@ export async function GET() {
                     color: "",
                     inStock: p.variants.some((v: any) => v.available),
                     images,
-                    source: "skims_shopify",
+                    source: "kith_shopify",
                 };
             });
 
