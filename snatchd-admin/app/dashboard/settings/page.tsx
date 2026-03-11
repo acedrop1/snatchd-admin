@@ -370,6 +370,13 @@ export default function SettingsPage() {
     const [deleteProductsStatus, setDeleteProductsStatus] = useState<SeedStatus>("idle");
     const [deleteProductsCount, setDeleteProductsCount] = useState(0);
 
+    // Zara product seed state
+    const [zaraStatus, setZaraStatus] = useState<SeedStatus>("idle");
+    const [zaraProgress, setZaraProgress] = useState(0);
+    const [zaraTotal, setZaraTotal] = useState(0);
+    const [zaraCount, setZaraCount] = useState(0);
+    const [zaraError, setZaraError] = useState<string | null>(null);
+
     // Revert store images state
     const [revertStatus, setRevertStatus] = useState<SeedStatus>("idle");
     const [revertResults, setRevertResults] = useState<StoreResult[]>([]);
@@ -486,6 +493,54 @@ export default function SettingsPage() {
         } catch (err: any) {
             console.error("Delete products error:", err);
             setDeleteProductsStatus("error");
+        }
+    };
+
+    // ── Seed Zara Products Handler ──────────────────────────────────────────
+    const ZARA_STORE_IDS = [
+        "Du7deSoLiKbUbmoxSxDx", // Zara Midtown East
+        "NXOeqVgXuiEKkBG9q4qm", // Zara SoHo
+        "Szsli4dmIh7gUWr5gysP", // Zara Fifth Avenue
+        "iIsoy8QfKuYWgFvTsnkD", // Zara Columbus Circle
+    ];
+
+    const handleSeedZaraProducts = async () => {
+        setZaraStatus("running");
+        setZaraProgress(0);
+        setZaraCount(0);
+        setZaraTotal(0);
+        setZaraError(null);
+
+        try {
+            const res = await fetch("/api/zara-seed");
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                throw new Error(body.error ?? `HTTP ${res.status}`);
+            }
+            const { products } = await res.json();
+            const total = products.length * ZARA_STORE_IDS.length;
+            setZaraTotal(total);
+
+            let written = 0;
+            for (const product of products) {
+                for (const storeId of ZARA_STORE_IDS) {
+                    const docId = `zara_${product.externalId}_${storeId}`;
+                    await setDoc(doc(db, "products", docId), {
+                        ...product,
+                        storeId,
+                        createdAt: serverTimestamp(),
+                        updatedAt: serverTimestamp(),
+                    });
+                    written++;
+                    setZaraCount(written);
+                    setZaraProgress(Math.round((written / total) * 100));
+                }
+            }
+
+            setZaraStatus("done");
+        } catch (err: any) {
+            setZaraError(err.message ?? "Unknown error");
+            setZaraStatus("error");
         }
     };
 
@@ -685,6 +740,66 @@ export default function SettingsPage() {
                         <><CheckCircle className="h-4 w-4" /> Seed Again</>
                     ) : (
                         <><Upload className="h-4 w-4" /> Seed 12 Multi-Location Stores</>
+                    )}
+                </button>
+            </div>
+
+            {/* Seed Zara Products */}
+            <div className="rounded-xl border border-teal-500/30 bg-teal-500/5 p-6 space-y-4">
+                <div>
+                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                        <Upload className="h-5 w-5 text-teal-400" />
+                        Seed Zara New In — Products
+                    </h3>
+                    <p className="text-sm text-neutral-400 mt-1">
+                        Fetches up to 30 products from Zara's live "New In Women" collection and writes
+                        them to all 4 Zara locations (Midtown East, SoHo, Fifth Avenue, Columbus Circle).
+                        Uses deterministic doc IDs so re-running is safe — existing products are upserted, not duplicated.
+                    </p>
+                </div>
+
+                <div className="rounded-lg border border-teal-500/30 bg-teal-500/10 p-3 flex gap-2 text-sm text-teal-300">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>Safe to run multiple times — overwrites with the latest Zara data. Run daily to keep products fresh.</span>
+                </div>
+
+                {zaraStatus === "running" && (
+                    <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-neutral-400">
+                            <span>Writing products to Firestore… ({zaraCount} / {zaraTotal || "?"})</span>
+                            <span>{zaraProgress}%</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-neutral-800 overflow-hidden">
+                            <div className="h-full bg-teal-500 rounded-full transition-all duration-300" style={{ width: `${zaraProgress}%` }} />
+                        </div>
+                    </div>
+                )}
+
+                {zaraStatus === "done" && (
+                    <p className="text-sm text-green-300 font-medium">
+                        <CheckCircle className="inline h-4 w-4 mr-1" />
+                        {zaraCount} product docs written across {ZARA_STORE_IDS.length} Zara locations.
+                    </p>
+                )}
+
+                {zaraStatus === "error" && (
+                    <p className="text-sm text-red-300 font-medium">
+                        <XCircle className="inline h-4 w-4 mr-1" />
+                        {zaraError ?? "Something went wrong. Check the console."}
+                    </p>
+                )}
+
+                <button
+                    onClick={handleSeedZaraProducts}
+                    disabled={zaraStatus === "running"}
+                    className="flex items-center gap-2 rounded-lg bg-teal-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-teal-500 transition disabled:opacity-50"
+                >
+                    {zaraStatus === "running" ? (
+                        <><Loader2 className="h-4 w-4 animate-spin" /> Seeding Zara…</>
+                    ) : zaraStatus === "done" ? (
+                        <><CheckCircle className="h-4 w-4" /> Seed Again</>
+                    ) : (
+                        <><Upload className="h-4 w-4" /> Seed Zara Products</>
                     )}
                 </button>
             </div>
