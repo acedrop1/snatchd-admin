@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const SKIMS_URL = "https://kith.com/products.json?limit=30";
+const SKIMS_URL = "https://kith.com/products.json?limit=50";
 
 const toTitleCase = (s: string) =>
     s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -49,7 +49,7 @@ export async function GET() {
 
         const products = raw
             .filter((p: any) => p.images?.length > 0 && p.variants?.length > 0)
-            .slice(0, 30)
+            .slice(0, 50)
             .map((p: any) => {
                 const price = parseFloat(p.variants[0]?.price ?? "0");
                 const image = p.images[0]?.src ?? "";

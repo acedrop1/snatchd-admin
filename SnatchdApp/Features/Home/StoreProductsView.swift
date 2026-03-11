@@ -22,7 +22,7 @@ struct StoreProductsView: View {
         let order = ["Men", "Women", "Kids", "Unisex"]
         let present = Set(storeProducts.map { $0.gender }).filter { !$0.isEmpty }
         let sorted = order.filter { present.contains($0) }
-        return sorted.count > 1 ? ["All"] + sorted : [] // only show if 2+ genders exist
+        return !sorted.isEmpty ? ["All"] + sorted : [] // show if any gender is tagged
     }
 
     // Dynamically build category tabs — scoped to the selected gender
