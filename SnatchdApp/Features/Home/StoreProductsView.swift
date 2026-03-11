@@ -16,23 +16,26 @@ struct StoreProductsView: View {
     @Namespace private var genderNamespace
     @Namespace private var categoryNamespace
 
-    // Dynamically build gender tabs from this store's products
+    // Always show Men / Women tabs when the store has products
     var genders: [String] {
-        let storeProducts = databaseService.products.filter { $0.storeId == store.firestoreId }
-        let order = ["Men", "Women", "Kids", "Unisex"]
-        let present = Set(storeProducts.map { $0.gender }).filter { !$0.isEmpty }
-        let sorted = order.filter { present.contains($0) }
-        return !sorted.isEmpty ? ["All"] + sorted : [] // show if any gender is tagged
+        let hasProducts = databaseService.products.contains { $0.storeId == store.firestoreId }
+        return hasProducts ? ["All", "Men", "Women"] : []
     }
 
     // Dynamically build category tabs — scoped to the selected gender
     var categories: [String] {
         let storeProducts = databaseService.products.filter {
-            $0.storeId == store.firestoreId &&
-            (selectedGender == "All" || $0.gender == selectedGender)
+            $0.storeId == store.firestoreId && genderMatch(product: $0)
         }
         let unique = Array(Set(storeProducts.map { $0.category })).filter { !$0.isEmpty }.sorted()
         return ["All"] + unique
+    }
+
+    // Unisex products appear under both Men and Women tabs
+    func genderMatch(product: Product) -> Bool {
+        if selectedGender == "All" { return true }
+        if product.gender == "Unisex" || product.gender.isEmpty { return true }
+        return product.gender == selectedGender
     }
 
     let columns = [
@@ -43,10 +46,9 @@ struct StoreProductsView: View {
     var filteredProducts: [Product] {
         return databaseService.products.filter { product in
             let storeMatch = product.storeId == store.firestoreId
-            let genderMatch = selectedGender == "All" || product.gender == selectedGender || product.gender.isEmpty
             let categoryMatch = selectedCategory == "All" || product.category == selectedCategory
             let searchMatch = searchText.isEmpty || product.title.localizedCaseInsensitiveContains(searchText) || product.brand.localizedCaseInsensitiveContains(searchText)
-            return storeMatch && genderMatch && categoryMatch && searchMatch
+            return storeMatch && genderMatch(product: product) && categoryMatch && searchMatch
         }
     }
     
