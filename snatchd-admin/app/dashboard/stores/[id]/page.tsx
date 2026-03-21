@@ -12,7 +12,7 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 const BRAND_CATALOG_URLS: Record<string, string> = {
     "Jacquemus": "https://www.jacquemus.com/en_us/women-newness-view-all?start=0&sz=200",
     "Zara": "https://www.zara.com/us/en/woman-new-in-l1180.html",
-    "Skims": "https://skims.com/collections/new-arrivals",
+    "Skims": "https://skims.com/collections/best-sellers",
 };
 
 function getBrandFromStoreName(name: string): string {
