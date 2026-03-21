@@ -2,14 +2,29 @@
 
 import { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, query, where, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, getDocs, addDoc, serverTimestamp, doc, updateDoc } from "firebase/firestore";
 import Link from "next/link";
-import { Plus, Store as StoreIcon, Loader2 } from "lucide-react";
+import { Plus, Store as StoreIcon, Loader2, EyeOff, Eye } from "lucide-react";
 import { SEED_STORES } from "@/lib/seedStores";
 
 export default function StoresPage() {
     const [stores, setStores] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [togglingId, setTogglingId] = useState<string | null>(null);
+
+    async function toggleVisibility(e: React.MouseEvent, storeId: string, currentIsActive: boolean) {
+        e.preventDefault();
+        e.stopPropagation();
+        setTogglingId(storeId);
+        try {
+            await updateDoc(doc(db, "stores", storeId), { isActive: !currentIsActive });
+            setStores(prev => prev.map(s => s.id === storeId ? { ...s, isActive: !currentIsActive } : s));
+        } catch (err) {
+            console.error("Failed to toggle visibility", err);
+        } finally {
+            setTogglingId(null);
+        }
+    }
 
     useEffect(() => {
         async function fetchAndAutoSeed() {
@@ -102,58 +117,94 @@ export default function StoresPage() {
 
             {/* Store Grid */}
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                {stores.map((store) => (
-                    <Link
-                        href={`/dashboard/stores/${store.id}`}
-                        key={store.id}
-                        className="group relative overflow-hidden rounded-xl border border-white/10 bg-neutral-900/50 transition hover:bg-neutral-900 block hover:ring-1 hover:ring-white/20"
-                    >
-                        {/* Banner/Cover */}
-                        <div className="h-32 bg-neutral-800 relative">
-                            {store.image ? (
-                                <img src={store.image} alt={store.name} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
-                            ) : (
-                                <div className="h-full w-full flex items-center justify-center bg-neutral-800">
-                                    <StoreIcon className="h-8 w-8 text-neutral-600" />
-                                </div>
-                            )}
+                {stores.map((store) => {
+                    const isActive = store.isActive !== false; // treat missing as active
+                    return (
+                        <Link
+                            href={`/dashboard/stores/${store.id}`}
+                            key={store.id}
+                            className={`group relative overflow-hidden rounded-xl border transition block ${
+                                isActive
+                                    ? "border-white/10 bg-neutral-900/50 hover:bg-neutral-900 hover:ring-1 hover:ring-white/20"
+                                    : "border-white/5 bg-neutral-900/20 opacity-50"
+                            }`}
+                        >
+                            {/* Banner/Cover */}
+                            <div className="h-32 bg-neutral-800 relative">
+                                {store.image ? (
+                                    <img src={store.image} alt={store.name} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
+                                ) : (
+                                    <div className="h-full w-full flex items-center justify-center bg-neutral-800">
+                                        <StoreIcon className="h-8 w-8 text-neutral-600" />
+                                    </div>
+                                )}
 
-                            {/* Edit Overlay */}
-                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition backdrop-blur-[2px]">
-                                <span className="px-4 py-2 bg-white text-black text-sm font-bold rounded-full">Edit Store</span>
+                                {/* Edit Overlay */}
+                                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition backdrop-blur-[2px]">
+                                    <span className="px-4 py-2 bg-white text-black text-sm font-bold rounded-full">Edit Store</span>
+                                </div>
+
+                                {/* Hidden badge */}
+                                {!isActive && (
+                                    <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-black/70 border border-white/10 text-xs text-neutral-400 font-medium">
+                                        <EyeOff className="h-3 w-3" />
+                                        Hidden from app
+                                    </div>
+                                )}
+
+                                {/* Visibility toggle */}
+                                <button
+                                    onClick={(e) => toggleVisibility(e, store.id, isActive)}
+                                    title={isActive ? "Hide from app" : "Show in app"}
+                                    className={`absolute top-2 right-2 z-20 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-semibold transition border ${
+                                        isActive
+                                            ? "bg-black/60 border-white/10 text-white hover:bg-red-500/20 hover:border-red-500/40 hover:text-red-400"
+                                            : "bg-green-500/20 border-green-500/30 text-green-400 hover:bg-green-500/30"
+                                    }`}
+                                >
+                                    {togglingId === store.id ? (
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : isActive ? (
+                                        <><Eye className="h-3 w-3" /> Visible</>
+                                    ) : (
+                                        <><EyeOff className="h-3 w-3" /> Hidden</>
+                                    )}
+                                </button>
+
+                                {/* Logo Badge */}
+                                <div className="absolute -bottom-6 left-6 h-12 w-12 rounded-lg border-2 border-black bg-black overflow-hidden shadow-lg z-10">
+                                    {store.logo ? (
+                                        <img src={store.logo} alt="logo" className="h-full w-full object-cover" />
+                                    ) : (
+                                        <div className="h-full w-full bg-neutral-800" />
+                                    )}
+                                </div>
                             </div>
 
-                            {/* Logo Badge */}
-                            <div className="absolute -bottom-6 left-6 h-12 w-12 rounded-lg border-2 border-black bg-black overflow-hidden shadow-lg z-10">
-                                {store.logo ? (
-                                    <img src={store.logo} alt="logo" className="h-full w-full object-cover" />
-                                ) : (
-                                    <div className="h-full w-full bg-neutral-800" />
+                            <div className="p-6 pt-8">
+                                <h3 className={`font-bold text-lg mb-1 transition ${isActive ? "text-white group-hover:text-green-400" : "text-neutral-500"}`}>
+                                    {store.name}
+                                </h3>
+                                <p className="text-sm text-neutral-400 line-clamp-2">{store.description || "No description provided."}</p>
+
+                                <div className="mt-4 flex flex-wrap gap-2">
+                                    {store.categories?.map((cat: string) => (
+                                        <span key={cat} className="px-2 py-1 rounded bg-white/5 text-xs text-neutral-300 border border-white/5">
+                                            {cat}
+                                        </span>
+                                    ))}
+                                </div>
+
+                                {store.externalId && (
+                                    <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-2">
+                                        <div className={`h-2 w-2 rounded-full ${isActive ? "bg-green-500 animate-pulse" : "bg-neutral-600"}`} />
+                                        <span className="text-xs text-neutral-500 font-mono">ID: {store.externalId}</span>
+                                    </div>
                                 )}
                             </div>
-                        </div>
-
-                        <div className="p-6 pt-8">
-                            <h3 className="font-bold text-lg text-white mb-1 group-hover:text-green-400 transition">{store.name}</h3>
-                            <p className="text-sm text-neutral-400 line-clamp-2">{store.description || "No description provided."}</p>
-
-                            <div className="mt-4 flex flex-wrap gap-2">
-                                {store.categories?.map((cat: string) => (
-                                    <span key={cat} className="px-2 py-1 rounded bg-white/5 text-xs text-neutral-300 border border-white/5">
-                                        {cat}
-                                    </span>
-                                ))}
-                            </div>
-
-                            {store.externalId && (
-                                <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-2">
-                                    <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                                    <span className="text-xs text-neutral-500 font-mono">ID: {store.externalId}</span>
-                                </div>
-                            )}
-                        </div>
-                    </Link>
-                ))}
+                        </Link>
+                    );
+                })}
             </div>
         </div>
     );

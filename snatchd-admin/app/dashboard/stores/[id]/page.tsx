@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, Loader2, Package, RefreshCw, CheckCircle, XCircle, ExternalLink, Trash2, AlertTriangle, Layers } from "lucide-react";
+import { ArrowLeft, Loader2, Package, RefreshCw, CheckCircle, XCircle, ExternalLink, Trash2, AlertTriangle, Layers, Eye, EyeOff } from "lucide-react";
 import { db, storage } from "@/lib/firebase";
 import { doc, getDoc, updateDoc, deleteDoc, collection, getDocs, setDoc, serverTimestamp, query, where } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -46,6 +46,10 @@ export default function EditStorePage() {
     const [logoFile, setLogoFile] = useState<File | null>(null);
     const [bannerFile, setBannerFile] = useState<File | null>(null);
 
+    // Visibility
+    const [isActive, setIsActive] = useState(true);
+    const [togglingActive, setTogglingActive] = useState(false);
+
     // Location
     const [address, setAddress] = useState("");
     const [latitude, setLatitude] = useState("");
@@ -81,6 +85,7 @@ export default function EditStorePage() {
                     setDeliveryTime(data.deliveryTime || "30-45 min");
                     setCurrentLogo(data.logo || "");
                     setCurrentBanner(data.image || "");
+                    setIsActive(data.isActive !== false); // treat missing as active
                     setCatalogUrl(getCatalogUrl(data.name || ""));
                     setAddress(data.address || "");
                     setLatitude(data.latitude?.toString() || "");
@@ -132,6 +137,7 @@ export default function EditStorePage() {
                 categories: categories.split(",").map(c => c.trim()).filter(c => c.length > 0),
                 rating: parseFloat(rating),
                 deliveryTime,
+                isActive,
                 address: address.trim() || null,
                 latitude: latitude ? parseFloat(latitude) : null,
                 longitude: longitude ? parseFloat(longitude) : null,
@@ -156,6 +162,21 @@ export default function EditStorePage() {
             console.error("Error deleting store:", error);
             alert("Failed to delete store.");
             setDeleting(false);
+        }
+    };
+
+    // ── Quick visibility toggle (without full save) ───────────────────────────
+    const handleQuickToggle = async () => {
+        setTogglingActive(true);
+        const newValue = !isActive;
+        try {
+            await updateDoc(doc(db, "stores", storeId), { isActive: newValue });
+            setIsActive(newValue);
+        } catch (err) {
+            console.error("Failed to toggle visibility", err);
+            alert("Failed to update visibility.");
+        } finally {
+            setTogglingActive(false);
         }
     };
 
@@ -330,6 +351,48 @@ export default function EditStorePage() {
             {/* Settings Tab */}
             {activeTab === "settings" ? (
                 <form onSubmit={handleSubmit} className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
+                    {/* Visibility Banner */}
+                    <div className={`flex items-center justify-between rounded-xl border p-5 transition ${
+                        isActive
+                            ? "border-green-500/30 bg-green-500/5"
+                            : "border-red-500/30 bg-red-500/5"
+                    }`}>
+                        <div className="flex items-center gap-3">
+                            {isActive
+                                ? <Eye className="h-5 w-5 text-green-400 flex-shrink-0" />
+                                : <EyeOff className="h-5 w-5 text-red-400 flex-shrink-0" />
+                            }
+                            <div>
+                                <p className={`font-semibold text-sm ${isActive ? "text-green-400" : "text-red-400"}`}>
+                                    {isActive ? "Visible in app" : "Hidden from app"}
+                                </p>
+                                <p className="text-xs text-neutral-500 mt-0.5">
+                                    {isActive
+                                        ? "Customers can see and shop this store."
+                                        : "This store is temporarily hidden from customers."
+                                    }
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleQuickToggle}
+                            disabled={togglingActive}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border transition ${
+                                isActive
+                                    ? "bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20"
+                                    : "bg-green-500/10 border-green-500/30 text-green-400 hover:bg-green-500/20"
+                            }`}
+                        >
+                            {togglingActive
+                                ? <Loader2 className="h-4 w-4 animate-spin" />
+                                : isActive
+                                    ? <><EyeOff className="h-4 w-4" /> Hide from app</>
+                                    : <><Eye className="h-4 w-4" /> Show in app</>
+                            }
+                        </button>
+                    </div>
+
                     {/* Basic Info */}
                     <div className="space-y-4 rounded-xl border border-white/10 bg-neutral-900/50 p-6">
                         <h3 className="font-semibold text-white">Basic Information</h3>

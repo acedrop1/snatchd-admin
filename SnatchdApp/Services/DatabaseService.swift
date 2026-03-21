@@ -75,6 +75,11 @@ class DatabaseService: ObservableObject {
             DispatchQueue.main.async {
                 self.stores = documents.compactMap { doc -> Store? in
                     let data = doc.data()
+
+                    // Skip stores hidden from the app by the admin portal
+                    let isActive = data["isActive"] as? Bool ?? true
+                    guard isActive else { return nil }
+
                     let firestoreId = doc.documentID
                     let name = data["name"] as? String ?? ""
                     let category = (data["categories"] as? [String])?.first ?? data["category"] as? String ?? ""
