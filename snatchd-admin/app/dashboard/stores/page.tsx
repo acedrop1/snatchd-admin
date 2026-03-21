@@ -2,10 +2,9 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, writeBatch } from "firebase/firestore";
+import { collection, getDocs, doc, updateDoc, writeBatch } from "firebase/firestore";
 import Link from "next/link";
-import { Plus, Store as StoreIcon, Loader2, EyeOff, Eye, CheckSquare, Square, Trash2, Tag, X, Check, ChevronDown } from "lucide-react";
-import { SEED_STORES } from "@/lib/seedStores";
+import { Plus, Store as StoreIcon, Loader2, EyeOff, Eye, CheckSquare, Trash2, Tag, X, Check, ChevronDown } from "lucide-react";
 
 const TAG_META: Record<string, { label: string; color: string; activeColor: string }> = {
     foryou:   { label: "#foryou",   color: "bg-purple-500/15 text-purple-300 border-purple-500/20", activeColor: "bg-purple-500/30 text-purple-200 border-purple-400/50" },
@@ -62,28 +61,17 @@ export default function StoresPage() {
     }
 
     useEffect(() => {
-        async function fetchAndAutoSeed() {
+        async function fetchStores() {
             try {
                 const querySnapshot = await getDocs(collection(db, "stores"));
-                const existing = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                const existingNames = new Set(existing.map((s: any) => s.name));
-                const toAdd = SEED_STORES.filter(s => !existingNames.has(s.name));
-                if (toAdd.length > 0) {
-                    await Promise.all(toAdd.map(store =>
-                        addDoc(collection(db, "stores"), { ...store, rating: 5.0, isActive: true, createdAt: serverTimestamp() })
-                    ));
-                    const refreshed = await getDocs(collection(db, "stores"));
-                    setStores(refreshed.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                } else {
-                    setStores(existing);
-                }
+                setStores(querySnapshot.docs.map(d => ({ id: d.id, ...d.data() })));
             } catch (error) {
                 console.error("Error fetching stores:", error);
             } finally {
                 setLoading(false);
             }
         }
-        fetchAndAutoSeed();
+        fetchStores();
     }, []);
 
     const filteredStores = useMemo(() => {
@@ -338,8 +326,8 @@ export default function StoresPage() {
                     <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-neutral-900 mb-4">
                         <StoreIcon className="h-6 w-6 text-neutral-400" />
                     </div>
-                    <h3 className="text-lg font-medium text-white">No stores configured</h3>
-                    <p className="text-sm text-neutral-500 mt-1 max-w-sm mx-auto">Get started by adding your first retail partner.</p>
+                    <h3 className="text-lg font-medium text-white">No stores yet</h3>
+                    <p className="text-sm text-neutral-500 mt-1 max-w-sm mx-auto">Add your first retail partner to get started.</p>
                     <Link href="/dashboard/stores/new" className="mt-6 inline-flex items-center gap-2 px-4 py-2 bg-white rounded-md text-sm font-bold text-black hover:bg-neutral-200 transition">
                         Add Store
                     </Link>
