@@ -1,13 +1,18 @@
 import { NextResponse } from 'next/server';
 
-// DEPRECATED: This endpoint is being replaced by Cloud Function for real-time stock checks
-// The new architecture uses:
-// 1. Apify for daily catalog discovery (product IDs, names, images)
-// 2. Cloud Function `checkStock` for on-demand, per-store availability
-//
-// This endpoint remains for backward compatibility but should not be used for new integrations
+// DEPRECATED: Apify sync has been removed.
+// Inventory is now managed directly via the Live Inventory tab in each store's detail page.
+// Use /api/jacquemus-live or the static seed endpoints instead.
 
 export async function POST(req: Request) {
+    return NextResponse.json(
+        { error: "This endpoint has been deprecated. Use the Live Inventory tab in each store to sync products." },
+        { status: 410 }
+    );
+}
+
+// Keep for legacy reference — unused
+async function _legacyPost(req: Request) {
     try {
         const { storeId, externalId, skus } = await req.json();
 

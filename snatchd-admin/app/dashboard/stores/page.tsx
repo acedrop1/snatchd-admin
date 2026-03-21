@@ -2,23 +2,51 @@
 
 import { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, query, where, addDoc, serverTimestamp } from "firebase/firestore";
 import Link from "next/link";
 import { Plus, Store as StoreIcon, Loader2 } from "lucide-react";
+import { SEED_STORES } from "@/lib/seedStores";
 
 export default function StoresPage() {
     const [stores, setStores] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        async function fetchStores() {
+        async function fetchAndAutoSeed() {
             try {
+                // 1. Fetch current stores from Firestore
                 const querySnapshot = await getDocs(collection(db, "stores"));
-                const data = querySnapshot.docs.map(doc => ({
+                const existing = querySnapshot.docs.map(doc => ({
                     id: doc.id,
                     ...doc.data()
                 }));
-                setStores(data);
+
+                const existingNames = new Set(existing.map((s: any) => s.name));
+
+                // 2. Auto-seed any SEED_STORES entries that are missing
+                const toAdd = SEED_STORES.filter(s => !existingNames.has(s.name));
+
+                if (toAdd.length > 0) {
+                    const addPromises = toAdd.map(store =>
+                        addDoc(collection(db, "stores"), {
+                            ...store,
+                            rating: 5.0,
+                            isActive: true,
+                            createdAt: serverTimestamp(),
+                        })
+                    );
+                    await Promise.all(addPromises);
+
+                    // Re-fetch after seeding
+                    const refreshed = await getDocs(collection(db, "stores"));
+                    const data = refreshed.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    }));
+                    setStores(data);
+                } else {
+                    setStores(existing);
+                }
             } catch (error) {
                 console.error("Error fetching stores:", error);
             } finally {
@@ -26,7 +54,7 @@ export default function StoresPage() {
             }
         }
 
-        fetchStores();
+        fetchAndAutoSeed();
     }, []);
 
     return (

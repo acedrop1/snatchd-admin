@@ -9,7 +9,6 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "apify-client": "^2.21.0",
     "clsx": "^2.1.1",
     "firebase": "^12.7.0",
     "lucide-react": "^0.562.0",
