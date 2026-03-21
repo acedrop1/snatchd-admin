@@ -56,8 +56,9 @@ struct Store: Identifiable {
     let longitude: Double? // Store longitude for location filtering
     let deliveryRadius: Double? // Delivery radius in kilometers (default: 5km)
     let deliveryTime: String
+    var tags: [String] = []       // e.g. ["foryou", "trending", "60min"]
     var isSystemImage: Bool = true
-    
+
     // Computed property to determine which image to use
     var displayImageName: String {
         return imageURL ?? imageName

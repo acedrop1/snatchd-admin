@@ -46,6 +46,14 @@ export default function EditStorePage() {
     const [logoFile, setLogoFile] = useState<File | null>(null);
     const [bannerFile, setBannerFile] = useState<File | null>(null);
 
+    // Tags
+    const [tags, setTags] = useState<string[]>([]);
+    const ALL_TAGS = [
+        { value: "foryou",   label: "#foryou",   desc: "Snatchd For You" },
+        { value: "trending", label: "#trending", desc: "Trending in Your Area" },
+        { value: "60min",    label: "#60min",    desc: "Under 60 Minutes" },
+    ];
+
     // Visibility
     const [isActive, setIsActive] = useState(true);
     const [togglingActive, setTogglingActive] = useState(false);
@@ -86,6 +94,7 @@ export default function EditStorePage() {
                     setCurrentLogo(data.logo || "");
                     setCurrentBanner(data.image || "");
                     setIsActive(data.isActive !== false); // treat missing as active
+                    setTags(data.tags || []);
                     setCatalogUrl(getCatalogUrl(data.name || ""));
                     setAddress(data.address || "");
                     setLatitude(data.latitude?.toString() || "");
@@ -138,6 +147,7 @@ export default function EditStorePage() {
                 rating: parseFloat(rating),
                 deliveryTime,
                 isActive,
+                tags,
                 address: address.trim() || null,
                 latitude: latitude ? parseFloat(latitude) : null,
                 longitude: longitude ? parseFloat(longitude) : null,
@@ -391,6 +401,36 @@ export default function EditStorePage() {
                                     : <><Eye className="h-4 w-4" /> Show in app</>
                             }
                         </button>
+                    </div>
+
+                    {/* Home Feed Tags */}
+                    <div className="space-y-4 rounded-xl border border-white/10 bg-neutral-900/50 p-6">
+                        <div>
+                            <h3 className="font-semibold text-white">Home Feed Sections</h3>
+                            <p className="text-xs text-neutral-500 mt-1">Tag this store to control which sections it appears in on the home screen.</p>
+                        </div>
+                        <div className="flex flex-wrap gap-3">
+                            {ALL_TAGS.map(tag => {
+                                const active = tags.includes(tag.value);
+                                return (
+                                    <button
+                                        key={tag.value}
+                                        type="button"
+                                        onClick={() => setTags(prev =>
+                                            active ? prev.filter(t => t !== tag.value) : [...prev, tag.value]
+                                        )}
+                                        className={`flex items-center gap-2 px-4 py-2 rounded-full border text-sm font-medium transition ${
+                                            active
+                                                ? "bg-white text-black border-white"
+                                                : "bg-transparent text-neutral-400 border-neutral-700 hover:border-neutral-500 hover:text-white"
+                                        }`}
+                                    >
+                                        <span className="font-mono">{tag.label}</span>
+                                        <span className={`text-xs ${active ? "text-neutral-600" : "text-neutral-600"}`}>{tag.desc}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
                     </div>
 
                     {/* Basic Info */}

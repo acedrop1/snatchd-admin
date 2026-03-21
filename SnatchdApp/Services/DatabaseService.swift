@@ -9,6 +9,7 @@ class DatabaseService: ObservableObject {
     @Published var products: [Product] = []
     @Published var stores: [Store] = []
     @Published var zaraSohoProducts: [Product] = []
+    @Published var justDroppedProducts: [Product] = []
     /// true when the portal's Test Mode toggle is on — checkout skips real payment
     @Published var testMode: Bool = false
 
@@ -17,6 +18,7 @@ class DatabaseService: ObservableObject {
     private var productsListener: ListenerRegistration?
     private var zaraSohoListener: ListenerRegistration?
     private var configListener: ListenerRegistration?
+    private var justDroppedListener: ListenerRegistration?
 
     private init() {
         // Start all real-time listeners immediately on first access
@@ -30,6 +32,7 @@ class DatabaseService: ObservableObject {
         listenToProducts()
         listenToZaraSohoProducts()
         listenToConfig()
+        listenToJustDropped()
     }
 
     // MARK: - App Config Listener (test mode, feature flags)
@@ -101,6 +104,7 @@ class DatabaseService: ObservableObject {
                     let longitude = data["longitude"] as? Double
                     let deliveryRadius = data["deliveryRadius"] as? Double
                     let deliveryTime = data["deliveryTime"] as? String ?? "45 Mins"
+                    let tags = data["tags"] as? [String] ?? []
                     let isSystemImage = imageURL == nil && logoURL == nil
 
                     return Store(
@@ -114,6 +118,7 @@ class DatabaseService: ObservableObject {
                         longitude: longitude,
                         deliveryRadius: deliveryRadius,
                         deliveryTime: deliveryTime,
+                        tags: tags,
                         isSystemImage: isSystemImage
                     )
                 }
@@ -249,6 +254,66 @@ class DatabaseService: ObservableObject {
             }
     }
 
+    // MARK: - Just Dropped Products Listener
+
+    func listenToJustDropped() {
+        guard justDroppedListener == nil else { return }
+
+        justDroppedListener = db.collection("products")
+            .whereField("isJustDropped", isEqualTo: true)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self = self else { return }
+
+                if let error = error {
+                    print("❌ Just Dropped listener error: \(error.localizedDescription)")
+                    return
+                }
+
+                guard let documents = snapshot?.documents else { return }
+                print("🔄 Just Dropped updated — \(documents.count) products")
+
+                DispatchQueue.main.async {
+                    self.justDroppedProducts = documents.compactMap { doc -> Product? in
+                        let data = doc.data()
+                        let storeId = data["storeId"] as? String ?? ""
+                        let title = data["title"] as? String ?? ""
+                        let brand = data["brand"] as? String ?? ""
+                        let price: Double
+                        if let d = data["price"] as? Double { price = d }
+                        else if let i = data["price"] as? Int { price = Double(i) }
+                        else if let i = data["price"] as? Int64 { price = Double(i) }
+                        else { price = 0.0 }
+                        let images: [String]
+                        if let direct = data["images"] as? [String] { images = direct }
+                        else if let raw = data["images"] as? [Any] { images = raw.compactMap { $0 as? String } }
+                        else { images = [] }
+                        let imageURL = images.first ?? (data["imageURL"] as? String)
+                        let deliveryTime = data["deliveryTime"] as? String ?? "45 Mins"
+                        let category = data["category"] as? String ?? ""
+                        let gender = data["gender"] as? String ?? ""
+                        let sizes: [String]
+                        if let direct = data["sizes"] as? [String] { sizes = direct }
+                        else if let raw = data["sizes"] as? [Any] { sizes = raw.compactMap { $0 as? String } }
+                        else { sizes = [] }
+
+                        return Product(
+                            storeId: storeId,
+                            title: title,
+                            brand: brand,
+                            price: price,
+                            imageName: "photo",
+                            imageURL: imageURL,
+                            deliveryTime: deliveryTime,
+                            category: category,
+                            gender: gender,
+                            sizes: sizes
+                        )
+                    }
+                    print("✅ Just Dropped synced: \(self.justDroppedProducts.count)")
+                }
+            }
+    }
+
     // MARK: - Legacy Fetch Methods (now just ensure listeners are running)
     // These are kept so existing .onAppear { databaseService.fetchStores() } calls still compile.
 
@@ -270,8 +335,10 @@ class DatabaseService: ObservableObject {
         storesListener?.remove()
         productsListener?.remove()
         zaraSohoListener?.remove()
+        justDroppedListener?.remove()
         storesListener = nil
         productsListener = nil
         zaraSohoListener = nil
+        justDroppedListener = nil
     }
 }

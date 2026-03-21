@@ -36,6 +36,11 @@ struct HomeView: View {
         manualCoordinate ?? locationManager.currentLocation
     }
 
+    // Tag-filtered sections — only stores that are both in range AND carry the tag
+    var forYouStores: [Store]    { displayStores.filter { $0.tags.contains("foryou") } }
+    var trendingStores: [Store]  { displayStores.filter { $0.tags.contains("trending") } }
+    var under60Stores: [Store]   { displayStores.filter { $0.tags.contains("60min") } }
+
     // Nearby Firestore stores sorted by distance; empty when location is known but no stores are in range
     var displayStores: [Store] {
         let allStores = databaseService.stores.isEmpty ? MockDataService.shared.stores : databaseService.stores
@@ -194,18 +199,60 @@ struct HomeView: View {
                                 .padding(.horizontal)
                                 .padding(.vertical, 60)
                             } else {
-                                // ── Snatchd For You (Vertical Featured Cards) ─────
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Text("Snatchd For You")
-                                        .font(.custom("Montserrat-Bold", size: 18))
-                                        .foregroundColor(.white)
-                                        .padding(.horizontal)
+                                // ── Snatchd For You ───────────────────────────────
+                                if !forYouStores.isEmpty {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        Text("Snatchd For You")
+                                            .font(.custom("Montserrat-Bold", size: 18))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal)
 
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        HStack(spacing: 15) {
-                                            ForEach(displayStores) { store in
+                                        ScrollView(.horizontal, showsIndicators: false) {
+                                            HStack(spacing: 15) {
+                                                ForEach(forYouStores) { store in
+                                                    NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
+                                                        FeaturedStoreCard(store: store)
+                                                    }
+                                                }
+                                            }
+                                            .padding(.horizontal)
+                                        }
+                                    }
+                                }
+
+                                // ── Trending in Your Area ─────────────────────────
+                                if !trendingStores.isEmpty {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        Text("Trending in Your Area")
+                                            .font(.custom("Montserrat-Bold", size: 18))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal)
+
+                                        ScrollView(.horizontal, showsIndicators: false) {
+                                            HStack(spacing: 15) {
+                                                ForEach(trendingStores) { store in
+                                                    NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
+                                                        TrendingStoreCard(store: store)
+                                                    }
+                                                }
+                                            }
+                                            .padding(.horizontal)
+                                        }
+                                    }
+                                }
+
+                                // ── Under 60 minutes ──────────────────────────────
+                                if !under60Stores.isEmpty {
+                                    VStack(alignment: .leading, spacing: 15) {
+                                        Text("Under 60 minutes")
+                                            .font(.custom("Montserrat-Bold", size: 18))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal)
+
+                                        LazyVGrid(columns: columns, spacing: 20) {
+                                            ForEach(under60Stores) { store in
                                                 NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
-                                                    FeaturedStoreCard(store: store)
+                                                    GridStoreCard(store: store)
                                                 }
                                             }
                                         }
@@ -213,40 +260,41 @@ struct HomeView: View {
                                     }
                                 }
 
-                                // ── Trending in Your Area (Wide Cards) ───────────
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Text("Trending in Your Area")
-                                        .font(.custom("Montserrat-Bold", size: 18))
-                                        .foregroundColor(.white)
+                                // ── Just Dropped ──────────────────────────────────
+                                if !databaseService.justDroppedProducts.isEmpty {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        HStack {
+                                            Text("Just Dropped")
+                                                .font(.custom("Montserrat-Bold", size: 18))
+                                                .foregroundColor(.white)
+                                            Text("NEW")
+                                                .font(.custom("Montserrat-Bold", size: 10))
+                                                .foregroundColor(.black)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 3)
+                                                .background(Color.white)
+                                                .cornerRadius(4)
+                                        }
                                         .padding(.horizontal)
 
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        HStack(spacing: 15) {
-                                            ForEach(displayStores) { store in
-                                                NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
-                                                    TrendingStoreCard(store: store)
+                                        ScrollView(.horizontal, showsIndicators: false) {
+                                            HStack(spacing: 12) {
+                                                ForEach(databaseService.justDroppedProducts) { product in
+                                                    let store = databaseService.stores.first { $0.firestoreId == product.storeId }
+                                                    Group {
+                                                        if let store = store {
+                                                            NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
+                                                                JustDroppedProductCard(product: product)
+                                                            }
+                                                        } else {
+                                                            JustDroppedProductCard(product: product)
+                                                        }
+                                                    }
                                                 }
                                             }
-                                        }
-                                        .padding(.horizontal)
-                                    }
-                                }
-
-                                // ── Under 60 minutes (Grid) ───────────────────────
-                                VStack(alignment: .leading, spacing: 15) {
-                                    Text("Under 60 minutes")
-                                        .font(.custom("Montserrat-Bold", size: 18))
-                                        .foregroundColor(.white)
-                                        .padding(.horizontal)
-
-                                    LazyVGrid(columns: columns, spacing: 20) {
-                                        ForEach(displayStores) { store in
-                                            NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
-                                                GridStoreCard(store: store)
-                                            }
+                                            .padding(.horizontal)
                                         }
                                     }
-                                    .padding(.horizontal)
                                 }
                             }
 
@@ -454,6 +502,57 @@ struct GridStoreCard: View {
         }
     }
 }
+struct JustDroppedProductCard: View {
+    let product: Product
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Product image — portrait 3:4
+            ZStack {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.2))
+                    .aspectRatio(3/4, contentMode: .fit)
+                    .frame(width: 160)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                if let urlString = product.imageURL, let url = URL(string: urlString) {
+                    CachedAsyncImage(url: url) { image in
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        ProgressView()
+                    }
+                    .frame(width: 160)
+                    .aspectRatio(3/4, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                } else {
+                    Image(systemName: "photo")
+                        .font(.system(size: 32))
+                        .foregroundColor(.white.opacity(0.3))
+                }
+            }
+            .frame(width: 160)
+
+            // Info
+            VStack(alignment: .leading, spacing: 2) {
+                Text(product.brand)
+                    .font(.custom("Montserrat-SemiBold", size: 11))
+                    .foregroundColor(.gray)
+                    .lineLimit(1)
+                Text(product.title)
+                    .font(.custom("Montserrat-Bold", size: 13))
+                    .foregroundColor(.white)
+                    .lineLimit(2)
+                Text("$\(product.price, specifier: "%.0f")")
+                    .font(.custom("Montserrat-SemiBold", size: 13))
+                    .foregroundColor(.white)
+            }
+            .frame(width: 160, alignment: .leading)
+        }
+    }
+}
+
 #Preview {
     HomeView(showTabBar: .constant(true), selectedTab: .constant(.stores), showSearch: .constant(false), searchText: .constant(""), isTopSearchActive: .constant(false), scrollToTop: .constant(false), isAtRoot: .constant(true), navID: UUID())
         .preferredColorScheme(.dark)
