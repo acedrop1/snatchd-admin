@@ -213,7 +213,6 @@ struct HomeView: View {
                                     VStack(alignment: .leading, spacing: 10) {
                                         SectionHeader(
                                             title: "Snatchd For You",
-                                            showViewAll: forYouStores.count > 10,
                                             destination: AnyView(
                                                 SectionStoresView(title: "Snatchd For You", stores: forYouStores, showTabBar: $showTabBar, selectedTab: $selectedTab)
                                             )
@@ -236,7 +235,6 @@ struct HomeView: View {
                                     VStack(alignment: .leading, spacing: 10) {
                                         SectionHeader(
                                             title: "Trending in Your Area",
-                                            showViewAll: trendingStores.count > 10,
                                             destination: AnyView(
                                                 SectionStoresView(title: "Trending in Your Area", stores: trendingStores, showTabBar: $showTabBar, selectedTab: $selectedTab)
                                             )
@@ -259,7 +257,6 @@ struct HomeView: View {
                                     VStack(alignment: .leading, spacing: 15) {
                                         SectionHeader(
                                             title: "Under 60 Minutes",
-                                            showViewAll: under60Stores.count > 10,
                                             destination: AnyView(
                                                 SectionStoresView(title: "Under 60 Minutes", stores: under60Stores, showTabBar: $showTabBar, selectedTab: $selectedTab)
                                             )
@@ -277,50 +274,28 @@ struct HomeView: View {
 
                                 // ── Just Dropped ──────────────────────────────────
                                 if !databaseService.justDroppedProducts.isEmpty {
-                                    VStack(alignment: .leading, spacing: 10) {
-                                        HStack(alignment: .center) {
-                                            Text("Just Dropped")
-                                                .font(.custom("Montserrat-Bold", size: 18))
-                                                .foregroundColor(.white)
-                                            Text("NEW")
-                                                .font(.custom("Montserrat-Bold", size: 10))
-                                                .foregroundColor(.black)
-                                                .padding(.horizontal, 6)
-                                                .padding(.vertical, 3)
-                                                .background(Color.white)
-                                                .cornerRadius(4)
-                                            Spacer()
-                                            if databaseService.justDroppedProducts.count > 10 {
-                                                NavigationLink(destination: SectionProductsView(title: "Just Dropped", products: databaseService.justDroppedProducts, stores: databaseService.stores, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
-                                                    HStack(spacing: 4) {
-                                                        Text("View all")
-                                                            .font(.custom("Montserrat-SemiBold", size: 13))
-                                                            .foregroundColor(.gray)
-                                                        Image(systemName: "arrow.right")
-                                                            .font(.system(size: 11, weight: .semibold))
-                                                            .foregroundColor(.gray)
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        SectionHeader(
+                                            title: "Just Dropped",
+                                            destination: AnyView(
+                                                SectionProductsView(title: "Just Dropped", products: databaseService.justDroppedProducts, stores: databaseService.stores, showTabBar: $showTabBar, selectedTab: $selectedTab)
+                                            )
+                                        )
+                                        LazyVGrid(columns: columns, spacing: 16) {
+                                            ForEach(databaseService.justDroppedProducts.prefix(10)) { product in
+                                                let store = databaseService.stores.first { $0.firestoreId == product.storeId }
+                                                Group {
+                                                    if let store = store {
+                                                        NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
+                                                            JustDroppedProductCard(product: product)
+                                                        }
+                                                    } else {
+                                                        JustDroppedProductCard(product: product)
                                                     }
                                                 }
                                             }
                                         }
                                         .padding(.horizontal)
-                                        ScrollView(.horizontal, showsIndicators: false) {
-                                            HStack(spacing: 12) {
-                                                ForEach(databaseService.justDroppedProducts.prefix(10)) { product in
-                                                    let store = databaseService.stores.first { $0.firestoreId == product.storeId }
-                                                    Group {
-                                                        if let store = store {
-                                                            NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
-                                                                JustDroppedProductCard(product: product)
-                                                            }
-                                                        } else {
-                                                            JustDroppedProductCard(product: product)
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            .padding(.horizontal)
-                                        }
                                     }
                                 }
 
@@ -329,7 +304,6 @@ struct HomeView: View {
                                     VStack(alignment: .leading, spacing: 15) {
                                         SectionHeader(
                                             title: "The Full Edit",
-                                            showViewAll: displayStores.count > 10,
                                             destination: AnyView(
                                                 SectionStoresView(title: "The Full Edit", stores: displayStores, showTabBar: $showTabBar, selectedTab: $selectedTab)
                                             )
@@ -554,7 +528,6 @@ struct GridStoreCard: View {
 
 struct SectionHeader: View {
     let title: String
-    let showViewAll: Bool
     let destination: AnyView
 
     var body: some View {
@@ -563,17 +536,11 @@ struct SectionHeader: View {
                 .font(.custom("Montserrat-Bold", size: 18))
                 .foregroundColor(.white)
             Spacer()
-            if showViewAll {
-                NavigationLink(destination: destination) {
-                    HStack(spacing: 4) {
-                        Text("View all")
-                            .font(.custom("Montserrat-SemiBold", size: 13))
-                            .foregroundColor(.gray)
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.gray)
-                    }
-                }
+            NavigationLink(destination: destination) {
+                Text("See More")
+                    .font(.custom("Montserrat-Medium", size: 13))
+                    .foregroundColor(.gray)
+                    .underline()
             }
         }
         .padding(.horizontal)
@@ -658,7 +625,6 @@ struct JustDroppedProductCard: View {
                 Rectangle()
                     .fill(Color.gray.opacity(0.2))
                     .aspectRatio(3/4, contentMode: .fit)
-                    .frame(width: 160)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
 
                 if let urlString = product.imageURL, let url = URL(string: urlString) {
@@ -669,7 +635,6 @@ struct JustDroppedProductCard: View {
                     } placeholder: {
                         ProgressView()
                     }
-                    .frame(width: 160)
                     .aspectRatio(3/4, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                 } else {
@@ -678,7 +643,6 @@ struct JustDroppedProductCard: View {
                         .foregroundColor(.white.opacity(0.3))
                 }
             }
-            .frame(width: 160)
 
             // Info
             VStack(alignment: .leading, spacing: 2) {
@@ -694,7 +658,7 @@ struct JustDroppedProductCard: View {
                     .font(.custom("Montserrat-SemiBold", size: 13))
                     .foregroundColor(.white)
             }
-            .frame(width: 160, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
