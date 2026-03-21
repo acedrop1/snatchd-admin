@@ -175,7 +175,11 @@ export default function EditStorePage() {
     // ── Use static seed data as fallback ──────────────────────────────────────
     const handleUseStaticData = async () => {
         const brand = getBrandFromStoreName(name);
-        const endpoint = brand === "Jacquemus" ? "/api/jacquemus-seed" : null;
+        const STATIC_SEED_ENDPOINTS: Record<string, string> = {
+            "Jacquemus": "/api/jacquemus-seed",
+            "Skims": "/api/skims-seed",
+        };
+        const endpoint = STATIC_SEED_ENDPOINTS[brand] ?? null;
 
         if (!endpoint) {
             alert(`No static seed data available for ${brand}.`);
@@ -248,7 +252,7 @@ export default function EditStorePage() {
     if (loading) return <div className="p-12 text-center text-white">Loading store...</div>;
 
     const brand = getBrandFromStoreName(name);
-    const hasStaticSeed = ["Jacquemus"].includes(brand);
+    const hasStaticSeed = ["Jacquemus", "Skims"].includes(brand);
 
     return (
         <div className="space-y-8 max-w-4xl mx-auto pb-12">

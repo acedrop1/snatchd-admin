@@ -29,8 +29,15 @@ struct StoreProductsView: View {
             $0.storeId == store.firestoreId && genderMatch(product: $0)
         }
         let unique = Array(Set(storeProducts.map { $0.category })).filter { !$0.isEmpty }
-        // Jacquemus-style categories first, then other brands' generic categories
-        let preferredOrder = ["Dresses", "Tops", "Skirts", "Jackets", "Pants", "Shorts", "Swimwear", "Clothing", "Bags", "Shoes", "Accessories"]
+        // Brand-native categories ordered logically, generic fallbacks at end
+        let preferredOrder = [
+            // Jacquemus
+            "Dresses", "Tops", "Skirts", "Jackets", "Pants", "Shorts", "Swimwear",
+            // Skims
+            "Bras & Bodysuits", "Underwear", "Shapewear", "Loungewear", "Activewear", "Maternity", "Men's",
+            // Generic fallback
+            "Clothing", "Bags", "Shoes", "Accessories"
+        ]
         let sorted = unique.sorted { a, b in
             let ai = preferredOrder.firstIndex(of: a) ?? Int.max
             let bi = preferredOrder.firstIndex(of: b) ?? Int.max
