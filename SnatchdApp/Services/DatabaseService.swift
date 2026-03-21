@@ -142,14 +142,28 @@ class DatabaseService: ObservableObject {
                     let storeId = data["storeId"] as? String ?? ""
                     let title = data["title"] as? String ?? ""
                     let brand = data["brand"] as? String ?? ""
-                    let price = data["price"] as? Double ?? 0.0
-                    let images = data["images"] as? [String] ?? []
-                    let imageURL = images.first
+                    // Price can come from Firestore as Int64 or Double — handle both
+                    let price: Double
+                    if let d = data["price"] as? Double { price = d }
+                    else if let i = data["price"] as? Int { price = Double(i) }
+                    else if let i = data["price"] as? Int64 { price = Double(i) }
+                    else { price = 0.0 }
+                    // Images: try [String] first, fall back to [Any] element cast
+                    let images: [String]
+                    if let direct = data["images"] as? [String] { images = direct }
+                    else if let raw = data["images"] as? [Any] { images = raw.compactMap { $0 as? String } }
+                    else { images = [] }
+                    // imageURL: prefer images array, fall back to explicit imageURL field
+                    let imageURL = images.first ?? (data["imageURL"] as? String)
                     let imageName = data["imageName"] as? String ?? "photo"
                     let deliveryTime = data["deliveryTime"] as? String ?? "45 Mins"
                     let category = data["category"] as? String ?? ""
                     let gender = data["gender"] as? String ?? ""
-                    let sizes = data["sizes"] as? [String] ?? []
+                    // Sizes: try [String] first, fall back to [Any] element cast
+                    let sizes: [String]
+                    if let direct = data["sizes"] as? [String] { sizes = direct }
+                    else if let raw = data["sizes"] as? [Any] { sizes = raw.compactMap { $0 as? String } }
+                    else { sizes = [] }
                     let description = data["description"] as? String ?? ""
                     let inStock = data["inStock"] as? Bool ?? true
                     let zaraProductId = data["zaraProductId"] as? String
