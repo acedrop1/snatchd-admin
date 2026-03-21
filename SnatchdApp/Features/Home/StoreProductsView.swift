@@ -23,12 +23,20 @@ struct StoreProductsView: View {
     }
 
     // Dynamically build category tabs — scoped to the selected gender
+    // "Clothing" always appears first, then Bags, Shoes, Accessories, then rest alphabetically
     var categories: [String] {
         let storeProducts = databaseService.products.filter {
             $0.storeId == store.firestoreId && genderMatch(product: $0)
         }
-        let unique = Array(Set(storeProducts.map { $0.category })).filter { !$0.isEmpty }.sorted()
-        return ["All"] + unique
+        let unique = Array(Set(storeProducts.map { $0.category })).filter { !$0.isEmpty }
+        let preferredOrder = ["Clothing", "Bags", "Shoes", "Accessories"]
+        let sorted = unique.sorted { a, b in
+            let ai = preferredOrder.firstIndex(of: a) ?? Int.max
+            let bi = preferredOrder.firstIndex(of: b) ?? Int.max
+            if ai != bi { return ai < bi }
+            return a < b
+        }
+        return ["All"] + sorted
     }
 
     // Unisex products appear under both Men and Women tabs
@@ -46,8 +54,9 @@ struct StoreProductsView: View {
     var filteredProducts: [Product] {
         return databaseService.products.filter { product in
             let storeMatch = product.storeId == store.firestoreId
-            let categoryMatch = selectedCategory == "All" || product.category == selectedCategory
-            let searchMatch = searchText.isEmpty || product.title.localizedCaseInsensitiveContains(searchText) || product.brand.localizedCaseInsensitiveContains(searchText)
+            // When searching, ignore the active category so results span all categories
+            let categoryMatch = !searchText.isEmpty || selectedCategory == "All" || product.category == selectedCategory
+            let searchMatch = searchText.isEmpty || product.title.localizedCaseInsensitiveContains(searchText) || product.brand.localizedCaseInsensitiveContains(searchText) || product.category.localizedCaseInsensitiveContains(searchText)
             return storeMatch && genderMatch(product: product) && categoryMatch && searchMatch
         }
     }

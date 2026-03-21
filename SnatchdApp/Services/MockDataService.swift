@@ -12,10 +12,11 @@ struct Product: Identifiable {
     let category: String
     let gender: String       // "Men" | "Women" | "Kids" | "Unisex" | ""
     var sizes: [String]      // e.g. ["32","34","36"] or ["XS","S","M","L"] or ["OS"]
+    var description: String  // Product description from the brand website
     var inStock: Bool = true
     var zaraProductId: String? = nil
 
-    init(id: UUID = UUID(), storeId: String = "", title: String, brand: String, price: Double, imageName: String, imageURL: String? = nil, deliveryTime: String, category: String, gender: String = "", sizes: [String] = [], inStock: Bool = true, zaraProductId: String? = nil) {
+    init(id: UUID = UUID(), storeId: String = "", title: String, brand: String, price: Double, imageName: String, imageURL: String? = nil, deliveryTime: String, category: String, gender: String = "", sizes: [String] = [], description: String = "", inStock: Bool = true, zaraProductId: String? = nil) {
         self.id = id
         self.storeId = storeId
         self.title = title
@@ -27,6 +28,7 @@ struct Product: Identifiable {
         self.category = category
         self.gender = gender
         self.sizes = sizes
+        self.description = description
         self.inStock = inStock
         self.zaraProductId = zaraProductId
     }

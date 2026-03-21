@@ -150,6 +150,7 @@ class DatabaseService: ObservableObject {
                     let category = data["category"] as? String ?? ""
                     let gender = data["gender"] as? String ?? ""
                     let sizes = data["sizes"] as? [String] ?? []
+                    let description = data["description"] as? String ?? ""
                     let inStock = data["inStock"] as? Bool ?? true
                     let zaraProductId = data["zaraProductId"] as? String
 
@@ -164,6 +165,7 @@ class DatabaseService: ObservableObject {
                         category: category,
                         gender: gender,
                         sizes: sizes,
+                        description: description,
                         inStock: inStock,
                         zaraProductId: zaraProductId
                     )

@@ -14,12 +14,10 @@ struct ProductDetailView: View {
     
     // Expandable sections state
     @State private var isDescriptionExpanded = true
-    @State private var isIngredientsExpanded = false
     
     // Interaction State
     @State private var showFullImage = false
-    @State private var selectedSize = "M"
-    @State private var selectedColor = "Black"
+    @State private var selectedSize: String = ""
     
     // Bottom Sheet State
     @State private var dragOffset: CGFloat = 0
@@ -171,10 +169,10 @@ struct ProductDetailView: View {
                                     .foregroundColor(.white)
                             }
                             
-                            // Selectors (Size & Color)
-                            HStack(spacing: 15) {
-                                SelectorMenu(title: "Size", selection: $selectedSize, options: ["S", "M", "L", "XL"])
-                                SelectorMenu(title: "Color", selection: $selectedColor, options: ["Black", "White", "Navy", "Beige"])
+                            // Size Selector — only shown when the product has known sizes
+                            if !product.sizes.isEmpty {
+                                SelectorMenu(title: "Size", selection: $selectedSize, options: product.sizes)
+                                    .frame(maxWidth: .infinity)
                             }
                             
                             // REAL-TIME STOCK CHECK UI
@@ -276,14 +274,12 @@ struct ProductDetailView: View {
                             .padding(.vertical, 10)
                             
                             Divider().background(Color.white.opacity(0.2))
-                            
-                            // Expandable Description
-                            ExpandableSection(title: "Description", content: "Crafted from supple lambskin leather, this classic biker jacket by Saint Laurent features an asymmetrical zip front, epaulets on the shoulders, and multiple zip pockets. A timeless piece that exudes rebellious charm and luxury.\n\n- 100% Lambskin Leather", isExpanded: $isDescriptionExpanded)
-                            
-                            Divider().background(Color.white.opacity(0.2))
-                            
-                            // Expandable Ingredients
-                            ExpandableSection(title: "Ingredients", content: "Water (Aqua), Glycerin, Prunus Amygdalus Dulcis (Sweet Almond) Oil, Stearic Acid, Cetearyl Alcohol, Ceteareth-20, Cocos Nucifera (Coconut) Oil, Macadamia Ternifolia Seed Oil, Glyceryl Stearate, Tocopherol, Aloe Barbadensis Leaf Juice.", isExpanded: $isIngredientsExpanded)
+
+                            // Expandable Description — uses real product description from Firestore
+                            if !product.description.isEmpty {
+                                ExpandableSection(title: "Description", content: product.description, isExpanded: $isDescriptionExpanded)
+                                Divider().background(Color.white.opacity(0.2))
+                            }
                             
                             Spacer(minLength: 100)
                         }
@@ -363,7 +359,10 @@ struct ProductDetailView: View {
                 showTabBar = false
                 locationManager.requestLocationPermission()
             }
-            
+            // Pre-select first available size
+            if selectedSize.isEmpty, let firstSize = product.sizes.first {
+                selectedSize = firstSize
+            }
             // Trigger Stock Check
             checkInventory()
         }
