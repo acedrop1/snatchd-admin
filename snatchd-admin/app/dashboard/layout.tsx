@@ -1,6 +1,6 @@
 "use client";
 
-import { Layers, Package, ShoppingBag, BarChart3, Users, Settings, LogOut, Sparkles } from "lucide-react";
+import { Layers, Package, ShoppingBag, BarChart3, Users, Settings, LogOut, Sparkles, GripVertical } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import { useAuth } from "@/lib/auth-context";
@@ -59,6 +59,7 @@ export default function DashboardLayout({
                     <NavItem href="/dashboard/stores" icon={Layers} label="Stores" active={pathname?.startsWith("/dashboard/stores")} />
                     <NavItem href="/dashboard/products" icon={Package} label="Products" active={pathname?.startsWith("/dashboard/products")} />
                     <NavItem href="/dashboard/just-dropped" icon={Sparkles} label="Just Dropped" active={pathname?.startsWith("/dashboard/just-dropped")} />
+                    <NavItem href="/dashboard/store-order" icon={GripVertical} label="Store Order" active={pathname?.startsWith("/dashboard/store-order")} />
                     <NavItem href="/dashboard/orders" icon={ShoppingBag} label="Orders" active={pathname?.startsWith("/dashboard/orders")} />
                     <NavItem href="/dashboard/customers" icon={Users} label="Customers" active={pathname?.startsWith("/dashboard/customers")} />
                     <div className="pt-8">

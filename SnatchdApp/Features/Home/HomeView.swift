@@ -36,10 +36,19 @@ struct HomeView: View {
         manualCoordinate ?? locationManager.currentLocation
     }
 
-    // Tag-filtered sections — only stores that are both in range AND carry the tag
-    var forYouStores: [Store]    { displayStores.filter { $0.tags.contains("foryou") } }
-    var trendingStores: [Store]  { displayStores.filter { $0.tags.contains("trending") } }
-    var under60Stores: [Store]   { displayStores.filter { $0.tags.contains("60min") } }
+    // Tag-filtered + portal-ordered sections
+    var forYouStores: [Store]   { orderedStores(tag: "foryou") }
+    var trendingStores: [Store] { orderedStores(tag: "trending") }
+    var under60Stores: [Store]  { orderedStores(tag: "60min") }
+
+    func orderedStores(tag: String) -> [Store] {
+        let tagged = displayStores.filter { $0.tags.contains(tag) }
+        let order = databaseService.storeOrderConfig[tag] ?? []
+        guard !order.isEmpty else { return tagged }
+        let inOrder = order.compactMap { id in tagged.first { $0.firestoreId == id } }
+        let remainder = tagged.filter { s in !order.contains(s.firestoreId) }
+        return inOrder + remainder
+    }
 
     // Nearby Firestore stores sorted by distance; empty when location is known but no stores are in range
     var displayStores: [Store] {
@@ -202,14 +211,16 @@ struct HomeView: View {
                                 // ── Snatchd For You ───────────────────────────────
                                 if !forYouStores.isEmpty {
                                     VStack(alignment: .leading, spacing: 10) {
-                                        Text("Snatchd For You")
-                                            .font(.custom("Montserrat-Bold", size: 18))
-                                            .foregroundColor(.white)
-                                            .padding(.horizontal)
-
+                                        SectionHeader(
+                                            title: "Snatchd For You",
+                                            showViewAll: forYouStores.count > 10,
+                                            destination: AnyView(
+                                                SectionStoresView(title: "Snatchd For You", stores: forYouStores, showTabBar: $showTabBar, selectedTab: $selectedTab)
+                                            )
+                                        )
                                         ScrollView(.horizontal, showsIndicators: false) {
                                             HStack(spacing: 15) {
-                                                ForEach(forYouStores) { store in
+                                                ForEach(forYouStores.prefix(10)) { store in
                                                     NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
                                                         FeaturedStoreCard(store: store)
                                                     }
@@ -223,14 +234,16 @@ struct HomeView: View {
                                 // ── Trending in Your Area ─────────────────────────
                                 if !trendingStores.isEmpty {
                                     VStack(alignment: .leading, spacing: 10) {
-                                        Text("Trending in Your Area")
-                                            .font(.custom("Montserrat-Bold", size: 18))
-                                            .foregroundColor(.white)
-                                            .padding(.horizontal)
-
+                                        SectionHeader(
+                                            title: "Trending in Your Area",
+                                            showViewAll: trendingStores.count > 10,
+                                            destination: AnyView(
+                                                SectionStoresView(title: "Trending in Your Area", stores: trendingStores, showTabBar: $showTabBar, selectedTab: $selectedTab)
+                                            )
+                                        )
                                         ScrollView(.horizontal, showsIndicators: false) {
                                             HStack(spacing: 15) {
-                                                ForEach(trendingStores) { store in
+                                                ForEach(trendingStores.prefix(10)) { store in
                                                     NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
                                                         TrendingStoreCard(store: store)
                                                     }
@@ -244,13 +257,15 @@ struct HomeView: View {
                                 // ── Under 60 minutes ──────────────────────────────
                                 if !under60Stores.isEmpty {
                                     VStack(alignment: .leading, spacing: 15) {
-                                        Text("Under 60 minutes")
-                                            .font(.custom("Montserrat-Bold", size: 18))
-                                            .foregroundColor(.white)
-                                            .padding(.horizontal)
-
+                                        SectionHeader(
+                                            title: "Under 60 Minutes",
+                                            showViewAll: under60Stores.count > 10,
+                                            destination: AnyView(
+                                                SectionStoresView(title: "Under 60 Minutes", stores: under60Stores, showTabBar: $showTabBar, selectedTab: $selectedTab)
+                                            )
+                                        )
                                         LazyVGrid(columns: columns, spacing: 20) {
-                                            ForEach(under60Stores) { store in
+                                            ForEach(under60Stores.prefix(10)) { store in
                                                 NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
                                                     GridStoreCard(store: store)
                                                 }
@@ -263,7 +278,7 @@ struct HomeView: View {
                                 // ── Just Dropped ──────────────────────────────────
                                 if !databaseService.justDroppedProducts.isEmpty {
                                     VStack(alignment: .leading, spacing: 10) {
-                                        HStack {
+                                        HStack(alignment: .center) {
                                             Text("Just Dropped")
                                                 .font(.custom("Montserrat-Bold", size: 18))
                                                 .foregroundColor(.white)
@@ -274,12 +289,24 @@ struct HomeView: View {
                                                 .padding(.vertical, 3)
                                                 .background(Color.white)
                                                 .cornerRadius(4)
+                                            Spacer()
+                                            if databaseService.justDroppedProducts.count > 10 {
+                                                NavigationLink(destination: SectionProductsView(title: "Just Dropped", products: databaseService.justDroppedProducts, stores: databaseService.stores, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
+                                                    HStack(spacing: 4) {
+                                                        Text("View all")
+                                                            .font(.custom("Montserrat-SemiBold", size: 13))
+                                                            .foregroundColor(.gray)
+                                                        Image(systemName: "arrow.right")
+                                                            .font(.system(size: 11, weight: .semibold))
+                                                            .foregroundColor(.gray)
+                                                    }
+                                                }
+                                            }
                                         }
                                         .padding(.horizontal)
-
                                         ScrollView(.horizontal, showsIndicators: false) {
                                             HStack(spacing: 12) {
-                                                ForEach(databaseService.justDroppedProducts) { product in
+                                                ForEach(databaseService.justDroppedProducts.prefix(10)) { product in
                                                     let store = databaseService.stores.first { $0.firestoreId == product.storeId }
                                                     Group {
                                                         if let store = store {
@@ -294,6 +321,27 @@ struct HomeView: View {
                                             }
                                             .padding(.horizontal)
                                         }
+                                    }
+                                }
+
+                                // ── The Full Edit ─────────────────────────────────
+                                if !displayStores.isEmpty {
+                                    VStack(alignment: .leading, spacing: 15) {
+                                        SectionHeader(
+                                            title: "The Full Edit",
+                                            showViewAll: displayStores.count > 10,
+                                            destination: AnyView(
+                                                SectionStoresView(title: "The Full Edit", stores: displayStores, showTabBar: $showTabBar, selectedTab: $selectedTab)
+                                            )
+                                        )
+                                        LazyVGrid(columns: columns, spacing: 20) {
+                                            ForEach(displayStores.prefix(10)) { store in
+                                                NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
+                                                    GridStoreCard(store: store)
+                                                }
+                                            }
+                                        }
+                                        .padding(.horizontal)
                                     }
                                 }
                             }
@@ -502,6 +550,104 @@ struct GridStoreCard: View {
         }
     }
 }
+// MARK: - Section Header (title + optional "View all →")
+
+struct SectionHeader: View {
+    let title: String
+    let showViewAll: Bool
+    let destination: AnyView
+
+    var body: some View {
+        HStack(alignment: .center) {
+            Text(title)
+                .font(.custom("Montserrat-Bold", size: 18))
+                .foregroundColor(.white)
+            Spacer()
+            if showViewAll {
+                NavigationLink(destination: destination) {
+                    HStack(spacing: 4) {
+                        Text("View all")
+                            .font(.custom("Montserrat-SemiBold", size: 13))
+                            .foregroundColor(.gray)
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.gray)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal)
+    }
+}
+
+// MARK: - Section Detail: Stores
+
+struct SectionStoresView: View {
+    let title: String
+    let stores: [Store]
+    @Binding var showTabBar: Bool
+    @Binding var selectedTab: Tab
+
+    let columns = [GridItem(.flexible(), spacing: 15), GridItem(.flexible(), spacing: 15)]
+
+    var body: some View {
+        ZStack {
+            Color.black.edgesIgnoringSafeArea(.all)
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 20) {
+                    ForEach(stores) { store in
+                        NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
+                            GridStoreCard(store: store)
+                        }
+                    }
+                }
+                .padding()
+            }
+        }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.large)
+    }
+}
+
+// MARK: - Section Detail: Products (Just Dropped "View All")
+
+struct SectionProductsView: View {
+    let title: String
+    let products: [Product]
+    let stores: [Store]
+    @Binding var showTabBar: Bool
+    @Binding var selectedTab: Tab
+
+    let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+
+    var body: some View {
+        ZStack {
+            Color.black.edgesIgnoringSafeArea(.all)
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 16) {
+                    ForEach(products) { product in
+                        let store = stores.first { $0.firestoreId == product.storeId }
+                        Group {
+                            if let store = store {
+                                NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
+                                    JustDroppedProductCard(product: product)
+                                        .frame(maxWidth: .infinity)
+                                }
+                            } else {
+                                JustDroppedProductCard(product: product)
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+                    }
+                }
+                .padding()
+            }
+        }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.large)
+    }
+}
+
 struct JustDroppedProductCard: View {
     let product: Product
 

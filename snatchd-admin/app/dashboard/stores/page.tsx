@@ -1,16 +1,31 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, addDoc, serverTimestamp, doc, updateDoc } from "firebase/firestore";
 import Link from "next/link";
 import { Plus, Store as StoreIcon, Loader2, EyeOff, Eye } from "lucide-react";
 import { SEED_STORES } from "@/lib/seedStores";
 
+const TAG_META: Record<string, { label: string; color: string }> = {
+    foryou:   { label: "#foryou",   color: "bg-purple-500/15 text-purple-300 border-purple-500/20" },
+    trending: { label: "#trending", color: "bg-blue-500/15 text-blue-300 border-blue-500/20" },
+    "60min":  { label: "#60min",    color: "bg-green-500/15 text-green-300 border-green-500/20" },
+};
+
+const FILTER_OPTIONS = [
+    { value: "all",      label: "All Stores" },
+    { value: "foryou",   label: "#foryou" },
+    { value: "trending", label: "#trending" },
+    { value: "60min",    label: "#60min" },
+    { value: "untagged", label: "Untagged" },
+];
+
 export default function StoresPage() {
     const [stores, setStores] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [togglingId, setTogglingId] = useState<string | null>(null);
+    const [tagFilter, setTagFilter] = useState("all");
 
     async function toggleVisibility(e: React.MouseEvent, storeId: string, currentIsActive: boolean) {
         e.preventDefault();
@@ -29,36 +44,17 @@ export default function StoresPage() {
     useEffect(() => {
         async function fetchAndAutoSeed() {
             try {
-                // 1. Fetch current stores from Firestore
                 const querySnapshot = await getDocs(collection(db, "stores"));
-                const existing = querySnapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
-
+                const existing = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 const existingNames = new Set(existing.map((s: any) => s.name));
-
-                // 2. Auto-seed any SEED_STORES entries that are missing
                 const toAdd = SEED_STORES.filter(s => !existingNames.has(s.name));
 
                 if (toAdd.length > 0) {
-                    const addPromises = toAdd.map(store =>
-                        addDoc(collection(db, "stores"), {
-                            ...store,
-                            rating: 5.0,
-                            isActive: true,
-                            createdAt: serverTimestamp(),
-                        })
-                    );
-                    await Promise.all(addPromises);
-
-                    // Re-fetch after seeding
+                    await Promise.all(toAdd.map(store =>
+                        addDoc(collection(db, "stores"), { ...store, rating: 5.0, isActive: true, createdAt: serverTimestamp() })
+                    ));
                     const refreshed = await getDocs(collection(db, "stores"));
-                    const data = refreshed.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data()
-                    }));
-                    setStores(data);
+                    setStores(refreshed.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                 } else {
                     setStores(existing);
                 }
@@ -68,9 +64,14 @@ export default function StoresPage() {
                 setLoading(false);
             }
         }
-
         fetchAndAutoSeed();
     }, []);
+
+    const filteredStores = useMemo(() => {
+        if (tagFilter === "all") return stores;
+        if (tagFilter === "untagged") return stores.filter(s => !s.tags || s.tags.length === 0);
+        return stores.filter(s => s.tags?.includes(tagFilter));
+    }, [stores, tagFilter]);
 
     return (
         <div className="space-y-8">
@@ -89,14 +90,36 @@ export default function StoresPage() {
                 </Link>
             </div>
 
-            {/* Loading State */}
+            {/* Tag Filter */}
+            {!loading && stores.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                    {FILTER_OPTIONS.map(opt => (
+                        <button
+                            key={opt.value}
+                            onClick={() => setTagFilter(opt.value)}
+                            className={`px-3 py-1.5 rounded-full text-sm font-medium border transition ${
+                                tagFilter === opt.value
+                                    ? "bg-white text-black border-white"
+                                    : "bg-transparent text-neutral-400 border-neutral-700 hover:border-neutral-500 hover:text-white"
+                            }`}
+                        >
+                            {opt.label}
+                            <span className="ml-1.5 text-xs opacity-60">
+                                {opt.value === "all" ? stores.length
+                                    : opt.value === "untagged" ? stores.filter(s => !s.tags || s.tags.length === 0).length
+                                    : stores.filter(s => s.tags?.includes(opt.value)).length}
+                            </span>
+                        </button>
+                    ))}
+                </div>
+            )}
+
             {loading && (
                 <div className="flex justify-center py-12">
                     <Loader2 className="h-8 w-8 animate-spin text-white" />
                 </div>
             )}
 
-            {/* Empty State */}
             {!loading && stores.length === 0 && (
                 <div className="rounded-xl border border-dashed border-neutral-800 p-12 text-center">
                     <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-neutral-900 mb-4">
@@ -104,21 +127,25 @@ export default function StoresPage() {
                     </div>
                     <h3 className="text-lg font-medium text-white">No stores configured</h3>
                     <p className="text-sm text-neutral-500 mt-1 max-w-sm mx-auto">
-                        Get started by adding your first retail partner. This will allow you to assign products to them.
+                        Get started by adding your first retail partner.
                     </p>
-                    <Link
-                        href="/dashboard/stores/new"
-                        className="mt-6 inline-flex items-center gap-2 px-4 py-2 bg-white rounded-md text-sm font-bold text-black hover:bg-neutral-200 transition"
-                    >
+                    <Link href="/dashboard/stores/new" className="mt-6 inline-flex items-center gap-2 px-4 py-2 bg-white rounded-md text-sm font-bold text-black hover:bg-neutral-200 transition">
                         Add Store
                     </Link>
                 </div>
             )}
 
+            {!loading && filteredStores.length === 0 && stores.length > 0 && (
+                <div className="rounded-xl border border-dashed border-neutral-800 p-8 text-center">
+                    <p className="text-neutral-500 text-sm">No stores match this filter.</p>
+                </div>
+            )}
+
             {/* Store Grid */}
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                {stores.map((store) => {
-                    const isActive = store.isActive !== false; // treat missing as active
+                {filteredStores.map((store) => {
+                    const isActive = store.isActive !== false;
+                    const storeTags: string[] = store.tags || [];
                     return (
                         <Link
                             href={`/dashboard/stores/${store.id}`}
@@ -139,20 +166,17 @@ export default function StoresPage() {
                                     </div>
                                 )}
 
-                                {/* Edit Overlay */}
                                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition backdrop-blur-[2px]">
                                     <span className="px-4 py-2 bg-white text-black text-sm font-bold rounded-full">Edit Store</span>
                                 </div>
 
-                                {/* Hidden badge */}
                                 {!isActive && (
                                     <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-black/70 border border-white/10 text-xs text-neutral-400 font-medium">
                                         <EyeOff className="h-3 w-3" />
-                                        Hidden from app
+                                        Hidden
                                     </div>
                                 )}
 
-                                {/* Visibility toggle */}
                                 <button
                                     onClick={(e) => toggleVisibility(e, store.id, isActive)}
                                     title={isActive ? "Hide from app" : "Show in app"}
@@ -187,13 +211,28 @@ export default function StoresPage() {
                                 </h3>
                                 <p className="text-sm text-neutral-400 line-clamp-2">{store.description || "No description provided."}</p>
 
-                                <div className="mt-4 flex flex-wrap gap-2">
+                                {/* Categories */}
+                                <div className="mt-3 flex flex-wrap gap-1.5">
                                     {store.categories?.map((cat: string) => (
-                                        <span key={cat} className="px-2 py-1 rounded bg-white/5 text-xs text-neutral-300 border border-white/5">
+                                        <span key={cat} className="px-2 py-0.5 rounded bg-white/5 text-xs text-neutral-300 border border-white/5">
                                             {cat}
                                         </span>
                                     ))}
                                 </div>
+
+                                {/* Home Feed Tags */}
+                                {storeTags.length > 0 && (
+                                    <div className="mt-2 flex flex-wrap gap-1.5">
+                                        {storeTags.map(tag => {
+                                            const meta = TAG_META[tag];
+                                            return meta ? (
+                                                <span key={tag} className={`px-2 py-0.5 rounded-full text-xs font-medium border ${meta.color}`}>
+                                                    {meta.label}
+                                                </span>
+                                            ) : null;
+                                        })}
+                                    </div>
+                                )}
 
                                 {store.externalId && (
                                     <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-2">

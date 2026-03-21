@@ -10,6 +10,8 @@ class DatabaseService: ObservableObject {
     @Published var stores: [Store] = []
     @Published var zaraSohoProducts: [Product] = []
     @Published var justDroppedProducts: [Product] = []
+    /// Section order config: ["foryou": ["id1","id2"...], "trending": [...], "60min": [...]]
+    @Published var storeOrderConfig: [String: [String]] = [:]
     /// true when the portal's Test Mode toggle is on — checkout skips real payment
     @Published var testMode: Bool = false
 
@@ -19,6 +21,7 @@ class DatabaseService: ObservableObject {
     private var zaraSohoListener: ListenerRegistration?
     private var configListener: ListenerRegistration?
     private var justDroppedListener: ListenerRegistration?
+    private var storeOrderListener: ListenerRegistration?
 
     private init() {
         // Start all real-time listeners immediately on first access
@@ -33,6 +36,7 @@ class DatabaseService: ObservableObject {
         listenToZaraSohoProducts()
         listenToConfig()
         listenToJustDropped()
+        listenToStoreOrder()
     }
 
     // MARK: - App Config Listener (test mode, feature flags)
@@ -314,6 +318,31 @@ class DatabaseService: ObservableObject {
             }
     }
 
+    // MARK: - Store Order Config Listener
+
+    func listenToStoreOrder() {
+        guard storeOrderListener == nil else { return }
+
+        storeOrderListener = db.collection("config").document("store-order")
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self = self else { return }
+                if let error = error {
+                    print("❌ Store order listener error: \(error.localizedDescription)")
+                    return
+                }
+                var config: [String: [String]] = [:]
+                if let data = snapshot?.data() {
+                    for key in ["foryou", "trending", "60min"] {
+                        if let order = data[key] as? [String] { config[key] = order }
+                    }
+                }
+                DispatchQueue.main.async {
+                    self.storeOrderConfig = config
+                    print("⚙️ Store order synced: \(config.keys.joined(separator: ", "))")
+                }
+            }
+    }
+
     // MARK: - Legacy Fetch Methods (now just ensure listeners are running)
     // These are kept so existing .onAppear { databaseService.fetchStores() } calls still compile.
 
@@ -336,9 +365,11 @@ class DatabaseService: ObservableObject {
         productsListener?.remove()
         zaraSohoListener?.remove()
         justDroppedListener?.remove()
+        storeOrderListener?.remove()
         storesListener = nil
         productsListener = nil
         zaraSohoListener = nil
         justDroppedListener = nil
+        storeOrderListener = nil
     }
 }
