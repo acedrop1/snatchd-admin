@@ -384,6 +384,13 @@ export default function SettingsPage() {
     const [skimsCount, setSkimsCount] = useState(0);
     const [skimsError, setSkimsError] = useState<string | null>(null);
 
+    // Jacquemus product seed state
+    const [jacquemusStatus, setJacquemusStatus] = useState<SeedStatus>("idle");
+    const [jacquemusProgress, setJacquemusProgress] = useState(0);
+    const [jacquemusTotal, setJacquemusTotal] = useState(0);
+    const [jacquemusCount, setJacquemusCount] = useState(0);
+    const [jacquemusError, setJacquemusError] = useState<string | null>(null);
+
     // Revert store images state
     const [revertStatus, setRevertStatus] = useState<SeedStatus>("idle");
     const [revertResults, setRevertResults] = useState<StoreResult[]>([]);
@@ -595,6 +602,52 @@ export default function SettingsPage() {
         } catch (err: any) {
             setSkimsError(err.message ?? "Unknown error");
             setSkimsStatus("error");
+        }
+    };
+
+    // ── Jacquemus Products Handler ───────────────────────────────────────────
+    const handleSeedJacquemusProducts = async () => {
+        setJacquemusStatus("running");
+        setJacquemusProgress(0);
+        setJacquemusCount(0);
+        setJacquemusTotal(0);
+        setJacquemusError(null);
+
+        try {
+            const storeSnap = await getDocs(
+                query(collection(db, "stores"), where("name", "==", "Jacquemus"))
+            );
+            if (storeSnap.empty) {
+                throw new Error('Jacquemus store not found in Firestore — run "Seed All Stores" first.');
+            }
+            const jacquemusStoreId = storeSnap.docs[0].id;
+
+            const res = await fetch("/api/jacquemus-seed");
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                throw new Error(body.error ?? `HTTP ${res.status}`);
+            }
+            const { products } = await res.json();
+            setJacquemusTotal(products.length);
+
+            let written = 0;
+            for (const product of products) {
+                const docId = `jacquemus_${product.externalId}_${jacquemusStoreId}`;
+                await setDoc(doc(db, "products", docId), {
+                    ...product,
+                    storeId: jacquemusStoreId,
+                    createdAt: serverTimestamp(),
+                    updatedAt: serverTimestamp(),
+                });
+                written++;
+                setJacquemusCount(written);
+                setJacquemusProgress(Math.round((written / products.length) * 100));
+            }
+
+            setJacquemusStatus("done");
+        } catch (err: any) {
+            setJacquemusError(err.message ?? "Unknown error");
+            setJacquemusStatus("error");
         }
     };
 
@@ -915,6 +968,66 @@ export default function SettingsPage() {
                         <><CheckCircle className="h-4 w-4" /> Seed Again</>
                     ) : (
                         <><Upload className="h-4 w-4" /> Seed Kith Products</>
+                    )}
+                </button>
+            </div>
+
+            {/* Seed Jacquemus Products */}
+            <div className="rounded-xl border border-purple-500/30 bg-purple-500/5 p-6 space-y-4">
+                <div>
+                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                        <Upload className="h-5 w-5 text-purple-400" />
+                        Seed Jacquemus — Products
+                    </h3>
+                    <p className="text-sm text-neutral-400 mt-1">
+                        Writes 145 live products from Jacquemus's Women New In collection to the Jacquemus store in Firestore.
+                        Includes real product names, prices, descriptions, and size guides scraped directly from jacquemus.com.
+                        Safe to re-run; existing products are upserted.
+                    </p>
+                </div>
+
+                <div className="rounded-lg border border-purple-500/30 bg-purple-500/10 p-3 flex gap-2 text-sm text-purple-300">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>Requires the Jacquemus store to exist in Firestore — run <strong>Seed All Stores</strong> first if you haven't already.</span>
+                </div>
+
+                {jacquemusStatus === "running" && (
+                    <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-neutral-400">
+                            <span>Writing products… ({jacquemusCount} / {jacquemusTotal || "?"})</span>
+                            <span>{jacquemusProgress}%</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-neutral-800 overflow-hidden">
+                            <div className="h-full bg-purple-500 rounded-full transition-all duration-300" style={{ width: `${jacquemusProgress}%` }} />
+                        </div>
+                    </div>
+                )}
+
+                {jacquemusStatus === "done" && (
+                    <p className="text-sm text-green-300 font-medium">
+                        <CheckCircle className="inline h-4 w-4 mr-1" />
+                        {jacquemusCount} Jacquemus products written to Firestore.
+                    </p>
+                )}
+
+                {jacquemusStatus === "error" && (
+                    <p className="text-sm text-red-300 font-medium">
+                        <XCircle className="inline h-4 w-4 mr-1" />
+                        {jacquemusError ?? "Something went wrong. Check the console."}
+                    </p>
+                )}
+
+                <button
+                    onClick={handleSeedJacquemusProducts}
+                    disabled={jacquemusStatus === "running"}
+                    className="flex items-center gap-2 rounded-lg bg-purple-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-purple-600 transition disabled:opacity-50"
+                >
+                    {jacquemusStatus === "running" ? (
+                        <><Loader2 className="h-4 w-4 animate-spin" /> Seeding Jacquemus…</>
+                    ) : jacquemusStatus === "done" ? (
+                        <><CheckCircle className="h-4 w-4" /> Seed Again</>
+                    ) : (
+                        <><Upload className="h-4 w-4" /> Seed Jacquemus Products</>
                     )}
                 </button>
             </div>
