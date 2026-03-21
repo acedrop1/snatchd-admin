@@ -46,6 +46,12 @@ export default function EditStorePage() {
     const [logoFile, setLogoFile] = useState<File | null>(null);
     const [bannerFile, setBannerFile] = useState<File | null>(null);
 
+    // Location
+    const [address, setAddress] = useState("");
+    const [latitude, setLatitude] = useState("");
+    const [longitude, setLongitude] = useState("");
+    const [deliveryRadius, setDeliveryRadius] = useState("");
+
     // Inventory state
     const [savedProducts, setSavedProducts] = useState<any[]>([]);
     const [fetchedProducts, setFetchedProducts] = useState<any[]>([]);
@@ -76,6 +82,10 @@ export default function EditStorePage() {
                     setCurrentLogo(data.logo || "");
                     setCurrentBanner(data.image || "");
                     setCatalogUrl(getCatalogUrl(data.name || ""));
+                    setAddress(data.address || "");
+                    setLatitude(data.latitude?.toString() || "");
+                    setLongitude(data.longitude?.toString() || "");
+                    setDeliveryRadius(data.deliveryRadius?.toString() || "");
                 } else {
                     alert("Store not found");
                     router.push("/dashboard/stores");
@@ -122,6 +132,10 @@ export default function EditStorePage() {
                 categories: categories.split(",").map(c => c.trim()).filter(c => c.length > 0),
                 rating: parseFloat(rating),
                 deliveryTime,
+                address: address.trim() || null,
+                latitude: latitude ? parseFloat(latitude) : null,
+                longitude: longitude ? parseFloat(longitude) : null,
+                deliveryRadius: deliveryRadius ? parseFloat(deliveryRadius) : null,
             });
             alert("Store updated successfully.");
         } catch (error) {
@@ -345,6 +359,81 @@ export default function EditStorePage() {
                             <label className="text-sm font-medium text-neutral-300">Categories (Comma separated)</label>
                             <input type="text" value={categories} onChange={e => setCategories(e.target.value)}
                                 className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white focus:border-white focus:outline-none transition" />
+                        </div>
+                    </div>
+
+                    {/* Location */}
+                    <div className="space-y-4 rounded-xl border border-white/10 bg-neutral-900/50 p-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="font-semibold text-white">Location</h3>
+                            {address && (
+                                <a
+                                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition"
+                                >
+                                    <ExternalLink className="h-3 w-3" />
+                                    View on Maps
+                                </a>
+                            )}
+                        </div>
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium text-neutral-300">Store Address</label>
+                            <input
+                                type="text"
+                                value={address}
+                                onChange={e => setAddress(e.target.value)}
+                                placeholder="e.g. 113 Prince St, New York, NY 10012"
+                                className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white placeholder:text-neutral-600 focus:border-white focus:outline-none transition"
+                            />
+                            <p className="text-xs text-neutral-500">
+                                Shown in the app on the store detail page. To find coordinates, enter the address above then{" "}
+                                <a
+                                    href={`https://www.latlong.net/convert-address-to-lat-long.html`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-400 hover:underline"
+                                >
+                                    look up lat/lng here
+                                </a>.
+                            </p>
+                        </div>
+                        <div className="grid grid-cols-3 gap-4">
+                            <div className="grid gap-2">
+                                <label className="text-sm font-medium text-neutral-300">Latitude</label>
+                                <input
+                                    type="number"
+                                    step="any"
+                                    value={latitude}
+                                    onChange={e => setLatitude(e.target.value)}
+                                    placeholder="40.7230"
+                                    className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white placeholder:text-neutral-600 focus:border-white focus:outline-none transition"
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <label className="text-sm font-medium text-neutral-300">Longitude</label>
+                                <input
+                                    type="number"
+                                    step="any"
+                                    value={longitude}
+                                    onChange={e => setLongitude(e.target.value)}
+                                    placeholder="-74.0020"
+                                    className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white placeholder:text-neutral-600 focus:border-white focus:outline-none transition"
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <label className="text-sm font-medium text-neutral-300">Delivery Radius (mi)</label>
+                                <input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    value={deliveryRadius}
+                                    onChange={e => setDeliveryRadius(e.target.value)}
+                                    placeholder="5"
+                                    className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white placeholder:text-neutral-600 focus:border-white focus:outline-none transition"
+                                />
+                            </div>
                         </div>
                     </div>
 
