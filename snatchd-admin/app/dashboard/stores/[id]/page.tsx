@@ -146,8 +146,18 @@ export default function EditStorePage() {
     };
 
     // ── Fetch products from brand website ─────────────────────────────────────
+    // Shopify brands have a live /products.json endpoint — their seed route fetches it directly.
+    // SFCC brands (Jacquemus etc.) go through the scraper with the catalog URL.
+    const LIVE_FETCH_ENDPOINTS: Record<string, string> = {
+        "Skims": "/api/skims-seed",
+        "Kith": "/api/kith-seed",
+        // SFCC brands below use the jacquemus-live scraper with their catalog URL
+    };
+
     const handleFetchFromWebsite = async () => {
-        if (!catalogUrl) {
+        const currentBrand = getBrandFromStoreName(name);
+
+        if (!catalogUrl && !LIVE_FETCH_ENDPOINTS[currentBrand]) {
             alert("No catalog URL configured for this brand.");
             return;
         }
@@ -156,7 +166,10 @@ export default function EditStorePage() {
         setFetchedProducts([]);
 
         try {
-            const apiUrl = `/api/jacquemus-live?url=${encodeURIComponent(catalogUrl)}`;
+            // Use brand-specific live endpoint if available, otherwise use the SFCC scraper
+            const apiUrl = LIVE_FETCH_ENDPOINTS[currentBrand]
+                ?? `/api/jacquemus-live?url=${encodeURIComponent(catalogUrl)}`;
+
             const res = await fetch(apiUrl);
             const data = await res.json();
 
