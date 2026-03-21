@@ -88,22 +88,24 @@ struct StoreProductsView: View {
                         
                         // Store Info Overlay
                         VStack(alignment: .center, spacing: 5) {
-                            Text("\(store.name) - SoHo")
+                            Text(store.name)
                                 .font(.custom("Montserrat-Bold", size: 24))
                                 .foregroundColor(.white)
                                 .shadow(radius: 5)
-                            
-                            Text("116 Greene St, New York, NY 10012")
-                                .font(.custom("Montserrat-Regular", size: 12))
-                                .foregroundColor(.white.opacity(0.8))
-                                .shadow(radius: 5)
-                            
+
+                            if let address = store.address, !address.isEmpty {
+                                Text(address)
+                                    .font(.custom("Montserrat-Regular", size: 12))
+                                    .foregroundColor(.white.opacity(0.8))
+                                    .shadow(radius: 5)
+                            }
+
                             HStack(spacing: 10) {
                                 HStack(spacing: 4) {
                                     Image(systemName: "bolt.fill")
                                         .font(.caption2)
                                         .foregroundColor(.cyan)
-                                    Text("Snatchd in 35-45 min")
+                                    Text("Snatchd in \(store.deliveryTime)")
                                         .font(.custom("Montserrat-SemiBold", size: 10))
                                         .foregroundColor(.white)
                                 }
