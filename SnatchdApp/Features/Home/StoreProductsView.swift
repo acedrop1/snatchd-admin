@@ -170,12 +170,11 @@ struct StoreProductsView: View {
                                         .padding(.vertical, 6)
                                         .padding(.horizontal, 16)
                                         .background(
-                                            Group {
-                                                if selectedGender == gender {
-                                                    Capsule().glassEffect(.regular.interactive())
-                                                }
-                                            }
+                                            selectedGender == gender
+                                                ? Color.white.opacity(0.2)
+                                                : Color.clear
                                         )
+                                        .clipShape(Capsule())
                                 }
                             }
                         }
@@ -201,12 +200,11 @@ struct StoreProductsView: View {
                                         .padding(.vertical, 6)
                                         .padding(.horizontal, 16)
                                         .background(
-                                            Group {
-                                                if selectedCategory == category {
-                                                    Capsule().glassEffect(.regular.interactive())
-                                                }
-                                            }
+                                            selectedCategory == category
+                                                ? Color.white.opacity(0.2)
+                                                : Color.clear
                                         )
+                                        .clipShape(Capsule())
                                 }
                             }
                         }
