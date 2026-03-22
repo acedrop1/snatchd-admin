@@ -60,37 +60,6 @@ struct StoreProductsView: View {
         GridItem(.flexible())
     ]
 
-    /// Circular liquid glass background — matches the app's LiquidGlassBubble style
-    private var liquidGlassCircle: some View {
-        ZStack {
-            VisualEffectBlur(blurStyle: .systemUltraThinMaterialDark)
-            LinearGradient(
-                gradient: Gradient(colors: [
-                    Color.white.opacity(0.25),
-                    Color.white.opacity(0.05)
-                ]),
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            Circle()
-                .strokeBorder(
-                    LinearGradient(
-                        gradient: Gradient(stops: [
-                            .init(color: .white.opacity(0.6), location: 0.0),
-                            .init(color: .white.opacity(0.1), location: 0.3),
-                            .init(color: .cyan.opacity(0.3),  location: 0.5),
-                            .init(color: .white.opacity(0.1), location: 0.7),
-                            .init(color: .white.opacity(0.5), location: 1.0)
-                        ]),
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1.5
-                )
-        }
-        .clipShape(Circle())
-        .shadow(color: Color.black.opacity(0.2), radius: 5, x: 0, y: 2)
-    }
     
     var filteredProducts: [Product] {
         return databaseService.products.filter { product in
@@ -384,7 +353,7 @@ struct StoreProductsView: View {
                 ProductDetailView(product: product, showTabBar: $showTabBar, selectedTab: $selectedTab)
             }
             
-            // Back Button (Top Left) - Fixed, liquid glass circle
+            // Back Button (Top Left) — iOS 26 Liquid Glass
             Button(action: {
                 presentationMode.wrappedValue.dismiss()
             }) {
@@ -392,12 +361,12 @@ struct StoreProductsView: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
-                    .background(liquidGlassCircle)
+                    .glassEffect(.regular, in: Circle())
             }
-            .padding(.top, 54)
+            .padding(.top, 44)
             .padding(.leading, 16)
 
-            // Cart Button (Top Right) - Fixed, same line as back button, liquid glass circle
+            // Cart Button (Top Right) — iOS 26 Liquid Glass, same line as back button
             Button(action: {
                 presentationMode.wrappedValue.dismiss()
                 selectedTab = .cart
@@ -408,9 +377,8 @@ struct StoreProductsView: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 22, height: 22)
-                        .foregroundColor(.white)
                         .frame(width: 44, height: 44)
-                        .background(liquidGlassCircle)
+                        .glassEffect(.regular, in: Circle())
 
                     if cartManager.items.reduce(0, { $0 + $1.quantity }) > 0 {
                         Text("\(cartManager.items.reduce(0) { $0 + $1.quantity })")
@@ -425,7 +393,7 @@ struct StoreProductsView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
-            .padding(.top, 54)
+            .padding(.top, 44)
             .padding(.trailing, 16)
         }
         .navigationBarHidden(true)
