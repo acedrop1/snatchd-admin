@@ -59,6 +59,38 @@ struct StoreProductsView: View {
         GridItem(.flexible()),
         GridItem(.flexible())
     ]
+
+    /// Circular liquid glass background — matches the app's LiquidGlassBubble style
+    private var liquidGlassCircle: some View {
+        ZStack {
+            VisualEffectBlur(blurStyle: .systemUltraThinMaterialDark)
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    Color.white.opacity(0.25),
+                    Color.white.opacity(0.05)
+                ]),
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Circle()
+                .strokeBorder(
+                    LinearGradient(
+                        gradient: Gradient(stops: [
+                            .init(color: .white.opacity(0.6), location: 0.0),
+                            .init(color: .white.opacity(0.1), location: 0.3),
+                            .init(color: .cyan.opacity(0.3),  location: 0.5),
+                            .init(color: .white.opacity(0.1), location: 0.7),
+                            .init(color: .white.opacity(0.5), location: 1.0)
+                        ]),
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1.5
+                )
+        }
+        .clipShape(Circle())
+        .shadow(color: Color.black.opacity(0.2), radius: 5, x: 0, y: 2)
+    }
     
     var filteredProducts: [Product] {
         return databaseService.products.filter { product in
@@ -352,41 +384,42 @@ struct StoreProductsView: View {
                 ProductDetailView(product: product, showTabBar: $showTabBar, selectedTab: $selectedTab)
             }
             
-            // Back Button (Top Left) - Fixed
+            // Back Button (Top Left) - Fixed, liquid glass circle
             Button(action: {
                 presentationMode.wrappedValue.dismiss()
             }) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.white)
-                    .padding(12)
-                    .background(Circle().fill(Color.black.opacity(0.5)))
+                    .frame(width: 44, height: 44)
+                    .background(liquidGlassCircle)
             }
             .padding(.top, 54)
             .padding(.leading, 16)
 
-            // Cart Button (Top Right) - Fixed, same line as back button
+            // Cart Button (Top Right) - Fixed, same line as back button, liquid glass circle
             Button(action: {
                 presentationMode.wrappedValue.dismiss()
                 selectedTab = .cart
                 showTabBar = true
             }) {
                 ZStack(alignment: .topTrailing) {
-                    Image(systemName: "bag")
-                        .font(.system(size: 17, weight: .semibold))
+                    Image("cart")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 22, height: 22)
                         .foregroundColor(.white)
-                        .padding(12)
-                        .background(Circle().fill(Color.black.opacity(0.5)))
+                        .frame(width: 44, height: 44)
+                        .background(liquidGlassCircle)
 
                     if cartManager.items.reduce(0, { $0 + $1.quantity }) > 0 {
                         Text("\(cartManager.items.reduce(0) { $0 + $1.quantity })")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.white)
-                            .frame(width: 15, height: 15)
-                            .background(Color.white.opacity(0.9))
                             .foregroundColor(.black)
+                            .frame(width: 16, height: 16)
+                            .background(Color.white)
                             .clipShape(Circle())
-                            .offset(x: 2, y: -2)
+                            .offset(x: 3, y: -3)
                             .scaleEffect(cartScale)
                     }
                 }
