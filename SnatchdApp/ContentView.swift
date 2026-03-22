@@ -19,6 +19,9 @@ struct ContentView: View {
     @State private var scrollToTop = false
     @State private var isHomeAtRoot = true
     @State private var homeNavID = UUID()
+    // Persisted across tab switches so returning to Stores tab keeps the chosen delivery location
+    @State private var manualCoordinate: CLLocation? = nil
+    @State private var selectedAddressId: String? = nil
     @State private var cartNavID = UUID()
     @State private var ordersNavID = UUID()
     @State private var profileNavID = UUID()
@@ -32,7 +35,7 @@ struct ContentView: View {
             Group {
                 switch selectedTab {
                 case .stores:
-                    HomeView(showTabBar: $showTabBar, selectedTab: $selectedTab, showSearch: $showSearch, searchText: $searchText, isTopSearchActive: $isTopSearchActive, scrollToTop: $scrollToTop, isAtRoot: $isHomeAtRoot, navID: homeNavID)
+                    HomeView(showTabBar: $showTabBar, selectedTab: $selectedTab, showSearch: $showSearch, searchText: $searchText, isTopSearchActive: $isTopSearchActive, scrollToTop: $scrollToTop, isAtRoot: $isHomeAtRoot, navID: homeNavID, manualCoordinate: $manualCoordinate, selectedAddressId: $selectedAddressId)
                 case .cart:
                     CartView(selectedTab: $selectedTab)
                 case .orders:

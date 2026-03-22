@@ -179,7 +179,16 @@ struct LocationDropdownCard: View {
                                 isSelected: address.id == selectedAddressId,
                                 onSelect: {
                                     selectedAddressId = address.id
-                                    selectedLocation = extractNeighborhood(from: address.address)
+                                    // Show the saved label (e.g. "Home", "Gym") if it's not generic,
+                                    // otherwise fall back to the street number + name
+                                    let knownLabels = ["Home", "Work"]
+                                    if knownLabels.contains(address.label) {
+                                        selectedLocation = address.label
+                                    } else if !address.label.isEmpty && address.label != "Other" {
+                                        selectedLocation = address.label   // custom name like "Mom's House"
+                                    } else {
+                                        selectedLocation = address.street.isEmpty ? extractNeighborhood(from: address.address) : address.street
+                                    }
                                     geocodeAddress(address.address) { location in
                                         selectedCoordinate = location
                                     }

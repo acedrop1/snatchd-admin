@@ -90,44 +90,48 @@ struct ProductDetailView: View {
                 HStack {
                     Button(action: { presentationMode.wrappedValue.dismiss() }) {
                         Image(systemName: "chevron.left")
-                            .font(.title2)
-                            .foregroundColor(.black)
-                            .padding()
-                            .background(Circle().fill(Color.white.opacity(0.5)))
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .background(.ultraThinMaterial)
+                            .environment(\.colorScheme, .dark)
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
                     }
-                    
+
                     Spacer()
-                    
+
                     Button(action: {
                         presentationMode.wrappedValue.dismiss()
                         selectedTab = .cart
                         showTabBar = true
                     }) {
                         ZStack {
-                            Image("cartblack")
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 24, height: 24)
-                                .foregroundColor(.black)
-                            
+                            Image(systemName: "cart")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.white)
+
                             if cartManager.items.count > 0 {
                                 Text("\(cartManager.items.reduce(0) { $0 + $1.quantity })")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(.white)
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(.black)
                                     .frame(width: 16, height: 16)
-                                    .background(Color.black)
+                                    .background(Color.white)
                                     .clipShape(Circle())
-                                    .offset(x: 10, y: -8)
+                                    .offset(x: 12, y: -10)
                                     .scaleEffect(cartScale)
                             }
                         }
-                        .padding()
-                        .background(Circle().fill(Color.white.opacity(0.5)))
+                        .frame(width: 44, height: 44)
+                        .background(.ultraThinMaterial)
+                        .environment(\.colorScheme, .dark)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
                     }
                 }
-                .padding(.top, 10) // Align with Dynamic Island
-                .padding(.horizontal)
-                
+                .padding(.top, 20)
+                .padding(.horizontal, 16)
+
                 Spacer()
             }
             .zIndex(1) // Ensure nav bar is above image

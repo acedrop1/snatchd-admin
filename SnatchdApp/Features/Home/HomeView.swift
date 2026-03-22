@@ -10,15 +10,17 @@ struct HomeView: View {
     @Binding var scrollToTop: Bool
     @Binding var isAtRoot: Bool
     var navID: UUID
+    @Binding var manualCoordinate: CLLocation?
+    @Binding var selectedAddressId: String?
     @StateObject private var databaseService = DatabaseService.shared
     @StateObject private var locationManager = LocationManager()
     @State private var selectedCategory = "All"
     @State private var showLocationSheet = false
     @State private var selectedLocation = AppConfig.defaultLocationName
-    /// Set when the user manually picks an address from the dropdown (overrides GPS for filtering)
-    @State private var manualCoordinate: CLLocation?
-    /// Persists which address card is highlighted across dropdown opens (nil = Use Current Location)
-    @State private var selectedAddressId: String? = nil
+    /// Lifted to ContentView so it survives tab switches
+    @Binding var manualCoordinate: CLLocation?
+    /// Lifted to ContentView so it survives tab switches
+    @Binding var selectedAddressId: String?
 
     let categories = ["All", "Clothing", "Hygiene", "Beauty & Skincare", "Fine Jewelry"]
 
@@ -123,7 +125,7 @@ struct HomeView: View {
                                 
                                 Button(action: {
                                     withAnimation {
-                                        selectedTab = .profile
+                                        selectedTab = .cart
                                     }
                                 }) {
                                     Image("cart")
@@ -676,6 +678,6 @@ struct JustDroppedProductCard: View {
 }
 
 #Preview {
-    HomeView(showTabBar: .constant(true), selectedTab: .constant(.stores), showSearch: .constant(false), searchText: .constant(""), isTopSearchActive: .constant(false), scrollToTop: .constant(false), isAtRoot: .constant(true), navID: UUID())
+    HomeView(showTabBar: .constant(true), selectedTab: .constant(.stores), showSearch: .constant(false), searchText: .constant(""), isTopSearchActive: .constant(false), scrollToTop: .constant(false), isAtRoot: .constant(true), navID: UUID(), manualCoordinate: .constant(nil), selectedAddressId: .constant(nil))
         .preferredColorScheme(.dark)
 }
