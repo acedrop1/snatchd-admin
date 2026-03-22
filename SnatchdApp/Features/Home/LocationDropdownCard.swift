@@ -137,7 +137,24 @@ struct LocationDropdownCard: View {
                         }
                         .glassEffect(in: RoundedRectangle(cornerRadius: 12))
                         .overlay(alignment: .trailing) {
-                            Button(action: { showAddAddressSheet = true }) {
+                            Button(action: {
+                                // Pre-fill form with current GPS location data if available
+                                if let p = locationManager.currentPlacemark {
+                                    let street = [p.subThoroughfare, p.thoroughfare]
+                                        .compactMap { $0 }.joined(separator: " ")
+                                    editingAddress = SavedAddress(
+                                        label: "Home",
+                                        street: street,
+                                        apartment: "",
+                                        city: p.locality ?? "",
+                                        state: p.administrativeArea ?? "",
+                                        zipCode: p.postalCode ?? "",
+                                        isDefault: false
+                                    )
+                                } else {
+                                    showAddAddressSheet = true
+                                }
+                            }) {
                                 Image(systemName: "pencil.circle.fill")
                                     .font(.system(size: 22))
                                     .foregroundColor(.white.opacity(0.45))

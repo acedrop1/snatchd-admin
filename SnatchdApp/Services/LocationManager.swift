@@ -9,6 +9,7 @@ class LocationManager: NSObject, ObservableObject {
     
     @Published var currentLocation: CLLocation?
     @Published var currentAddress: String = "Fetching location..."
+    @Published var currentPlacemark: CLPlacemark?
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
     @Published var searchResults: [MKMapItem] = []
     @Published var isSearching = false
@@ -52,6 +53,7 @@ class LocationManager: NSObject, ObservableObject {
             
             if let placemark = placemarks?.first {
                 self.currentAddress = self.formatAddress(from: placemark)
+                self.currentPlacemark = placemark
             }
         }
     }
