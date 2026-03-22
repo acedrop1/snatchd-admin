@@ -152,39 +152,6 @@ struct StoreProductsView: View {
                         .padding(.bottom, 20)
                     }
                     .frame(height: 300)
-                    .overlay(
-                        // Cart Icon Overlay (Top Right)
-                        Button(action: {
-                            presentationMode.wrappedValue.dismiss()
-                            selectedTab = .cart
-                            showTabBar = true
-                        }) {
-                            ZStack {
-                                Image("cartblack") // Using black cart icon on white circle
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: 24, height: 24)
-                                    .foregroundColor(.black)
-                                
-                                if cartManager.items.count > 0 {
-                                    Text("\(cartManager.items.reduce(0) { $0 + $1.quantity })")
-                                        .font(.system(size: 10, weight: .bold))
-                                        .foregroundColor(.white)
-                                        .frame(width: 16, height: 16)
-                                        .background(Color.black)
-                                        .clipShape(Circle())
-                                        .offset(x: 10, y: -8)
-                                        .scaleEffect(cartScale)
-                                }
-                            }
-                            .padding()
-                            .background(Circle().fill(Color.white.opacity(0.8)))
-                            .shadow(radius: 4)
-                        }
-                        .padding(.top, 40)
-                        .padding(.trailing, 20),
-                        alignment: .topTrailing
-                    )
                     
                     // Gender Filter — compact liquid glass pill, centered
                     if !genders.isEmpty {
@@ -293,7 +260,7 @@ struct StoreProductsView: View {
                     LazyVGrid(columns: columns, spacing: 15) {
                         ForEach(filteredProducts) { product in
                             VStack(alignment: .leading, spacing: 8) {
-                                // Image Container with Add Button
+                                // Image Container
                                 ZStack(alignment: .bottomTrailing) {
                                     // Product Image (Tap to Navigate)
                                     Rectangle()
@@ -349,32 +316,6 @@ struct StoreProductsView: View {
                                             selectedProduct = product
                                         }
                                     
-                                    // Add Button (Independent) - Hidden if Sold Out
-                                    if product.inStock {
-                                        Button(action: {
-                                            cartManager.addToCart(product: product)
-                                            let generator = UIImpactFeedbackGenerator(style: .medium)
-                                            generator.impactOccurred()
-                                            
-                                            // Animate Badge
-                                            withAnimation(.spring(response: 0.3, dampingFraction: 0.3)) {
-                                                cartScale = 1.5
-                                            }
-                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                                withAnimation {
-                                                    cartScale = 1.0
-                                                }
-                                            }
-                                        }) {
-                                            Image(systemName: "plus")
-                                                .font(.system(size: 12, weight: .bold))
-                                                .foregroundColor(.black)
-                                                .padding(6)
-                                                .background(Color.white.opacity(0.8))
-                                                .clipShape(Circle())
-                                        }
-                                        .padding(8)
-                                    }
                                 }
                                 
                                 // Info (Tap to Navigate)
@@ -416,13 +357,43 @@ struct StoreProductsView: View {
                 presentationMode.wrappedValue.dismiss()
             }) {
                 Image(systemName: "chevron.left")
-                    .font(.title2)
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.white)
-                    .padding()
-                    .background(Circle().fill(Color.black.opacity(0.5))) // Added background for visibility
+                    .padding(12)
+                    .background(Circle().fill(Color.black.opacity(0.5)))
             }
-            .padding(.top, 40)
-            .padding(.leading, 10)
+            .padding(.top, 54)
+            .padding(.leading, 16)
+
+            // Cart Button (Top Right) - Fixed, same line as back button
+            Button(action: {
+                presentationMode.wrappedValue.dismiss()
+                selectedTab = .cart
+                showTabBar = true
+            }) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "bag")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(12)
+                        .background(Circle().fill(Color.black.opacity(0.5)))
+
+                    if cartManager.items.reduce(0, { $0 + $1.quantity }) > 0 {
+                        Text("\(cartManager.items.reduce(0) { $0 + $1.quantity })")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 15, height: 15)
+                            .background(Color.white.opacity(0.9))
+                            .foregroundColor(.black)
+                            .clipShape(Circle())
+                            .offset(x: 2, y: -2)
+                            .scaleEffect(cartScale)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.top, 54)
+            .padding(.trailing, 16)
         }
         .navigationBarHidden(true)
         .enableSwipeBack()
