@@ -7,10 +7,14 @@ struct LocationDropdownCard: View {
     @Binding var selectedLocation: String
     /// Set when user picks a specific address/result — drives HomeView's store filter
     @Binding var selectedCoordinate: CLLocation?
-    @StateObject private var locationManager = LocationManager()
+    /// Persisted in HomeView so the highlight survives dropdown close/reopen
+    @Binding var selectedAddressId: String?
+    /// Passed in from HomeView — avoids creating a second CLLocationManager on every open
+    @ObservedObject var locationManager: LocationManager
     @EnvironmentObject var addressManager: AddressManager
     @State private var searchQuery = ""
-    @State private var showAddAddress = false
+    @State private var showAddAddressSheet = false
+    @State private var editingAddress: SavedAddress? = nil
     
     var body: some View {
         VStack(spacing: 0) {
@@ -96,10 +100,10 @@ struct LocationDropdownCard: View {
                             .glassEffect(in: RoundedRectangle(cornerRadius: 12))
                         }
                     } else {
-                        // Current Location Button
+                        // Current Location Card
                         Button(action: {
-                            // Clear manual pick — HomeView's GPS locationManager takes over
                             selectedCoordinate = nil
+                            selectedAddressId = nil
                             locationManager.getCurrentLocation()
                             if !locationManager.currentAddress.isEmpty && locationManager.currentAddress != "Fetching location..." {
                                 selectedLocation = extractNeighborhood(from: locationManager.currentAddress)
@@ -110,48 +114,46 @@ struct LocationDropdownCard: View {
                                 ZStack {
                                     Circle()
                                         .fill(Color.blue.opacity(0.2))
-                                        .frame(width: 40, height: 40)
-                                    
-                                    Image(systemName: locationManager.currentLocation != nil ? "location.fill" : "location")
-                                        .font(.system(size: 18))
+                                        .frame(width: 36, height: 36)
+                                    Image(systemName: "location.fill")
+                                        .font(.system(size: 16))
                                         .foregroundColor(.blue)
                                 }
-                                
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text("Use Current Location")
                                         .font(.custom("Montserrat-SemiBold", size: 15))
                                         .foregroundColor(.white)
-                                    
                                     Text(locationManager.currentAddress)
                                         .font(.custom("Montserrat-Regular", size: 13))
                                         .foregroundColor(.white.opacity(0.6))
                                         .lineLimit(1)
                                 }
-                                
                                 Spacer()
-                                
-                                if locationManager.currentLocation != nil {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.green)
-                                        .font(.system(size: 20))
-                                } else {
-                                    Image(systemName: "chevron.right")
-                                        .foregroundColor(.white.opacity(0.4))
-                                        .font(.caption)
-                                }
+                                // Spacer so overlay pencil doesn't overlap text
+                                Color.clear.frame(width: 30)
                             }
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
                         }
                         .glassEffect(in: RoundedRectangle(cornerRadius: 12))
-                        .onAppear {
-                            locationManager.getCurrentLocation()
+                        .overlay(alignment: .trailing) {
+                            Button(action: { showAddAddressSheet = true }) {
+                                Image(systemName: "pencil.circle.fill")
+                                    .font(.system(size: 22))
+                                    .foregroundColor(.white.opacity(0.45))
+                                    .padding(.trailing, 16)
+                            }
+                            .buttonStyle(.plain)
                         }
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(selectedAddressId == nil ? Color.white.opacity(0.5) : Color.clear, lineWidth: 1.5)
+                        )
                         .onChange(of: locationManager.currentAddress) { newAddress in
-                            // Auto-update header and close when GPS resolves
                             if !newAddress.isEmpty && newAddress != "Fetching location..." {
                                 selectedLocation = extractNeighborhood(from: newAddress)
-                                selectedCoordinate = nil // Use HomeView's GPS locationManager
+                                selectedCoordinate = nil
+                                selectedAddressId = nil
                                 isShowing = false
                             }
                         }
@@ -174,60 +176,50 @@ struct LocationDropdownCard: View {
                         ForEach(addressManager.addresses) { address in
                             AddressCardCompact(
                                 address: address,
-                                isSelected: address.isDefault,
+                                isSelected: address.id == selectedAddressId,
                                 onSelect: {
+                                    selectedAddressId = address.id
                                     selectedLocation = extractNeighborhood(from: address.address)
-                                    // Geocode the saved address to get coordinates for store filtering
                                     geocodeAddress(address.address) { location in
                                         selectedCoordinate = location
                                     }
                                     isShowing = false
-                                }
+                                },
+                                onEdit: { editingAddress = address }
                             )
                         }
+                        .sheet(item: $editingAddress) { address in
+                            AddEditAddressView(addressManager: addressManager, existingAddress: address)
+                        }
                         
-                        // Add New Address Button / Form
-                        if !showAddAddress {
-                            Button(action: {
-                                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                    showAddAddress = true
-                                }
-                            }) {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "plus.circle.fill")
-                                        .font(.system(size: 20))
-                                        .foregroundColor(.white)
-                                    
-                                    Text("Add New Address")
-                                        .font(.custom("Montserrat-SemiBold", size: 15))
-                                        .foregroundColor(.white)
-                                    
-                                    Spacer()
-                                    
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption)
-                                        .foregroundColor(.white.opacity(0.4))
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 12)
+                        // Add New Address Button
+                        Button(action: { showAddAddressSheet = true }) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(.white)
+                                Text("Add New Address")
+                                    .font(.custom("Montserrat-SemiBold", size: 15))
+                                    .foregroundColor(.white)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.white.opacity(0.4))
                             }
-                            .glassEffect(in: RoundedRectangle(cornerRadius: 12))
-                            .padding(.top, 4)
-                        } else {
-                            // Inline Add Address Form
-                            AddAddressInlineForm(isShowing: $showAddAddress)
-                                .transition(.asymmetric(
-                                    insertion: .scale(scale: 0.95).combined(with: .opacity),
-                                    removal: .scale(scale: 0.95).combined(with: .opacity)
-                                ))
-                                .padding(.top, 4)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                        }
+                        .glassEffect(in: RoundedRectangle(cornerRadius: 12))
+                        .padding(.top, 4)
+                        .sheet(isPresented: $showAddAddressSheet) {
+                            AddEditAddressView(addressManager: addressManager)
                         }
                     }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
             }
-            .frame(maxHeight: showAddAddress ? .infinity : 400)
+            .frame(maxHeight: 400)
         }
         .glassEffect(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .shadow(color: Color.black.opacity(0.3), radius: 20, x: 0, y: 10)
@@ -262,6 +254,7 @@ struct LocationDropdownCard: View {
 // Inline Add Address Form Component
 struct AddAddressInlineForm: View {
     @Binding var isShowing: Bool
+    @EnvironmentObject var addressManager: AddressManager
     @State private var addressLabel = "Home"
     @State private var streetAddress = ""
     @State private var apartment = ""
@@ -444,6 +437,17 @@ struct AddAddressInlineForm: View {
                     
                     // Save Button
                     Button(action: {
+                        guard !streetAddress.isEmpty, !city.isEmpty else { return }
+                        let newAddress = SavedAddress(
+                            label: addressLabel,
+                            street: streetAddress,
+                            apartment: apartment,
+                            city: city.isEmpty ? "New York" : city,
+                            state: state.isEmpty ? "NY" : state,
+                            zipCode: zipCode,
+                            isDefault: addressManager.addresses.isEmpty // first address = default
+                        )
+                        addressManager.addAddress(newAddress)
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                             isShowing = false
                         }
@@ -475,28 +479,24 @@ struct AddressCardCompact: View {
     let address: SavedAddress
     let isSelected: Bool
     let onSelect: () -> Void
+    var onEdit: (() -> Void)? = nil
     
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 12) {
-                // Icon
                 ZStack {
                     Circle()
                         .fill(iconColor.opacity(0.2))
                         .frame(width: 36, height: 36)
-                    
                     Image(systemName: iconName)
                         .font(.system(size: 16))
                         .foregroundColor(iconColor)
                 }
-                
-                // Address Info
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
                         Text(address.label)
                             .font(.custom("Montserrat-SemiBold", size: 15))
                             .foregroundColor(.white)
-                        
                         if address.isDefault {
                             Text("DEFAULT")
                                 .font(.custom("Montserrat-Bold", size: 9))
@@ -507,28 +507,32 @@ struct AddressCardCompact: View {
                                 .cornerRadius(3)
                         }
                     }
-                    
                     Text(address.address)
                         .font(.custom("Montserrat-Regular", size: 13))
                         .foregroundColor(.white.opacity(0.6))
                         .lineLimit(1)
                 }
-                
                 Spacer()
-                
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                        .font(.system(size: 18))
-                }
+                // Reserve space so text doesn't run under the pencil overlay
+                Color.clear.frame(width: 30)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
         .glassEffect(in: RoundedRectangle(cornerRadius: 12))
+        // Pencil in overlay so it never triggers the card's select action
+        .overlay(alignment: .trailing) {
+            Button(action: { onEdit?() }) {
+                Image(systemName: "pencil.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundColor(.white.opacity(0.45))
+                    .padding(.trailing, 16)
+            }
+            .buttonStyle(.plain)
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(isSelected ? Color.white.opacity(0.3) : Color.clear, lineWidth: 1.5)
+                .stroke(isSelected ? Color.white.opacity(0.5) : Color.clear, lineWidth: 1.5)
         )
     }
     

@@ -17,7 +17,8 @@ struct HomeView: View {
     @State private var selectedLocation = AppConfig.defaultLocationName
     /// Set when the user manually picks an address from the dropdown (overrides GPS for filtering)
     @State private var manualCoordinate: CLLocation?
-    @Namespace private var categoryNamespace
+    /// Persists which address card is highlighted across dropdown opens (nil = Use Current Location)
+    @State private var selectedAddressId: String? = nil
 
     let categories = ["All", "Clothing", "Hygiene", "Beauty & Skincare", "Fine Jewelry"]
 
@@ -48,6 +49,16 @@ struct HomeView: View {
         let inOrder = order.compactMap { id in tagged.first { $0.firestoreId == id } }
         let remainder = tagged.filter { s in !order.contains(s.firestoreId) }
         return inOrder + remainder
+    }
+
+    // Just Dropped products filtered to only show items from in-range stores
+    var justDroppedProducts: [Product] {
+        guard locationDetermined else {
+            // Location not yet resolved — show all while waiting
+            return databaseService.justDroppedProducts
+        }
+        let inRangeIds = Set(displayStores.map { $0.firestoreId })
+        return databaseService.justDroppedProducts.filter { inRangeIds.contains($0.storeId) }
     }
 
     // Nearby Firestore stores sorted by distance; empty when location is known but no stores are in range
@@ -115,7 +126,7 @@ struct HomeView: View {
                                         selectedTab = .profile
                                     }
                                 }) {
-                                    Image("profile") // Custom profile icon
+                                    Image("cart")
                                         .resizable()
                                         .aspectRatio(contentMode: .fit)
                                         .frame(width: 28, height: 28)
@@ -145,31 +156,33 @@ struct HomeView: View {
                             
                             // Categories
                             ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 12) {
+                                HStack(spacing: 24) {
                                     ForEach(categories, id: \.self) { category in
                                         Button(action: {
-                                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                            withAnimation(.easeInOut(duration: 0.15)) {
                                                 selectedCategory = category
                                             }
                                         }) {
-                                            Text(category)
-                                                .font(.custom("Montserrat-SemiBold", size: 14))
-                                                .foregroundColor(selectedCategory == category ? .white : .gray)
-                                                .padding(.horizontal, 18)
-                                                .padding(.vertical, 10)
-                                        }
-                                        .background(
-                                            Group {
-                                                if selectedCategory == category {
-                                                    Capsule()
-                                                        .glassEffect()
-                                                        .matchedGeometryEffect(id: "categoryBackground", in: categoryNamespace)
-                                                }
+                                            VStack(spacing: 6) {
+                                                Text(category.uppercased())
+                                                    .font(.custom(
+                                                        selectedCategory == category ? "Montserrat-Bold" : "Montserrat-Regular",
+                                                        size: 13
+                                                    ))
+                                                    .foregroundColor(selectedCategory == category ? .white : Color(white: 0.55))
+                                                    .fixedSize()
+
+                                                // Underline indicator
+                                                Rectangle()
+                                                    .fill(selectedCategory == category ? Color.white : Color.clear)
+                                                    .frame(height: 1.5)
                                             }
-                                        )
+                                        }
+                                        .buttonStyle(.plain)
                                     }
                                 }
                                 .padding(.horizontal)
+                                .padding(.bottom, 2)
                             }
                             
                             if locationDetermined && displayStores.isEmpty {
@@ -273,16 +286,16 @@ struct HomeView: View {
                                 }
 
                                 // ── Just Dropped ──────────────────────────────────
-                                if !databaseService.justDroppedProducts.isEmpty {
+                                if !justDroppedProducts.isEmpty {
                                     VStack(alignment: .leading, spacing: 12) {
                                         SectionHeader(
                                             title: "Just Dropped",
                                             destination: AnyView(
-                                                SectionProductsView(title: "Just Dropped", products: databaseService.justDroppedProducts, stores: databaseService.stores, showTabBar: $showTabBar, selectedTab: $selectedTab)
+                                                SectionProductsView(title: "Just Dropped", products: justDroppedProducts, stores: databaseService.stores, showTabBar: $showTabBar, selectedTab: $selectedTab)
                                             )
                                         )
                                         LazyVGrid(columns: columns, spacing: 16) {
-                                            ForEach(databaseService.justDroppedProducts.prefix(10)) { product in
+                                            ForEach(justDroppedProducts.prefix(10)) { product in
                                                 let store = databaseService.stores.first { $0.firestoreId == product.storeId }
                                                 Group {
                                                     if let store = store {
@@ -372,7 +385,7 @@ struct HomeView: View {
                     
                     // Dropdown card
                     VStack {
-                        LocationDropdownCard(isShowing: $showLocationSheet, selectedLocation: $selectedLocation, selectedCoordinate: $manualCoordinate)
+                        LocationDropdownCard(isShowing: $showLocationSheet, selectedLocation: $selectedLocation, selectedCoordinate: $manualCoordinate, selectedAddressId: $selectedAddressId, locationManager: locationManager)
                             .padding(.top, 60)
                         
                         Spacer()

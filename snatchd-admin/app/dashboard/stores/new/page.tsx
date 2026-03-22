@@ -17,6 +17,8 @@ export default function NewStorePage() {
     const [description, setDescription] = useState("");
     const [categories, setCategories] = useState("");
     const [externalId, setExternalId] = useState(""); // STORE ID for Scraper
+    const [address, setAddress] = useState("");
+    const [deliveryRadius, setDeliveryRadius] = useState("");
 
     // Image State
     const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -44,17 +46,37 @@ export default function NewStorePage() {
                 bannerUrl = await getDownloadURL(bannerRef);
             }
 
-            // 3. Save to Firestore
+            // 3. Auto-geocode address if provided
+            let finalLat: number | null = null;
+            let finalLon: number | null = null;
+            if (address.trim()) {
+                try {
+                    const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(address.trim())}`;
+                    const geoRes = await fetch(geoUrl, { headers: { "Accept-Language": "en" } });
+                    const geoData = await geoRes.json();
+                    if (geoData.length > 0) {
+                        finalLat = parseFloat(parseFloat(geoData[0].lat).toFixed(6));
+                        finalLon = parseFloat(parseFloat(geoData[0].lon).toFixed(6));
+                    }
+                } catch {
+                    // Geocoding failed silently — store saves without coordinates
+                }
+            }
+
+            // 4. Save to Firestore
             await addDoc(collection(db, "stores"), {
                 name,
                 description,
-                externalId, // Saved here!
+                externalId,
                 logo: logoUrl,
-                image: bannerUrl, // Using 'image' to match iOS app model
+                image: bannerUrl,
                 categories: categories.split(",").map(c => c.trim()).filter(c => c.length > 0),
                 createdAt: serverTimestamp(),
-                rating: 5.0, // Default for new stores
-                deliveryTime: "30-45 min" // Default
+                rating: 5.0,
+                deliveryTime: "30-45 min",
+                ...(address.trim() ? { address: address.trim() } : {}),
+                ...(finalLat !== null ? { latitude: finalLat, longitude: finalLon } : {}),
+                ...(deliveryRadius ? { deliveryRadius: parseFloat(deliveryRadius) } : {})
             });
 
             router.push("/dashboard/stores");
@@ -131,6 +153,32 @@ export default function NewStorePage() {
                             onChange={e => setCategories(e.target.value)}
                             className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white focus:border-white focus:outline-none transition"
                         />
+                    </div>
+
+                    <div className="grid gap-2">
+                        <label className="text-sm font-medium text-neutral-300">Store Address</label>
+                        <input
+                            type="text"
+                            value={address}
+                            onChange={e => setAddress(e.target.value)}
+                            placeholder="e.g. 580 Broadway, New York, NY 10012"
+                            className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white placeholder:text-neutral-600 focus:border-white focus:outline-none transition"
+                        />
+                        <p className="text-xs text-neutral-500">Used to calculate delivery distance. Coordinates are auto-filled on save.</p>
+                    </div>
+
+                    <div className="grid gap-2">
+                        <label className="text-sm font-medium text-neutral-300">Delivery Radius (miles)</label>
+                        <input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            value={deliveryRadius}
+                            onChange={e => setDeliveryRadius(e.target.value)}
+                            placeholder="10"
+                            className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white placeholder:text-neutral-600 focus:border-white focus:outline-none transition"
+                        />
+                        <p className="text-xs text-neutral-500">How far from this store Snatchd will deliver. Leave blank to use the global default (10 mi).</p>
                     </div>
                 </div>
 

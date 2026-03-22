@@ -63,6 +63,27 @@ export default function EditStorePage() {
     const [latitude, setLatitude] = useState("");
     const [longitude, setLongitude] = useState("");
     const [deliveryRadius, setDeliveryRadius] = useState("");
+    const [geocoding, setGeocoding] = useState(false);
+
+    const geocodeFromAddress = async () => {
+        if (!address.trim()) { alert("Enter a store address first."); return; }
+        setGeocoding(true);
+        try {
+            const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(address)}`;
+            const res = await fetch(url, { headers: { "Accept-Language": "en" } });
+            const data = await res.json();
+            if (data.length > 0) {
+                setLatitude(parseFloat(data[0].lat).toFixed(6));
+                setLongitude(parseFloat(data[0].lon).toFixed(6));
+            } else {
+                alert("Address not found. Try a more specific address.");
+            }
+        } catch {
+            alert("Geocoding failed. Enter coordinates manually.");
+        } finally {
+            setGeocoding(false);
+        }
+    };
 
     // Inventory state
     const [savedProducts, setSavedProducts] = useState<any[]>([]);
@@ -140,6 +161,25 @@ export default function EditStorePage() {
                 bannerUrl = await getDownloadURL(bannerRef);
             }
 
+            // Auto-geocode: if address is set but lat/lon are missing, resolve them automatically
+            let finalLat = latitude ? parseFloat(latitude) : null;
+            let finalLon = longitude ? parseFloat(longitude) : null;
+            if (address.trim() && (finalLat === null || finalLon === null)) {
+                try {
+                    const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(address.trim())}`;
+                    const geoRes = await fetch(geoUrl, { headers: { "Accept-Language": "en" } });
+                    const geoData = await geoRes.json();
+                    if (geoData.length > 0) {
+                        finalLat = parseFloat(parseFloat(geoData[0].lat).toFixed(6));
+                        finalLon = parseFloat(parseFloat(geoData[0].lon).toFixed(6));
+                        setLatitude(finalLat.toString());
+                        setLongitude(finalLon.toString());
+                    }
+                } catch {
+                    // Geocoding failed silently — coordinates stay null
+                }
+            }
+
             await updateDoc(doc(db, "stores", storeId), {
                 name, description, externalId,
                 logo: logoUrl, image: bannerUrl,
@@ -149,8 +189,8 @@ export default function EditStorePage() {
                 isActive,
                 tags,
                 address: address.trim() || null,
-                latitude: latitude ? parseFloat(latitude) : null,
-                longitude: longitude ? parseFloat(longitude) : null,
+                latitude: finalLat,
+                longitude: finalLon,
                 deliveryRadius: deliveryRadius ? parseFloat(deliveryRadius) : null,
             });
             alert("Store updated successfully.");
@@ -490,17 +530,17 @@ export default function EditStorePage() {
                                 placeholder="e.g. 113 Prince St, New York, NY 10012"
                                 className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white placeholder:text-neutral-600 focus:border-white focus:outline-none transition"
                             />
-                            <p className="text-xs text-neutral-500">
-                                Shown in the app on the store detail page. To find coordinates, enter the address above then{" "}
-                                <a
-                                    href={`https://www.latlong.net/convert-address-to-lat-long.html`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-blue-400 hover:underline"
+                            <div className="flex items-center gap-3">
+                                <p className="text-xs text-neutral-500">Shown in the app. After entering the address, click to auto-fill coordinates.</p>
+                                <button
+                                    type="button"
+                                    onClick={geocodeFromAddress}
+                                    disabled={geocoding || !address.trim()}
+                                    className="shrink-0 rounded-lg bg-white/10 border border-white/20 px-3 py-1 text-xs font-medium text-white hover:bg-white/20 disabled:opacity-40 transition"
                                 >
-                                    look up lat/lng here
-                                </a>.
-                            </p>
+                                    {geocoding ? "Geocoding…" : "⌖ Auto-fill Lat/Lng"}
+                                </button>
+                            </div>
                         </div>
                         <div className="grid grid-cols-3 gap-4">
                             <div className="grid gap-2">
@@ -526,16 +566,17 @@ export default function EditStorePage() {
                                 />
                             </div>
                             <div className="grid gap-2">
-                                <label className="text-sm font-medium text-neutral-300">Delivery Radius (mi)</label>
+                                <label className="text-sm font-medium text-neutral-300">Delivery Radius (miles)</label>
                                 <input
                                     type="number"
-                                    step="0.1"
+                                    step="0.5"
                                     min="0"
                                     value={deliveryRadius}
                                     onChange={e => setDeliveryRadius(e.target.value)}
-                                    placeholder="5"
+                                    placeholder="10"
                                     className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white placeholder:text-neutral-600 focus:border-white focus:outline-none transition"
                                 />
+                                <p className="text-xs text-neutral-500">How far from this store Snatchd will deliver. Leave blank to use the global default (10 mi).</p>
                             </div>
                         </div>
                     </div>
