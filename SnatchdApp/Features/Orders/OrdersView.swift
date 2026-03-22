@@ -62,7 +62,6 @@ struct OrdersView: View {
                     }
                 }
             }
-        }
         .id(navID)
         .onAppear {
             if let userId = Auth.auth().currentUser?.uid {
