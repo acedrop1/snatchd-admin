@@ -169,10 +169,12 @@ struct StoreProductsView: View {
                                         .foregroundColor(selectedGender == gender ? .white : .white.opacity(0.5))
                                         .padding(.vertical, 6)
                                         .padding(.horizontal, 16)
-                                        .glassEffect(
-                                            .regular.interactive(),
-                                            in: Capsule(),
-                                            isEnabled: selectedGender == gender
+                                        .background(
+                                            Group {
+                                                if selectedGender == gender {
+                                                    Capsule().glassEffect(.regular.interactive())
+                                                }
+                                            }
                                         )
                                 }
                             }
@@ -198,10 +200,12 @@ struct StoreProductsView: View {
                                         .foregroundColor(selectedCategory == category ? .white : .white.opacity(0.6))
                                         .padding(.vertical, 6)
                                         .padding(.horizontal, 16)
-                                        .glassEffect(
-                                            .regular.interactive(),
-                                            in: Capsule(),
-                                            isEnabled: selectedCategory == category
+                                        .background(
+                                            Group {
+                                                if selectedCategory == category {
+                                                    Capsule().glassEffect(.regular.interactive())
+                                                }
+                                            }
                                         )
                                 }
                             }
