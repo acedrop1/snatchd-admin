@@ -154,7 +154,7 @@ struct StoreProductsView: View {
                     }
                     .frame(height: 300)
                     
-                    // Gender Filter — compact liquid glass pill, centered
+                    // Gender Filter — iOS 26 Liquid Glass
                     if !genders.isEmpty {
                         HStack(spacing: 2) {
                             ForEach(genders, id: \.self) { gender in
@@ -169,25 +169,24 @@ struct StoreProductsView: View {
                                         .foregroundColor(selectedGender == gender ? .white : .white.opacity(0.5))
                                         .padding(.vertical, 6)
                                         .padding(.horizontal, 16)
-                                        .background(
-                                            ZStack {
-                                                if selectedGender == gender {
-                                                    LiquidGlassBubble()
-                                                        .matchedGeometryEffect(id: "genderBubble", in: genderNamespace)
-                                                }
-                                            }
+                                        .glassEffect(
+                                            .regular.interactive(),
+                                            in: Capsule(),
+                                            isEnabled: selectedGender == gender
                                         )
                                 }
                             }
                         }
-                        .liquidGlassBackground()
+                        .padding(.vertical, 5)
+                        .padding(.horizontal, 6)
+                        .glassEffect(.regular, in: Capsule())
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.bottom, 10)
                     }
 
-                    // Category Filter Bar
+                    // Category Filter Bar — iOS 26 Liquid Glass
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
+                        HStack(spacing: 8) {
                             ForEach(categories, id: \.self) { category in
                                 Button(action: {
                                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
@@ -198,25 +197,23 @@ struct StoreProductsView: View {
                                         .font(.custom("Montserrat-Medium", size: 13))
                                         .foregroundColor(selectedCategory == category ? .white : .white.opacity(0.6))
                                         .padding(.vertical, 6)
-                                        .padding(.horizontal, 20)
-                                        .background(
-                                            ZStack {
-                                                if selectedCategory == category {
-                                                    LiquidGlassBubble()
-                                                        .matchedGeometryEffect(id: "bubble", in: categoryNamespace)
-                                                }
-                                            }
+                                        .padding(.horizontal, 16)
+                                        .glassEffect(
+                                            .regular.interactive(),
+                                            in: Capsule(),
+                                            isEnabled: selectedCategory == category
                                         )
                                 }
                             }
                         }
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
                     }
-                    .liquidGlassBackground()
+                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 25))
                     .padding(.horizontal)
                     .padding(.bottom, 10)
                     
-                    // Search Bar
+                    // Search Bar — iOS 26 Liquid Glass
                     HStack {
                         Image(systemName: "magnifyingglass")
                             .foregroundColor(.gray)
@@ -231,29 +228,9 @@ struct StoreProductsView: View {
                             }
                         }
                     }
-                    .padding(.vertical, 16)
-                    .padding(.horizontal, 12)
-                    .background(
-                        ZStack {
-                            VisualEffectBlur(blurStyle: .systemUltraThinMaterialDark)
-                            RoundedRectangle(cornerRadius: 20)
-                                .strokeBorder(
-                                    LinearGradient(
-                                        gradient: Gradient(colors: [
-                                            Color.white.opacity(0.5),
-                                            Color.white.opacity(0.2),
-                                            Color.white.opacity(0.1),
-                                            Color.white.opacity(0.3)
-                                        ]),
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    lineWidth: 1.5
-                                )
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: 20))
-                    )
-                    .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
+                    .padding(.vertical, 14)
+                    .padding(.horizontal, 16)
+                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
                     .padding(.horizontal)
                     .padding(.bottom, 10)
                     
