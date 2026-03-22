@@ -180,7 +180,15 @@ struct StoreProductsView: View {
                         }
                         .padding(.vertical, 5)
                         .padding(.horizontal, 6)
-                        .glassEffect(.regular, in: Capsule())
+                        .background(
+                            ZStack {
+                                VisualEffectBlur(blurStyle: .systemUltraThinMaterialDark)
+                                Capsule().strokeBorder(
+                                    LinearGradient(colors: [.white.opacity(0.4), .white.opacity(0.1), .white.opacity(0.3)],
+                                                   startPoint: .topLeading, endPoint: .bottomTrailing),
+                                    lineWidth: 1)
+                            }.clipShape(Capsule())
+                        )
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.bottom, 10)
                     }
@@ -211,7 +219,15 @@ struct StoreProductsView: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 5)
                     }
-                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 25))
+                    .background(
+                        ZStack {
+                            VisualEffectBlur(blurStyle: .systemUltraThinMaterialDark)
+                            RoundedRectangle(cornerRadius: 25).strokeBorder(
+                                LinearGradient(colors: [.white.opacity(0.4), .white.opacity(0.1), .white.opacity(0.3)],
+                                               startPoint: .topLeading, endPoint: .bottomTrailing),
+                                lineWidth: 1)
+                        }.clipShape(RoundedRectangle(cornerRadius: 25))
+                    )
                     .padding(.horizontal)
                     .padding(.bottom, 10)
                     
@@ -232,7 +248,15 @@ struct StoreProductsView: View {
                     }
                     .padding(.vertical, 14)
                     .padding(.horizontal, 16)
-                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
+                    .background(
+                        ZStack {
+                            VisualEffectBlur(blurStyle: .systemUltraThinMaterialDark)
+                            RoundedRectangle(cornerRadius: 20).strokeBorder(
+                                LinearGradient(colors: [.white.opacity(0.4), .white.opacity(0.1), .white.opacity(0.3)],
+                                               startPoint: .topLeading, endPoint: .bottomTrailing),
+                                lineWidth: 1)
+                        }.clipShape(RoundedRectangle(cornerRadius: 20))
+                    )
                     .padding(.horizontal)
                     .padding(.bottom, 10)
                     
