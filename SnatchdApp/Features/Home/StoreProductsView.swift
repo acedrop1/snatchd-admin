@@ -363,7 +363,7 @@ struct StoreProductsView: View {
                     .frame(width: 44, height: 44)
                     .glassEffect(.regular, in: Circle())
             }
-            .padding(.top, 44)
+            .padding(.top, 20)
             .padding(.leading, 16)
 
             // Cart Button (Top Right) — iOS 26 Liquid Glass, same line as back button
@@ -393,7 +393,7 @@ struct StoreProductsView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
-            .padding(.top, 44)
+            .padding(.top, 20)
             .padding(.trailing, 16)
         }
         .navigationBarHidden(true)
