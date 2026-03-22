@@ -2,12 +2,13 @@ import SwiftUI
 
 struct StoreProductsView: View {
     let store: Store
+    var initialProduct: Product? = nil
     @Binding var showTabBar: Bool
     @Binding var selectedTab: Tab
     @Environment(\.presentationMode) var presentationMode
     @EnvironmentObject var cartManager: CartManager
     @ObservedObject private var databaseService = DatabaseService.shared // Use shared instance
-    
+
     @State private var selectedGender = "All"
     @State private var selectedCategory = "All"
     @State private var searchText = ""
@@ -425,6 +426,14 @@ struct StoreProductsView: View {
         }
         .navigationBarHidden(true)
         .enableSwipeBack()
+        .onAppear {
+            if let product = initialProduct {
+                // Small delay so the view is fully rendered before presenting the cover
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    selectedProduct = product
+                }
+            }
+        }
     }
 }
 

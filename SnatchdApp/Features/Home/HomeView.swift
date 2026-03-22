@@ -286,7 +286,7 @@ struct HomeView: View {
                                                 let store = databaseService.stores.first { $0.firestoreId == product.storeId }
                                                 Group {
                                                     if let store = store {
-                                                        NavigationLink(destination: StoreProductsView(store: store, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
+                                                        NavigationLink(destination: StoreProductsView(store: store, initialProduct: product, showTabBar: $showTabBar, selectedTab: $selectedTab)) {
                                                             JustDroppedProductCard(product: product)
                                                         }
                                                     } else {
@@ -620,29 +620,28 @@ struct JustDroppedProductCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Product image — portrait 3:4
-            ZStack {
-                Rectangle()
-                    .fill(Color.gray.opacity(0.2))
-                    .aspectRatio(3/4, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-
-                if let urlString = product.imageURL, let url = URL(string: urlString) {
-                    CachedAsyncImage(url: url) { image in
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        ProgressView()
+            // Fixed 3:4 container — image overlaid and clipped inside it
+            Rectangle()
+                .fill(Color.gray.opacity(0.2))
+                .aspectRatio(3/4, contentMode: .fit)
+                .overlay(
+                    Group {
+                        if let urlString = product.imageURL, let url = URL(string: urlString) {
+                            CachedAsyncImage(url: url) { image in
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            } placeholder: {
+                                ProgressView()
+                            }
+                        } else {
+                            Image(systemName: "photo")
+                                .font(.system(size: 32))
+                                .foregroundColor(.white.opacity(0.3))
+                        }
                     }
-                    .aspectRatio(3/4, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                } else {
-                    Image(systemName: "photo")
-                        .font(.system(size: 32))
-                        .foregroundColor(.white.opacity(0.3))
-                }
-            }
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 12))
 
             // Info
             VStack(alignment: .leading, spacing: 2) {
