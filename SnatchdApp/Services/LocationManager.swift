@@ -87,25 +87,13 @@ class LocationManager: NSObject, ObservableObject {
     }
     
     func formatAddress(from placemark: CLPlacemark) -> String {
-        var addressComponents: [String] = []
-        
-        if let streetNumber = placemark.subThoroughfare {
-            addressComponents.append(streetNumber)
+        // Return "123 Main St" — just the number + street, no city/state/zip
+        let parts = [placemark.subThoroughfare, placemark.thoroughfare].compactMap { $0 }
+        if !parts.isEmpty {
+            return parts.joined(separator: " ")
         }
-        if let street = placemark.thoroughfare {
-            addressComponents.append(street)
-        }
-        if let city = placemark.locality {
-            addressComponents.append(city)
-        }
-        if let state = placemark.administrativeArea {
-            addressComponents.append(state)
-        }
-        if let zipCode = placemark.postalCode {
-            addressComponents.append(zipCode)
-        }
-        
-        return addressComponents.joined(separator: ", ")
+        // Fallback: neighborhood, then city
+        return placemark.subLocality ?? placemark.locality ?? "Current Location"
     }
     
     func formatShortAddress(from placemark: CLPlacemark) -> String {

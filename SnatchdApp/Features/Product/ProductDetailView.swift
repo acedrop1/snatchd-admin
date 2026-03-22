@@ -85,58 +85,51 @@ struct ProductDetailView: View {
                     }
             )
             
-            // 2. Custom Navigation Bar
-            VStack {
-                HStack {
-                    Button(action: { presentationMode.wrappedValue.dismiss() }) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
-                            .background(.ultraThinMaterial)
-                            .environment(\.colorScheme, .dark)
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
-                    }
+            // 2. Back Button (Top Left) — matches StoreProductsView
+            Button(action: { presentationMode.wrappedValue.dismiss() }) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+                    .glassEffect(.regular, in: Circle())
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 20)
+            .padding(.leading, 16)
+            .zIndex(1)
 
-                    Spacer()
-
-                    Button(action: {
-                        presentationMode.wrappedValue.dismiss()
-                        selectedTab = .cart
-                        showTabBar = true
-                    }) {
-                        ZStack {
-                            Image(systemName: "cart")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(.white)
-
-                            if cartManager.items.count > 0 {
-                                Text("\(cartManager.items.reduce(0) { $0 + $1.quantity })")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundColor(.black)
-                                    .frame(width: 16, height: 16)
-                                    .background(Color.white)
-                                    .clipShape(Circle())
-                                    .offset(x: 12, y: -10)
-                                    .scaleEffect(cartScale)
-                            }
-                        }
+            // 3. Cart Button (Top Right) — matches StoreProductsView
+            Button(action: {
+                presentationMode.wrappedValue.dismiss()
+                selectedTab = .cart
+                showTabBar = true
+            }) {
+                ZStack(alignment: .topTrailing) {
+                    Image("cart")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 22, height: 22)
                         .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial)
-                        .environment(\.colorScheme, .dark)
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                        .glassEffect(.regular, in: Circle())
+
+                    if cartManager.items.reduce(0, { $0 + $1.quantity }) > 0 {
+                        Text("\(cartManager.items.reduce(0) { $0 + $1.quantity })")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.black)
+                            .frame(width: 16, height: 16)
+                            .background(Color.white)
+                            .clipShape(Circle())
+                            .offset(x: 3, y: -3)
+                            .scaleEffect(cartScale)
                     }
                 }
-                .padding(.top, 20)
-                .padding(.horizontal, 16)
-
-                Spacer()
             }
-            .zIndex(1) // Ensure nav bar is above image
-            
-            // 3. Draggable Glassmorphic Bottom Sheet
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.top, 20)
+            .padding(.trailing, 16)
+            .zIndex(1)
+
+            // 4. Draggable Glassmorphic Bottom Sheet
             GeometryReader { geometry in
                 VStack(spacing: 0) {
                     // Draggable Handle Area (Larger touch target)
