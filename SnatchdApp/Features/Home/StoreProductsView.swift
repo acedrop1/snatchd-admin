@@ -154,7 +154,7 @@ struct StoreProductsView: View {
                     }
                     .frame(height: 300)
                     
-                    // Gender Filter — iOS 26 Liquid Glass
+                    // Gender Segmented Control — solid white pill on glass track
                     if !genders.isEmpty {
                         HStack(spacing: 2) {
                             ForEach(genders, id: \.self) { gender in
@@ -165,35 +165,24 @@ struct StoreProductsView: View {
                                     }
                                 }) {
                                     Text(gender)
-                                        .font(.custom("Montserrat-SemiBold", size: 12))
-                                        .foregroundColor(selectedGender == gender ? .white : .white.opacity(0.5))
-                                        .padding(.vertical, 6)
-                                        .padding(.horizontal, 16)
+                                        .font(.custom("Montserrat-SemiBold", size: 13))
+                                        .foregroundColor(selectedGender == gender ? .black : .white.opacity(0.6))
+                                        .padding(.vertical, 7)
+                                        .padding(.horizontal, 18)
                                         .background(
-                                            selectedGender == gender
-                                                ? Color.white.opacity(0.2)
-                                                : Color.clear
+                                            selectedGender == gender ? Color.white : Color.clear,
+                                            in: Capsule()
                                         )
-                                        .clipShape(Capsule())
                                 }
                             }
                         }
-                        .padding(.vertical, 5)
-                        .padding(.horizontal, 6)
-                        .background(
-                            ZStack {
-                                VisualEffectBlur(blurStyle: .systemUltraThinMaterialDark)
-                                Capsule().strokeBorder(
-                                    LinearGradient(colors: [.white.opacity(0.4), .white.opacity(0.1), .white.opacity(0.3)],
-                                                   startPoint: .topLeading, endPoint: .bottomTrailing),
-                                    lineWidth: 1)
-                            }.clipShape(Capsule())
-                        )
+                        .padding(3)
+                        .glassEffect(in: Capsule())
                         .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.bottom, 10)
+                        .padding(.bottom, 12)
                     }
 
-                    // Category Filter Bar — iOS 26 Liquid Glass
+                    // Category Chips — floating, no outer container
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(categories, id: \.self) { category in
@@ -204,34 +193,21 @@ struct StoreProductsView: View {
                                 }) {
                                     Text(category)
                                         .font(.custom("Montserrat-Medium", size: 13))
-                                        .foregroundColor(selectedCategory == category ? .white : .white.opacity(0.6))
-                                        .padding(.vertical, 6)
+                                        .foregroundColor(selectedCategory == category ? .black : .white)
+                                        .padding(.vertical, 7)
                                         .padding(.horizontal, 16)
                                         .background(
-                                            selectedCategory == category
-                                                ? Color.white.opacity(0.2)
-                                                : Color.clear
+                                            selectedCategory == category ? Color.white : Color.white.opacity(0.1),
+                                            in: Capsule()
                                         )
-                                        .clipShape(Capsule())
                                 }
                             }
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 5)
+                        .padding(.horizontal, 16)
                     }
-                    .background(
-                        ZStack {
-                            VisualEffectBlur(blurStyle: .systemUltraThinMaterialDark)
-                            RoundedRectangle(cornerRadius: 25).strokeBorder(
-                                LinearGradient(colors: [.white.opacity(0.4), .white.opacity(0.1), .white.opacity(0.3)],
-                                               startPoint: .topLeading, endPoint: .bottomTrailing),
-                                lineWidth: 1)
-                        }.clipShape(RoundedRectangle(cornerRadius: 25))
-                    )
-                    .padding(.horizontal)
                     .padding(.bottom, 10)
-                    
-                    // Search Bar — iOS 26 Liquid Glass
+
+                    // Search Bar — matches home page style exactly
                     HStack {
                         Image(systemName: "magnifyingglass")
                             .foregroundColor(.gray)
@@ -246,19 +222,11 @@ struct StoreProductsView: View {
                             }
                         }
                     }
-                    .padding(.vertical, 14)
+                    .padding(.vertical, 13)
                     .padding(.horizontal, 16)
-                    .background(
-                        ZStack {
-                            VisualEffectBlur(blurStyle: .systemUltraThinMaterialDark)
-                            RoundedRectangle(cornerRadius: 20).strokeBorder(
-                                LinearGradient(colors: [.white.opacity(0.4), .white.opacity(0.1), .white.opacity(0.3)],
-                                               startPoint: .topLeading, endPoint: .bottomTrailing),
-                                lineWidth: 1)
-                        }.clipShape(RoundedRectangle(cornerRadius: 20))
-                    )
-                    .padding(.horizontal)
-                    .padding(.bottom, 10)
+                    .glassEffect(in: RoundedRectangle(cornerRadius: 25, style: .continuous))
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
                     
                     // Products Grid
                     LazyVGrid(columns: columns, spacing: 15) {
