@@ -14,6 +14,7 @@ struct HomeView: View {
     @Binding var selectedAddressId: String?
     @StateObject private var databaseService = DatabaseService.shared
     @StateObject private var locationManager = LocationManager()
+    @EnvironmentObject var cartManager: CartManager
     @State private var selectedCategory = "All"
     @State private var showLocationSheet = false
     @State private var selectedLocation = AppConfig.defaultLocationName
@@ -124,11 +125,26 @@ struct HomeView: View {
                                         selectedTab = .cart
                                     }
                                 }) {
-                                    Image("cart")
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fit)
-                                        .frame(width: 28, height: 28)
-                                        .foregroundColor(.white)
+                                    ZStack(alignment: .topTrailing) {
+                                        Image("cart")
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fit)
+                                            .frame(width: 28, height: 28)
+                                            .foregroundColor(.white)
+
+                                        let count = cartManager.items.reduce(0) { $0 + $1.quantity }
+                                        if count > 0 {
+                                            Text("\(count)")
+                                                .font(.system(size: 9, weight: .bold))
+                                                .foregroundColor(.black)
+                                                .frame(minWidth: 16, minHeight: 16)
+                                                .padding(.horizontal, 2)
+                                                .background(Color.white)
+                                                .clipShape(Capsule())
+                                                .offset(x: 8, y: -6)
+                                        }
+                                    }
+                                    .frame(width: 36, height: 36)
                                 }
                             }
                             .padding(.horizontal)
