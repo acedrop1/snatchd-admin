@@ -7,6 +7,7 @@ struct OrdersView: View {
     var navID: UUID
 
     var body: some View {
+        NavigationStack {
         ZStack {
             Color.black.edgesIgnoringSafeArea(.all)
 
@@ -34,7 +35,7 @@ struct OrdersView: View {
                             if selectedTab == 0 {
                                 if databaseService.activeOrders.isEmpty {
                                     OrderEmptyState(
-                                        icon: "bag",
+                                        icon: "orders",
                                         title: "No active orders",
                                         subtitle: "Your current orders will appear here"
                                     )
@@ -62,12 +63,14 @@ struct OrdersView: View {
                     }
                 }
             }
+        .toolbar(.hidden, for: .navigationBar)
         .id(navID)
         .onAppear {
             if let userId = Auth.auth().currentUser?.uid {
                 databaseService.listenToOrders(userId: userId)
             }
         }
+        } // NavigationStack
     }
 }
 
@@ -148,7 +151,7 @@ struct ActiveOrderCard: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                NavigationLink(destination: TrackingView()) {
+                NavigationLink(destination: TrackingView(orderId: order.id)) {
                     HStack(spacing: 8) {
                         Image(systemName: "mappin.and.ellipse")
                             .font(.system(size: 14))
@@ -341,12 +344,27 @@ struct OrderEmptyState: View {
     let title: String
     let subtitle: String
 
+    // True if the icon is a custom asset (not a SF symbol)
+    private var isCustomAsset: Bool {
+        !icon.contains(".") && UIImage(named: icon) != nil
+    }
+
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: icon)
-                .font(.system(size: 40))
-                .foregroundColor(.white.opacity(0.2))
-                .padding(.top, 60)
+            Group {
+                if isCustomAsset {
+                    Image(icon)
+                        .resizable()
+                        .renderingMode(.template)
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 52, height: 52)
+                } else {
+                    Image(systemName: icon)
+                        .font(.system(size: 40))
+                }
+            }
+            .foregroundColor(.white.opacity(0.2))
+            .padding(.top, 60)
             Text(title)
                 .font(.custom("Montserrat-Bold", size: 18))
                 .foregroundColor(.white.opacity(0.5))

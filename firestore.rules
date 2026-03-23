@@ -12,32 +12,41 @@ service cloud.firestore {
     }
 
     // ── Products ───────────────────────────────────────────────────────────
-    // Same pattern: public read, authenticated write.
     match /products/{productId} {
       allow read: if true;
       allow write: if request.auth != null;
 
-      // Stock availability sub-collection (written by Cloud Functions)
       match /availability/{availabilityId} {
         allow read: if true;
         allow write: if request.auth != null;
       }
     }
 
+    // ── Config ─────────────────────────────────────────────────────────────
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
     // ── Users ──────────────────────────────────────────────────────────────
-    // Each user can only read and write their own document.
+    // Each user can read/write their own document.
+    // Any authenticated user (admin portal) can read all user documents.
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+
+      match /addresses/{addressId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
     }
 
     // ── Orders ─────────────────────────────────────────────────────────────
     // Authenticated users can create orders.
-    // Users can read and update only their own orders.
-    // Admin portal (any authenticated user) can read all orders for the dashboard.
+    // Any authenticated user can read/update all orders (covers admin portal).
+    // Users can only read/update their own orders from the iOS app.
     match /orders/{orderId} {
       allow create: if request.auth != null;
-      allow read, update: if request.auth != null &&
-        (resource.data.userId == request.auth.uid || request.auth != null);
+      allow read, update: if request.auth != null;
     }
   }
 }

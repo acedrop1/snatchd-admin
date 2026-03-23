@@ -67,42 +67,41 @@ class AddressManager: ObservableObject {
     }
     
     func addAddress(_ address: SavedAddress) {
-        guard let uid = userID else { return }
-        
+        guard let uid = userID ?? Auth.auth().currentUser?.uid else {
+            print("AddressManager: No user ID — cannot save address")
+            return
+        }
+
         var newAddress = address
-        // If no ID, Firestore generates one. But we can let Firestore generate it.
-        // If set as default, we need to unset others first.
-        // Note: Firestore writes are async. For "unset others", deeper logic needed or cloud function.
-        // For simplicity: Update local logic via batch write.
-        
-        let batch = db.batch()
-        let newDocRef = db.collection("users").document(uid).collection("addresses").document()
-        newAddress.id = newDocRef.documentID // Assign generated ID
-        
+        let docRef = db.collection("users").document(uid).collection("addresses").document()
+        newAddress.id = docRef.documentID
+
+        // Unset other defaults first (fire-and-forget)
         if newAddress.isDefault {
-            // Unset other defaults
             for existing in addresses where existing.isDefault {
                 if let existingID = existing.id {
-                    let ref = db.collection("users").document(uid).collection("addresses").document(existingID)
-                    batch.updateData(["isDefault": false], forDocument: ref)
+                    db.collection("users").document(uid)
+                        .collection("addresses").document(existingID)
+                        .updateData(["isDefault": false])
                 }
             }
         }
-        
+
         do {
-            try batch.setData(from: newAddress, forDocument: newDocRef)
-            batch.commit { error in
+            try docRef.setData(from: newAddress) { error in
                 if let error = error {
-                    print("Error adding address: \(error)")
+                    print("AddressManager: Save failed — \(error.localizedDescription)")
+                } else {
+                    print("AddressManager: Address saved ✓ id=\(newAddress.id ?? "?")")
                 }
             }
         } catch {
-            print("Error encoding address: \(error)")
+            print("AddressManager: Encode error — \(error)")
         }
     }
     
     func updateAddress(_ address: SavedAddress) {
-        guard let uid = userID, let id = address.id else { return }
+        guard let uid = userID ?? Auth.auth().currentUser?.uid, let id = address.id else { return }
         
         let batch = db.batch()
         let ref = db.collection("users").document(uid).collection("addresses").document(id)
@@ -130,12 +129,12 @@ class AddressManager: ObservableObject {
     }
     
     func deleteAddress(_ address: SavedAddress) {
-        guard let uid = userID, let id = address.id else { return }
+        guard let uid = userID ?? Auth.auth().currentUser?.uid, let id = address.id else { return }
         db.collection("users").document(uid).collection("addresses").document(id).delete()
     }
     
     func setDefaultAddress(_ address: SavedAddress) {
-        guard let uid = userID, let id = address.id else { return }
+        guard let uid = userID ?? Auth.auth().currentUser?.uid, let id = address.id else { return }
         
         let batch = db.batch()
         

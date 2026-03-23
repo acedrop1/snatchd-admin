@@ -2,9 +2,76 @@ import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import * as admin from 'firebase-admin';
 import axios from 'axios';
+import Stripe from 'stripe';
 
 admin.initializeApp();
 const db = admin.firestore();
+
+// ── Stripe Payment Intent ──────────────────────────────────────────────
+// Set your Stripe secret key as an environment variable before deploying:
+//   firebase functions:secrets:set STRIPE_SECRET_KEY
+// Then add "runWith({ secrets: ['STRIPE_SECRET_KEY'] })" or set via .env
+
+const getStripe = () => {
+    const key = process.env.STRIPE_SECRET_KEY || '';
+    if (!key) console.warn('⚠️ STRIPE_SECRET_KEY is not set — payments will fail');
+    return new Stripe(key, { apiVersion: '2024-12-18.acacia' as any });
+};
+
+/**
+ * Cloud Function: createPaymentIntent
+ *
+ * Called by the iOS app before checkout.
+ * Returns a Stripe client_secret to initialize the iOS PaymentSheet.
+ *
+ * POST /createPaymentIntent
+ * Body: { amount: number (USD), orderId: string, currency?: string }
+ */
+export const createPaymentIntent = onRequest({
+    cors: true,
+    secrets: ['STRIPE_SECRET_KEY'],
+    invoker: 'public',      // allow unauthenticated calls from iOS app
+    timeoutSeconds: 30,     // fail fast so iOS gets a response within its 30s timeout
+}, async (req, res) => {
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+
+    try {
+        const { amount, orderId, currency = 'usd' } = req.body as {
+            amount: number;
+            orderId: string;
+            currency?: string;
+        };
+
+        if (!amount || amount <= 0) {
+            res.status(400).json({ error: 'Invalid amount' });
+            return;
+        }
+
+        const stripe = getStripe();
+
+        // Create a PaymentIntent — amount must be in cents
+        const paymentIntent = await stripe.paymentIntents.create({
+            amount: Math.round(amount * 100),
+            currency,
+            automatic_payment_methods: { enabled: true },
+            metadata: { orderId: orderId || 'unknown' },
+        });
+
+        console.log(`✅ PaymentIntent created: ${paymentIntent.id} for $${amount}`);
+
+        res.status(200).json({
+            clientSecret: paymentIntent.client_secret,
+            paymentIntentId: paymentIntent.id,
+        });
+
+    } catch (error: any) {
+        console.error('❌ Stripe error:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 interface CheckStockRequest {
     productId: string;        // Firestore doc ID

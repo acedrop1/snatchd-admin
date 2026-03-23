@@ -63,6 +63,7 @@ class StripeService: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30   // fail fast instead of hanging for 60s
 
         let body: [String: Any] = [
             "amount": amount,
@@ -71,7 +72,14 @@ class StripeService: ObservableObject {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch let urlError as URLError where urlError.code == .timedOut {
+            throw StripeServiceError.serverError("Payment server timed out. Please try again.")
+        } catch let urlError as URLError where urlError.code == .notConnectedToInternet || urlError.code == .networkConnectionLost {
+            throw StripeServiceError.serverError("No internet connection. Please check your network and try again.")
+        }
 
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             // Try to extract error message from JSON; fall back to raw string; last resort generic message

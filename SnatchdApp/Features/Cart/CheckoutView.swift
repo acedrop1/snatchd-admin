@@ -1,13 +1,18 @@
 import SwiftUI
+import FirebaseAuth
+import StripePaymentSheet
 
 struct CheckoutView: View {
     @Environment(\.presentationMode) var presentationMode
     @EnvironmentObject var cartManager: CartManager
     @EnvironmentObject var addressManager: AddressManager
     @StateObject private var db = DatabaseService.shared
+    @StateObject private var stripeService = StripeService.shared
 
     @State private var isPlacingOrder = false
     @State private var showTracking = false
+    @State private var placedOrderId: String? = nil
+    @State private var stripeError: String? = nil
     
     // Selection State
     @State private var selectedDeliveryOption = "Standard"
@@ -95,14 +100,16 @@ struct CheckoutView: View {
                 // Fixed Bottom Button with Liquid Glass
                 VStack {
                     Button(action: placeOrder) {
-                        HStack {
+                        HStack(spacing: 10) {
                             if isPlacingOrder {
                                 ProgressView()
                                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                Text("Preparing Payment...")
+                                    .font(.custom("Montserrat-SemiBold", size: 16))
+                                    .foregroundColor(.white.opacity(0.7))
                             } else {
-                                Text("Place Order")
-                                    .font(.headline)
-                                    .fontWeight(.bold)
+                                Text("Pay $\(String(format: "%.2f", totalAmount))")
+                                    .font(.custom("Montserrat-Bold", size: 17))
                                     .foregroundColor(.white)
                             }
                         }
@@ -115,7 +122,7 @@ struct CheckoutView: View {
                         )
                         .cornerRadius(25)
                     }
-                    .disabled(isPlacingOrder)
+                    .disabled(isPlacingOrder || cartManager.items.isEmpty)
                 }
                 .padding()
                 .background(
@@ -126,7 +133,7 @@ struct CheckoutView: View {
             }
         }
         .fullScreenCover(isPresented: $showTracking) {
-            TrackingView()
+            TrackingView(orderId: placedOrderId ?? "")
         }
         .sheet(isPresented: $showAddressSheet) {
             AddressSelectionView(selectedAddress: $selectedAddress)
@@ -134,29 +141,121 @@ struct CheckoutView: View {
         .sheet(isPresented: $showPaymentSheet) {
             PaymentSelectionView(paymentMethods: $paymentMethods, selectedPayment: $selectedPayment)
         }
+        .alert("Payment Error", isPresented: Binding(
+            get: { stripeError != nil },
+            set: { if !$0 { stripeError = nil } }
+        )) {
+            Button("OK") { stripeError = nil }
+        } message: {
+            Text(stripeError ?? "")
+        }
         .navigationBarHidden(true)
         .enableSwipeBack()
-        .onAppear(perform: loadDefaultAddress)
-    }
-    
-    func placeOrder() {
-        isPlacingOrder = true
-
-        if db.testMode {
-            // In test mode: instant success, no network call
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                isPlacingOrder = false
-                cartManager.clearCart()
-                showTracking = true
-            }
-        } else {
-            // Simulated order (Stripe integration goes here in production)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                isPlacingOrder = false
-                cartManager.clearCart()
-                showTracking = true
+        .onAppear {
+            loadDefaultAddress()
+            // Auto-select the default payment method so Place Order is always ready
+            if selectedPayment == nil {
+                selectedPayment = paymentMethods.first(where: { $0.isDefault }) ?? paymentMethods.first
             }
         }
+    }
+    
+    /// Walks the full UIKit hierarchy (nav, tab, modal) to find the
+    /// frontmost VC that has nothing presented on top — required by Stripe.
+    static func topmostViewController(_ vc: UIViewController) -> UIViewController {
+        if let nav = vc as? UINavigationController,
+           let visible = nav.visibleViewController {
+            return topmostViewController(visible)
+        }
+        if let tab = vc as? UITabBarController,
+           let selected = tab.selectedViewController {
+            return topmostViewController(selected)
+        }
+        if let presented = vc.presentedViewController,
+           !presented.isBeingDismissed {
+            return topmostViewController(presented)
+        }
+        return vc
+    }
+
+    func placeOrder() {
+        guard !cartManager.items.isEmpty else { return }
+        isPlacingOrder = true
+        stripeError = nil
+
+        Task {
+            do {
+                let sheet = try await stripeService.preparePaymentSheet(
+                    amount: totalAmount,
+                    orderId: UUID().uuidString
+                )
+                await MainActor.run {
+                    self.isPlacingOrder = false
+                    guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                          let rootVC = windowScene.keyWindow?.rootViewController else { return }
+                    let topVC = Self.topmostViewController(rootVC)
+                    sheet.present(from: topVC) { result in
+                        self.handleStripeResult(result)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.isPlacingOrder = false
+                    self.stripeError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// Called after Stripe PaymentSheet closes with a result.
+    func handleStripeResult(_ result: PaymentSheetResult) {
+        switch result {
+        case .completed:
+            // Payment succeeded — now write the order to Firestore
+            commitOrder()
+        case .canceled:
+            break  // User dismissed, do nothing
+        case .failed(let error):
+            stripeError = error.localizedDescription
+        }
+    }
+
+    private func commitOrder() {
+        guard !cartManager.items.isEmpty else { return }
+        isPlacingOrder = true
+
+        let userId = Auth.auth().currentUser?.uid ?? "guest"
+        let addressString = selectedAddress?.address ?? deliveryAddress
+        let optionString = selectedDeliveryOption
+
+        db.createOrder(
+            userId: userId,
+            cartItems: cartManager.items,
+            stores: db.stores,
+            subtotal: cartManager.total,
+            deliveryFee: deliveryFee,
+            tax: taxAmount,
+            total: totalAmount,
+            deliveryAddress: addressString,
+            deliveryOption: optionString
+        ) { orderId in
+            DispatchQueue.main.async {
+                self.isPlacingOrder = false
+                if let orderId = orderId {
+                    self.placedOrderId = orderId
+                    if userId != "guest" {
+                        self.db.listenToOrders(userId: userId)
+                    }
+                }
+                self.cartManager.clearCart()
+                self.showTracking = true
+            }
+        }
+    }
+
+    /// Fallback address string when no SavedAddress is selected
+    private var deliveryAddress: String {
+        "Delivery address not set"
     }
     
     func generateTimeSlots() -> [Date] {

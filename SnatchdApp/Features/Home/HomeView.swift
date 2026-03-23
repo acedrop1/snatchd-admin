@@ -17,10 +17,6 @@ struct HomeView: View {
     @State private var selectedCategory = "All"
     @State private var showLocationSheet = false
     @State private var selectedLocation = AppConfig.defaultLocationName
-    /// Lifted to ContentView so it survives tab switches
-    @Binding var manualCoordinate: CLLocation?
-    /// Lifted to ContentView so it survives tab switches
-    @Binding var selectedAddressId: String?
 
     let categories = ["All", "Clothing", "Hygiene", "Beauty & Skincare", "Fine Jewelry"]
 

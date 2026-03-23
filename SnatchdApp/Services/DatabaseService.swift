@@ -10,6 +10,9 @@ class DatabaseService: ObservableObject {
     @Published var stores: [Store] = []
     @Published var zaraSohoProducts: [Product] = []
     @Published var justDroppedProducts: [Product] = []
+    @Published var activeOrders: [Order] = []
+    @Published var pastOrders: [Order] = []
+    @Published var trackedOrder: Order? = nil
     /// Section order config: ["foryou": ["id1","id2"...], "trending": [...], "60min": [...]]
     @Published var storeOrderConfig: [String: [String]] = [:]
     /// true when the portal's Test Mode toggle is on — checkout skips real payment
@@ -22,6 +25,8 @@ class DatabaseService: ObservableObject {
     private var configListener: ListenerRegistration?
     private var justDroppedListener: ListenerRegistration?
     private var storeOrderListener: ListenerRegistration?
+    private var ordersListener: ListenerRegistration?
+    private var trackedOrderListener: ListenerRegistration?
 
     private init() {
         // Start all real-time listeners immediately on first access
@@ -343,6 +348,217 @@ class DatabaseService: ObservableObject {
             }
     }
 
+    // MARK: - Orders
+
+    /// Start listening to the current user's orders in real time
+    func listenToOrders(userId: String) {
+        ordersListener?.remove()
+        ordersListener = nil
+
+        ordersListener = db.collection("orders")
+            .whereField("userId", isEqualTo: userId)
+            .order(by: "createdAt", descending: true)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self = self else { return }
+                if let error = error {
+                    print("❌ Orders listener error: \(error.localizedDescription)")
+                    return
+                }
+                guard let documents = snapshot?.documents else { return }
+                print("🔄 Orders updated — \(documents.count) orders")
+
+                let orders: [Order] = documents.compactMap { doc -> Order? in
+                    let data = doc.data()
+                    guard let userId = data["userId"] as? String,
+                          let subtotal = data["subtotal"] as? Double,
+                          let deliveryFee = data["deliveryFee"] as? Double,
+                          let tax = data["tax"] as? Double,
+                          let total = data["total"] as? Double,
+                          let deliveryAddress = data["deliveryAddress"] as? String,
+                          let deliveryOption = data["deliveryOption"] as? String,
+                          let status = data["status"] as? String,
+                          let orderNumber = data["orderNumber"] as? String
+                    else { return nil }
+
+                    let createdAt: Date
+                    if let ts = data["createdAt"] as? Timestamp {
+                        createdAt = ts.dateValue()
+                    } else {
+                        createdAt = Date()
+                    }
+
+                    let rawItems = data["items"] as? [[String: Any]] ?? []
+                    let items: [OrderItem] = rawItems.compactMap { itemData -> OrderItem? in
+                        guard let productTitle = itemData["productTitle"] as? String,
+                              let productBrand = itemData["productBrand"] as? String,
+                              let productPrice = itemData["productPrice"] as? Double,
+                              let storeId = itemData["storeId"] as? String,
+                              let storeName = itemData["storeName"] as? String,
+                              let quantity = itemData["quantity"] as? Int
+                        else { return nil }
+                        return OrderItem(
+                            id: itemData["id"] as? String ?? UUID().uuidString,
+                            productId: itemData["productId"] as? String ?? "",
+                            productTitle: productTitle,
+                            productBrand: productBrand,
+                            productPrice: productPrice,
+                            productImageURL: itemData["productImageURL"] as? String,
+                            storeId: storeId,
+                            storeName: storeName,
+                            quantity: quantity,
+                            selectedSize: itemData["selectedSize"] as? String ?? ""
+                        )
+                    }
+
+                    return Order(
+                        id: doc.documentID,
+                        userId: userId,
+                        items: items,
+                        subtotal: subtotal,
+                        deliveryFee: deliveryFee,
+                        tax: tax,
+                        total: total,
+                        deliveryAddress: deliveryAddress,
+                        deliveryOption: deliveryOption,
+                        status: status,
+                        createdAt: createdAt,
+                        orderNumber: orderNumber,
+                        driverName: data["driverName"] as? String,
+                        driverPhone: data["driverPhone"] as? String,
+                        trackingStatus: data["trackingStatus"] as? String ?? ""
+                    )
+                }
+
+                DispatchQueue.main.async {
+                    self.activeOrders = orders.filter { $0.isActive }
+                    self.pastOrders   = orders.filter { !$0.isActive }
+                    print("✅ Orders synced — \(self.activeOrders.count) active, \(self.pastOrders.count) past")
+                }
+            }
+    }
+
+    /// Listen to a single order document in real time (for TrackingView).
+    func listenToOrder(orderId: String) {
+        trackedOrderListener?.remove()
+        trackedOrder = nil
+
+        trackedOrderListener = db.collection("orders").document(orderId)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self = self, let data = snapshot?.data() else { return }
+
+                let createdAt: Date
+                if let ts = data["createdAt"] as? Timestamp { createdAt = ts.dateValue() }
+                else { createdAt = Date() }
+
+                let rawItems = data["items"] as? [[String: Any]] ?? []
+                let items: [OrderItem] = rawItems.compactMap { itemData in
+                    guard let productTitle = itemData["productTitle"] as? String,
+                          let productBrand  = itemData["productBrand"] as? String,
+                          let productPrice  = itemData["productPrice"] as? Double,
+                          let storeId       = itemData["storeId"] as? String,
+                          let storeName     = itemData["storeName"] as? String,
+                          let quantity      = itemData["quantity"] as? Int
+                    else { return nil }
+                    return OrderItem(
+                        id: itemData["id"] as? String ?? UUID().uuidString,
+                        productId: itemData["productId"] as? String ?? "",
+                        productTitle: productTitle, productBrand: productBrand,
+                        productPrice: productPrice,
+                        productImageURL: itemData["productImageURL"] as? String,
+                        storeId: storeId, storeName: storeName,
+                        quantity: quantity,
+                        selectedSize: itemData["selectedSize"] as? String ?? ""
+                    )
+                }
+
+                let order = Order(
+                    id: orderId,
+                    userId: data["userId"] as? String ?? "",
+                    items: items,
+                    subtotal: data["subtotal"] as? Double ?? 0,
+                    deliveryFee: data["deliveryFee"] as? Double ?? 0,
+                    tax: data["tax"] as? Double ?? 0,
+                    total: data["total"] as? Double ?? 0,
+                    deliveryAddress: data["deliveryAddress"] as? String ?? "",
+                    deliveryOption: data["deliveryOption"] as? String ?? "",
+                    status: data["status"] as? String ?? "placed",
+                    createdAt: createdAt,
+                    orderNumber: data["orderNumber"] as? String ?? "",
+                    driverName: data["driverName"] as? String,
+                    driverPhone: data["driverPhone"] as? String,
+                    trackingStatus: data["trackingStatus"] as? String ?? ""
+                )
+                DispatchQueue.main.async { self.trackedOrder = order }
+            }
+    }
+
+    func stopTrackingOrder() {
+        trackedOrderListener?.remove()
+        trackedOrderListener = nil
+        trackedOrder = nil
+    }
+
+    /// Write a new order to Firestore. Returns the new order's document ID via completion.
+    func createOrder(
+        userId: String,
+        cartItems: [CartItem],
+        stores: [Store],
+        subtotal: Double,
+        deliveryFee: Double,
+        tax: Double,
+        total: Double,
+        deliveryAddress: String,
+        deliveryOption: String,
+        completion: @escaping (String?) -> Void
+    ) {
+        // Build a sequential order number from timestamp
+        let orderNumber = "SNT-\(Int(Date().timeIntervalSince1970) % 100000)"
+
+        let itemsData: [[String: Any]] = cartItems.map { cartItem in
+            let storeName = stores.first { $0.firestoreId == cartItem.product.storeId }?.name ?? "Snatchd"
+            return [
+                "id": cartItem.id.uuidString,
+                "productId": cartItem.product.id.uuidString,
+                "productTitle": cartItem.product.title,
+                "productBrand": cartItem.product.brand,
+                "productPrice": cartItem.product.price,
+                "productImageURL": cartItem.product.imageURL ?? "",
+                "storeId": cartItem.product.storeId,
+                "storeName": storeName,
+                "quantity": cartItem.quantity,
+                "selectedSize": ""
+            ]
+        }
+
+        let orderData: [String: Any] = [
+            "userId": userId,
+            "items": itemsData,
+            "subtotal": subtotal,
+            "deliveryFee": deliveryFee,
+            "tax": tax,
+            "total": total,
+            "deliveryAddress": deliveryAddress,
+            "deliveryOption": deliveryOption,
+            "status": "placed",
+            "trackingStatus": "",
+            "driverName": "",
+            "driverPhone": "",
+            "orderNumber": orderNumber,
+            "createdAt": FieldValue.serverTimestamp()
+        ]
+
+        var ref: DocumentReference?
+        ref = db.collection("orders").addDocument(data: orderData) { error in
+            if let error = error {
+                print("❌ Failed to create order: \(error.localizedDescription)")
+                completion(nil)
+            } else {
+                print("✅ Order created: \(ref?.documentID ?? "unknown")")
+                completion(ref?.documentID)
+            }
+        }
+    }
+
     // MARK: - Legacy Fetch Methods (now just ensure listeners are running)
     // These are kept so existing .onAppear { databaseService.fetchStores() } calls still compile.
 
@@ -366,10 +582,14 @@ class DatabaseService: ObservableObject {
         zaraSohoListener?.remove()
         justDroppedListener?.remove()
         storeOrderListener?.remove()
+        ordersListener?.remove()
         storesListener = nil
         productsListener = nil
         zaraSohoListener = nil
         justDroppedListener = nil
         storeOrderListener = nil
+        ordersListener = nil
+        activeOrders = []
+        pastOrders = []
     }
 }

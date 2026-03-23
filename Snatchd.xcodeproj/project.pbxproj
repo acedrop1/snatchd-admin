@@ -15,6 +15,7 @@
 		50A2F8EB2F018AD000DEEFBB /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 50A2F8EA2F018AD000DEEFBB /* FirebaseStorage */; };
 		50A2F8FE2F01E83F00DEEFBB /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 50A2F8FD2F01E83F00DEEFBB /* GoogleSignIn */; };
 		50A2F9002F01E83F00DEEFBB /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 50A2F8FF2F01E83F00DEEFBB /* GoogleSignInSwift */; };
+		50F831F32F7045BD00038D4F /* StripePaymentSheet in Frameworks */ = {isa = PBXBuildFile; productRef = 50F831F22F7045BD00038D4F /* StripePaymentSheet */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -42,6 +43,7 @@
 				50A2F8E52F018AD000DEEFBB /* FirebaseFirestore in Frameworks */,
 				50A2F8E72F018AD000DEEFBB /* FirebaseFunctions in Frameworks */,
 				50A2F8EB2F018AD000DEEFBB /* FirebaseStorage in Frameworks */,
+				50F831F32F7045BD00038D4F /* StripePaymentSheet in Frameworks */,
 				50A2F8FE2F01E83F00DEEFBB /* GoogleSignIn in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -94,6 +96,7 @@
 				50A2F8EA2F018AD000DEEFBB /* FirebaseStorage */,
 				50A2F8FD2F01E83F00DEEFBB /* GoogleSignIn */,
 				50A2F8FF2F01E83F00DEEFBB /* GoogleSignInSwift */,
+				50F831F22F7045BD00038D4F /* StripePaymentSheet */,
 			);
 			productName = SnatchdApp;
 			productReference = 5005FE762ECCFD1A007B9A2C /* Snatchd.app */;
@@ -126,6 +129,7 @@
 			packageReferences = (
 				50A2F8DF2F018AD000DEEFBB /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				50A2F8FC2F01E83F00DEEFBB /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				50F831F12F7045BD00038D4F /* XCRemoteSwiftPackageReference "stripe-ios" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 5005FE772ECCFD1A007B9A2C /* Products */;
@@ -385,6 +389,14 @@
 				minimumVersion = 9.0.0;
 			};
 		};
+		50F831F12F7045BD00038D4F /* XCRemoteSwiftPackageReference "stripe-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stripe/stripe-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 25.8.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -427,6 +439,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 50A2F8FC2F01E83F00DEEFBB /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
 			productName = GoogleSignInSwift;
+		};
+		50F831F22F7045BD00038D4F /* StripePaymentSheet */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 50F831F12F7045BD00038D4F /* XCRemoteSwiftPackageReference "stripe-ios" */;
+			productName = StripePaymentSheet;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

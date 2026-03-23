@@ -66,47 +66,57 @@ class AuthManager: ObservableObject {
     }
     
     // MARK: - Sign Up Flow: Step 2 (Verify SMS & Create Account)
-    // This authenticates via Phone, then links Email/Password and creates Firestore profile
-    func verifyCodeAndCreateAccount(verificationID: String, code: String, 
+    // Authenticates via Phone, then LINKS Email/Password credential to the same account,
+    // then creates the Firestore user profile.
+    func verifyCodeAndCreateAccount(verificationID: String, code: String,
                                     email: String, password: String,
                                     firstName: String, lastName: String,
                                     completion: @escaping (Bool) -> Void) {
         isLoading = true
         errorMessage = nil
-        
-        let credential = PhoneAuthProvider.provider().credential(withVerificationID: verificationID, verificationCode: code)
-        
-        // 1. Sign in with Phone Credential
-        Auth.auth().signIn(with: credential) { [weak self] authResult, error in
+
+        let phoneCredential = PhoneAuthProvider.provider().credential(
+            withVerificationID: verificationID,
+            verificationCode: code
+        )
+
+        // 1. Sign in with Phone credential
+        Auth.auth().signIn(with: phoneCredential) { [weak self] authResult, error in
             if let error = error {
                 self?.handleError(error: error, completion: completion)
                 return
             }
-            
+
             guard let user = authResult?.user else {
-                self?.handleError(error: NSError(domain: "Auth", code: -1, userInfo: [NSLocalizedDescriptionKey: "No user found"]), completion: completion)
+                self?.handleError(
+                    error: NSError(domain: "Auth", code: -1,
+                                   userInfo: [NSLocalizedDescriptionKey: "No user returned after phone sign-in"]),
+                    completion: completion
+                )
                 return
             }
-            
-            // 2. Update Email (Link Email to Phone Account)
-            user.updateEmail(to: email) { error in
+
+            // 2. Link Email + Password to the phone account in a single step
+            //    This is the modern replacement for the deprecated updateEmail / updatePassword APIs.
+            let emailCredential = EmailAuthProvider.credential(withEmail: email, password: password)
+            user.link(with: emailCredential) { [weak self] linkResult, error in
                 if let error = error {
-                    // Note: If email is already in use, this will fail. 
-                    // Handling that edge case requires complex merging, simpler for now to report error.
-                    self?.handleError(error: error, completion: completion)
+                    let nsError = error as NSError
+                    // Error 17007 = email already linked to another account.
+                    // Treat it as a soft error — the phone account still exists,
+                    // so proceed to create / update the Firestore profile.
+                    if nsError.code == 17007 {
+                        print("⚠️ Email already in use — continuing with phone account only")
+                        self?.createUserProfile(user: user, firstName: firstName, lastName: lastName, completion: completion)
+                    } else {
+                        self?.handleError(error: error, completion: completion)
+                    }
                     return
                 }
-                
-                // 3. Update Password
-                user.updatePassword(to: password) { error in
-                    if let error = error {
-                        self?.handleError(error: error, completion: completion)
-                        return
-                    }
-                    
-                    // 4. Create Firestore Profile
-                    self?.createUserProfile(user: user, firstName: firstName, lastName: lastName, completion: completion)
-                }
+
+                // 3. Create Firestore profile (use linked user if available, else original)
+                let finalUser = linkResult?.user ?? user
+                self?.createUserProfile(user: finalUser, firstName: firstName, lastName: lastName, completion: completion)
             }
         }
     }
@@ -202,46 +212,67 @@ class AuthManager: ObservableObject {
         }
     }
     
+    // MARK: - Direct Email Sign-Up (no phone OTP required)
+    func createAccount(email: String, password: String,
+                       firstName: String, lastName: String,
+                       completion: @escaping (Bool) -> Void) {
+        isLoading = true
+        errorMessage = nil
+
+        Auth.auth().createUser(withEmail: email, password: password) { [weak self] result, error in
+            if let error = error {
+                self?.handleError(error: error, completion: completion)
+                return
+            }
+            guard let user = result?.user else {
+                self?.handleError(
+                    error: NSError(domain: "Auth", code: -1,
+                                   userInfo: [NSLocalizedDescriptionKey: "Account creation failed"]),
+                    completion: completion
+                )
+                return
+            }
+            // Persist display name in Firebase Auth profile
+            let changeRequest = user.createProfileChangeRequest()
+            changeRequest.displayName = "\(firstName) \(lastName)"
+            changeRequest.commitChanges { _ in }
+
+            self?.createUserProfile(user: user, firstName: firstName, lastName: lastName, completion: completion)
+        }
+    }
+
     // MARK: - Social Login (Apple)
     func signInWithApple(idTokenString: String, nonce: String, fullName: PersonNameComponents?, completion: @escaping (Bool) -> Void) {
         isLoading = true
         errorMessage = nil
-        
-        // Fallback to generic OAuthProvider
-        // FIXME: Apple Auth Credential unavailable in this SDK version. Temporarily disabled.
-        /*
-        let credential = OAuthProvider.credential(withProviderID: "apple.com",
-                                                  idToken: idTokenString,
-                                                  rawNonce: nonce)
-        
+
+        let credential = OAuthProvider.appleCredential(
+            withIDToken: idTokenString,
+            rawNonce: nonce,
+            fullName: fullName
+        )
+
         Auth.auth().signIn(with: credential) { [weak self] authResult, error in
-            DispatchQueue.main.async {
-                self?.isLoading = false
-            }
+            DispatchQueue.main.async { self?.isLoading = false }
             if let error = error {
                 self?.errorMessage = error.localizedDescription
                 completion(false)
                 return
             }
-             
-            if let firebaseUser = authResult?.user {
-                let docRef = self?.db.collection("users").document(firebaseUser.uid)
-                docRef?.getDocument { document, error in
-                     if let document = document, !document.exists {
-                         // Create profile from Apple info (only available on first sign in)
-                         let firstName = fullName?.givenName ?? ""
-                         let lastName = fullName?.familyName ?? ""
-                         self?.createUserProfile(user: firebaseUser, firstName: firstName, lastName: lastName, completion: completion)
-                     } else {
-                         completion(true)
-                     }
+            guard let firebaseUser = authResult?.user else { completion(false); return }
+
+            let docRef = self?.db.collection("users").document(firebaseUser.uid)
+            docRef?.getDocument { document, _ in
+                if let document = document, !document.exists {
+                    self?.createUserProfile(user: firebaseUser,
+                                            firstName: fullName?.givenName ?? "",
+                                            lastName: fullName?.familyName ?? "",
+                                            completion: completion)
+                } else {
+                    completion(true)
                 }
             }
         }
-        */
-        print("Apple Sign In temporarily disabled due to SDK conflict")
-        completion(false)
-
     }
 
     func logout() {

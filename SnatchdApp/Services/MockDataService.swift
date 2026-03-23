@@ -54,7 +54,7 @@ struct Store: Identifiable {
     let address: String? // Store address from admin
     let latitude: Double? // Store latitude for location filtering
     let longitude: Double? // Store longitude for location filtering
-    let deliveryRadius: Double? // Delivery radius in kilometers (default: 5km)
+    let deliveryRadius: Double? // Delivery radius in miles (default: 10 miles). Stored in Firestore as miles.
     let deliveryTime: String
     var tags: [String] = []       // e.g. ["foryou", "trending", "60min"]
     var isSystemImage: Bool = true
@@ -71,12 +71,13 @@ struct Store: Identifiable {
     // Helper to check if store is within delivery range of a location
     func isWithinDeliveryRange(of userLatitude: Double, userLongitude: Double) -> Bool {
         guard let lat = latitude, let lon = longitude else { return false }
-        let radius = deliveryRadius ?? 5.0 // Default 5km
-        let distance = calculateDistance(lat1: userLatitude, lon1: userLongitude, lat2: lat, lon2: lon)
-        return distance <= radius
+        let radiusMiles = deliveryRadius ?? 10.0          // Default 10 miles
+        let radiusKm    = radiusMiles * 1.60934           // Convert to km for Haversine
+        let distance    = calculateDistance(lat1: userLatitude, lon1: userLongitude, lat2: lat, lon2: lon)
+        return distance <= radiusKm
     }
-    
-    // Haversine formula to calculate distance between two coordinates
+
+    // Haversine formula — returns distance in km
     private func calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double) -> Double {
         let earthRadius = 6371.0 // km
         let dLat = (lat2 - lat1) * .pi / 180
@@ -86,6 +87,88 @@ struct Store: Identifiable {
                 sin(dLon/2) * sin(dLon/2)
         let c = 2 * atan2(sqrt(a), sqrt(1-a))
         return earthRadius * c
+    }
+}
+
+// MARK: - Order Models
+
+struct OrderItem: Identifiable {
+    let id: String
+    let productId: String
+    let productTitle: String
+    let productBrand: String
+    let productPrice: Double
+    let productImageURL: String?
+    let storeId: String
+    let storeName: String
+    var quantity: Int
+    var selectedSize: String
+}
+
+struct Order: Identifiable {
+    let id: String           // Firestore document ID
+    let userId: String
+    var items: [OrderItem]
+    let subtotal: Double
+    let deliveryFee: Double
+    let tax: Double
+    let total: Double
+    let deliveryAddress: String
+    let deliveryOption: String
+    var status: String       // "placed" | "confirmed" | "in_transit" | "delivered"
+    let createdAt: Date
+    var orderNumber: String  // e.g. "SNT-0042"
+    // Driver & live tracking — set by admin
+    var driverName: String?
+    var driverPhone: String?
+    var trackingStatus: String  // "headed_to_store" | "shopping" | "checking_out" | "on_the_way" | "almost_there" | "delivered"
+
+    /// Unique store names in this order, for display
+    var storeNames: [String] {
+        Array(Set(items.map { $0.storeName })).sorted()
+    }
+
+    /// Human-readable store summary: "Nike, Zara + 1 other"
+    var storeSummary: String {
+        let names = storeNames
+        switch names.count {
+        case 0: return "Snatchd Order"
+        case 1: return names[0]
+        case 2: return "\(names[0]), \(names[1])"
+        default: return "\(names[0]), \(names[1]) +\(names.count - 2) other\(names.count - 2 > 1 ? "s" : "")"
+        }
+    }
+
+    var statusLabel: String {
+        switch status {
+        case "placed":      return "Order Placed"
+        case "confirmed":   return "Confirmed"
+        case "in_transit":  return "On the Way"
+        case "delivered":   return "Delivered"
+        default:            return status.capitalized
+        }
+    }
+
+    var trackingLabel: String {
+        switch trackingStatus {
+        case "headed_to_store": return "Headed to Store"
+        case "shopping":        return "Shopping"
+        case "checking_out":    return "Checking Out"
+        case "on_the_way":      return "On the Way"
+        case "almost_there":    return "Almost There!"
+        case "delivered":       return "Delivered"
+        default:                return "Order Placed"
+        }
+    }
+
+    /// Index of current tracking step (0-5) for progress display
+    var trackingStep: Int {
+        let steps = ["headed_to_store","shopping","checking_out","on_the_way","almost_there","delivered"]
+        return steps.firstIndex(of: trackingStatus) ?? -1
+    }
+
+    var isActive: Bool {
+        status != "delivered" && status != "cancelled"
     }
 }
 

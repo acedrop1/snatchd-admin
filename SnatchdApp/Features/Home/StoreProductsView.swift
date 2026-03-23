@@ -7,36 +7,39 @@ struct StoreProductsView: View {
     @Binding var selectedTab: Tab
     @Environment(\.presentationMode) var presentationMode
     @EnvironmentObject var cartManager: CartManager
-    @ObservedObject private var databaseService = DatabaseService.shared // Use shared instance
+    @ObservedObject private var databaseService = DatabaseService.shared
 
     @State private var selectedGender = "All"
     @State private var selectedCategory = "All"
-    @State private var searchText = ""
-    @State private var selectedProduct: Product? // For programmatic navigation
-    @State private var cartScale: CGFloat = 1.0 // Animation state
-    @Namespace private var genderNamespace
-    @Namespace private var categoryNamespace
+    @State private var selectedProduct: Product?
+    @State private var cartScale: CGFloat = 1.0
+    @State private var showFilters = false
 
-    // Always show Men / Women tabs when the store has products
-    var genders: [String] {
-        let hasProducts = databaseService.products.contains { $0.storeId == store.firestoreId }
-        return hasProducts ? ["All", "Men", "Women"] : []
-    }
+    // Search
+    @State private var isSearching = false
+    @State private var searchQuery = ""
+
+    // Filter sheet state
+    @State private var filterGender = "All"
+    @State private var filterSortBy = "New"
+    @State private var filterMinPrice: Double = 0
+    @State private var filterMaxPrice: Double = 2000
+
+    // Applied filters (committed when user taps Apply)
+    @State private var appliedGender = "All"
+    @State private var appliedSortBy = "New"
+    @State private var appliedMinPrice: Double = 0
+    @State private var appliedMaxPrice: Double = 2000
 
     // Dynamically build category tabs — scoped to the selected gender
-    // "Clothing" always appears first, then Bags, Shoes, Accessories, then rest alphabetically
     var categories: [String] {
         let storeProducts = databaseService.products.filter {
-            $0.storeId == store.firestoreId && genderMatch(product: $0)
+            $0.storeId == store.firestoreId && genderMatch(product: $0, gender: appliedGender)
         }
         let unique = Array(Set(storeProducts.map { $0.category })).filter { !$0.isEmpty }
-        // Brand-native categories ordered logically, generic fallbacks at end
         let preferredOrder = [
-            // Jacquemus
             "Dresses", "Tops", "Skirts", "Jackets", "Pants", "Shorts", "Swimwear",
-            // Skims
             "Bras & Bodysuits", "Underwear", "Shapewear", "Loungewear", "Activewear", "Maternity", "Men's",
-            // Generic fallback
             "Clothing", "Bags", "Shoes", "Accessories"
         ]
         let sorted = unique.sorted { a, b in
@@ -48,11 +51,10 @@ struct StoreProductsView: View {
         return ["All"] + sorted
     }
 
-    // Unisex products appear under both Men and Women tabs
-    func genderMatch(product: Product) -> Bool {
-        if selectedGender == "All" { return true }
+    func genderMatch(product: Product, gender: String) -> Bool {
+        if gender == "All" { return true }
         if product.gender == "Unisex" || product.gender.isEmpty { return true }
-        return product.gender == selectedGender
+        return product.gender == gender
     }
 
     let columns = [
@@ -60,28 +62,44 @@ struct StoreProductsView: View {
         GridItem(.flexible())
     ]
 
-    
     var filteredProducts: [Product] {
-        return databaseService.products.filter { product in
+        var results = databaseService.products.filter { product in
             let storeMatch = product.storeId == store.firestoreId
-            // When searching, ignore the active category so results span all categories
-            let categoryMatch = !searchText.isEmpty || selectedCategory == "All" || product.category == selectedCategory
-            let searchMatch = searchText.isEmpty || product.title.localizedCaseInsensitiveContains(searchText) || product.brand.localizedCaseInsensitiveContains(searchText) || product.category.localizedCaseInsensitiveContains(searchText)
-            return storeMatch && genderMatch(product: product) && categoryMatch && searchMatch
+            let categoryMatch = selectedCategory == "All" || product.category == selectedCategory
+            let genderMatch = genderMatch(product: product, gender: appliedGender)
+            let priceMatch = product.price >= appliedMinPrice && product.price <= appliedMaxPrice
+            let searchMatch = searchQuery.isEmpty ||
+                product.title.localizedCaseInsensitiveContains(searchQuery) ||
+                product.brand.localizedCaseInsensitiveContains(searchQuery) ||
+                product.category.localizedCaseInsensitiveContains(searchQuery)
+            return storeMatch && categoryMatch && genderMatch && priceMatch && searchMatch
         }
+        switch appliedSortBy {
+        case "Low to High":
+            results.sort { $0.price < $1.price }
+        case "High to Low":
+            results.sort { $0.price > $1.price }
+        default:
+            break // "New" — keep original order
+        }
+        return results
     }
-    
+
+    // Whether any non-default filter is active
+    var filtersActive: Bool {
+        appliedGender != "All" || appliedSortBy != "New" || appliedMinPrice > 0 || appliedMaxPrice < 2000
+    }
+
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        ZStack(alignment: .top) {
             Color.black.edgesIgnoringSafeArea(.all)
-            
+
             ScrollView {
                 VStack(spacing: 0) {
                     // Header Image & Info Overlay
                     ZStack(alignment: .bottom) {
                         GeometryReader { geometry in
                             Group {
-                                // Remote or Local Image
                                 if store.isRemoteImage, let urlString = store.imageURL, let url = URL(string: urlString) {
                                     CachedAsyncImage(url: url) { image in
                                         image.resizable()
@@ -104,7 +122,7 @@ struct StoreProductsView: View {
                             )
                         }
                         .frame(height: 300)
-                        
+
                         // Store Info Overlay
                         VStack(alignment: .center, spacing: 5) {
                             Text(store.name)
@@ -133,7 +151,7 @@ struct StoreProductsView: View {
                                 .background(VisualEffectBlur(blurStyle: .systemUltraThinMaterialDark))
                                 .cornerRadius(15)
                                 .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.white.opacity(0.2), lineWidth: 0.5))
-                                
+
                                 HStack(spacing: 4) {
                                     Image(systemName: "clock")
                                         .font(.caption2)
@@ -153,94 +171,131 @@ struct StoreProductsView: View {
                         .padding(.bottom, 20)
                     }
                     .frame(height: 300)
-                    
-                    // Gender Segmented Control — solid white pill on glass track
-                    if !genders.isEmpty {
-                        HStack(spacing: 2) {
-                            ForEach(genders, id: \.self) { gender in
-                                Button(action: {
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                        selectedGender = gender
-                                        selectedCategory = "All"
+
+                    // ── Filter Bar ──────────────────────────────────────────────
+                    VStack(spacing: 0) {
+                        if isSearching {
+                            // Search mode: full-width text field
+                            HStack(spacing: 10) {
+                                Image("search")
+                                    .resizable()
+                                    .renderingMode(.template)
+                                    .foregroundColor(.white.opacity(0.6))
+                                    .frame(width: 14, height: 14)
+
+                                TextField("", text: $searchQuery)
+                                    .font(.custom("Montserrat-Regular", size: 13))
+                                    .foregroundColor(.white)
+                                    .placeholder(when: searchQuery.isEmpty) {
+                                        Text("Search \(store.name)...")
+                                            .font(.custom("Montserrat-Regular", size: 13))
+                                            .foregroundColor(.white.opacity(0.35))
                                     }
+                                    .autocorrectionDisabled()
+                                    .frame(maxWidth: .infinity)
+
+                                Button(action: {
+                                    searchQuery = ""
+                                    isSearching = false
+                                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                                 }) {
-                                    Text(gender)
-                                        .font(.custom("Montserrat-SemiBold", size: 13))
-                                        .foregroundColor(selectedGender == gender ? .black : .white.opacity(0.6))
-                                        .padding(.vertical, 7)
-                                        .padding(.horizontal, 18)
-                                        .background(
-                                            selectedGender == gender ? Color.white : Color.clear,
-                                            in: Capsule()
-                                        )
+                                    Text("Cancel")
+                                        .font(.custom("Montserrat-Regular", size: 12))
+                                        .foregroundColor(.white.opacity(0.5))
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+
+                        } else {
+                            // Normal mode: categories + search icon + filters
+                            HStack(alignment: .center, spacing: 0) {
+                                // Horizontal scrolling category text tabs
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 20) {
+                                        ForEach(categories, id: \.self) { category in
+                                            Button(action: {
+                                                selectedCategory = category
+                                            }) {
+                                                Text(category.uppercased())
+                                                    .font(selectedCategory == category
+                                                          ? .custom("Montserrat-Bold", size: 12)
+                                                          : .custom("Montserrat-Regular", size: 12))
+                                                    .foregroundColor(selectedCategory == category ? .white : .white.opacity(0.45))
+                                                    .fixedSize()
+                                            }
+                                        }
+                                    }
+                                    .padding(.leading, 16)
+                                    .padding(.trailing, 8)
+                                }
+
+                                // Divider
+                                Rectangle()
+                                    .fill(Color.white.opacity(0.2))
+                                    .frame(width: 1, height: 18)
+
+                                // Search icon button
+                                Button(action: {
+                                    isSearching = true
+                                }) {
+                                    Image("search")
+                                        .resizable()
+                                        .renderingMode(.template)
+                                        .foregroundColor(.white.opacity(0.65))
+                                        .frame(width: 15, height: 15)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 12)
+                                }
+
+                                // Divider
+                                Rectangle()
+                                    .fill(Color.white.opacity(0.2))
+                                    .frame(width: 1, height: 18)
+
+                                // Filters text button
+                                Button(action: {
+                                    filterGender = appliedGender
+                                    filterSortBy = appliedSortBy
+                                    filterMinPrice = appliedMinPrice
+                                    filterMaxPrice = appliedMaxPrice
+                                    showFilters = true
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Text("FILTERS")
+                                            .font(.custom("Montserrat-SemiBold", size: 11))
+                                            .foregroundColor(filtersActive ? .white : .white.opacity(0.65))
+                                        if filtersActive {
+                                            Circle()
+                                                .fill(Color.white)
+                                                .frame(width: 5, height: 5)
+                                        }
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 12)
                                 }
                             }
                         }
-                        .padding(3)
-                        .glassEffect(in: Capsule())
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.bottom, 12)
                     }
+                    .background(Color.black)
 
-                    // Category Chips — floating, no outer container
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(categories, id: \.self) { category in
-                                Button(action: {
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                        selectedCategory = category
-                                    }
-                                }) {
-                                    Text(category)
-                                        .font(.custom("Montserrat-Medium", size: 13))
-                                        .foregroundColor(selectedCategory == category ? .black : .white)
-                                        .padding(.vertical, 7)
-                                        .padding(.horizontal, 16)
-                                        .background(
-                                            selectedCategory == category ? Color.white : Color.white.opacity(0.1),
-                                            in: Capsule()
-                                        )
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                    }
-                    .padding(.bottom, 10)
+                    // Thin separator line
+                    Rectangle()
+                        .fill(Color.white.opacity(0.1))
+                        .frame(height: 0.5)
+                        .padding(.bottom, 14)
 
-                    // Search Bar — matches home page style exactly
-                    HStack {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundColor(.gray)
-                        TextField("Search store", text: $searchText)
-                            .font(.custom("Montserrat-Regular", size: 14))
-                            .foregroundColor(.white)
-                            .accentColor(.white)
-                        if !searchText.isEmpty {
-                            Button(action: { searchText = "" }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.gray)
-                            }
-                        }
-                    }
-                    .padding(.vertical, 13)
-                    .padding(.horizontal, 16)
-                    .glassEffect(in: RoundedRectangle(cornerRadius: 25, style: .continuous))
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
-                    
                     // Products Grid
                     LazyVGrid(columns: columns, spacing: 15) {
                         ForEach(filteredProducts) { product in
                             VStack(alignment: .leading, spacing: 8) {
                                 // Image Container
                                 ZStack(alignment: .bottomTrailing) {
-                                    // Product Image (Tap to Navigate)
                                     Rectangle()
-                                        .fill(Color.white.opacity(0.05)) // Subtle card background
+                                        .fill(Color.white.opacity(0.05))
                                         .aspectRatio(0.8, contentMode: .fit)
                                         .overlay(
                                             Group {
-                                                // Remote or Local Image
                                                 if product.isRemoteImage, let urlString = product.imageURL, let url = URL(string: urlString) {
                                                     CachedAsyncImage(url: url) { image in
                                                         image
@@ -265,7 +320,6 @@ struct StoreProductsView: View {
                                             }
                                         )
                                         .overlay(
-                                            // Sold Out Overlay
                                             Group {
                                                 if !product.inStock {
                                                     ZStack {
@@ -284,23 +338,21 @@ struct StoreProductsView: View {
                                         .clipShape(RoundedRectangle(cornerRadius: 10))
                                         .contentShape(Rectangle())
                                         .onTapGesture {
-                                            print("DEBUG: Tapped product image: \(product.title)")
                                             selectedProduct = product
                                         }
-                                    
                                 }
-                                
-                                // Info (Tap to Navigate)
+
+                                // Info
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(product.brand)
                                         .font(.custom("Montserrat-Regular", size: 10))
                                         .foregroundColor(.gray)
-                                    
+
                                     Text(product.title)
                                         .font(.custom("Montserrat-Bold", size: 12))
                                         .foregroundColor(.white)
                                         .lineLimit(1)
-                                    
+
                                     Text("$\(Int(product.price)).00")
                                         .font(.custom("Montserrat-SemiBold", size: 10))
                                         .foregroundColor(.white.opacity(0.7))
@@ -308,9 +360,7 @@ struct StoreProductsView: View {
                                 }
                                 .contentShape(Rectangle())
                                 .onTapGesture {
-                                    print("DEBUG: Tapped product: \(product.title)")
                                     selectedProduct = product
-                                    print("DEBUG: selectedProduct set to: \(String(describing: selectedProduct?.title))")
                                 }
                             }
                         }
@@ -323,8 +373,8 @@ struct StoreProductsView: View {
             .fullScreenCover(item: $selectedProduct) { product in
                 ProductDetailView(product: product, showTabBar: $showTabBar, selectedTab: $selectedTab)
             }
-            
-            // Back Button (Top Left) — iOS 26 Liquid Glass
+
+            // Back Button (Top Left)
             Button(action: {
                 presentationMode.wrappedValue.dismiss()
             }) {
@@ -334,10 +384,11 @@ struct StoreProductsView: View {
                     .frame(width: 44, height: 44)
                     .glassEffect(.regular, in: Circle())
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 20)
             .padding(.leading, 16)
 
-            // Cart Button (Top Right) — iOS 26 Liquid Glass, same line as back button
+            // Cart Button (Top Right)
             Button(action: {
                 presentationMode.wrappedValue.dismiss()
                 selectedTab = .cart
@@ -371,11 +422,214 @@ struct StoreProductsView: View {
         .enableSwipeBack()
         .onAppear {
             if let product = initialProduct {
-                // Small delay so the view is fully rendered before presenting the cover
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     selectedProduct = product
                 }
             }
+        }
+        .sheet(isPresented: $showFilters) {
+            FiltersSheet(
+                selectedGender: $filterGender,
+                selectedSortBy: $filterSortBy,
+                minPrice: $filterMinPrice,
+                maxPrice: $filterMaxPrice,
+                onApply: {
+                    appliedGender = filterGender
+                    appliedSortBy = filterSortBy
+                    appliedMinPrice = filterMinPrice
+                    appliedMaxPrice = filterMaxPrice
+                    // Reset category if gender changes
+                    selectedCategory = "All"
+                    showFilters = false
+                },
+                onClear: {
+                    filterGender = "All"
+                    filterSortBy = "New"
+                    filterMinPrice = 0
+                    filterMaxPrice = 2000
+                    appliedGender = "All"
+                    appliedSortBy = "New"
+                    appliedMinPrice = 0
+                    appliedMaxPrice = 2000
+                    selectedCategory = "All"
+                    showFilters = false
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(.black)
+        }
+    }
+}
+
+// MARK: - Filters Sheet
+
+struct FiltersSheet: View {
+    @Binding var selectedGender: String
+    @Binding var selectedSortBy: String
+    @Binding var minPrice: Double
+    @Binding var maxPrice: Double
+    let onApply: () -> Void
+    let onClear: () -> Void
+
+    let sortOptions = ["New", "Low to High", "High to Low"]
+    let genderOptions = ["All", "Men", "Women"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Handle + header
+            HStack {
+                Text("FILTERS")
+                    .font(.custom("Montserrat-Bold", size: 16))
+                    .foregroundColor(.white)
+                    .kerning(1.5)
+                Spacer()
+                Button(action: onClear) {
+                    Text("Clear all")
+                        .font(.custom("Montserrat-Regular", size: 13))
+                        .foregroundColor(.white.opacity(0.5))
+                        .underline()
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 28)
+            .padding(.bottom, 24)
+
+            Divider().background(Color.white.opacity(0.1))
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 32) {
+
+                    // SORT BY
+                    FilterSection(title: "SORT BY") {
+                        VStack(spacing: 0) {
+                            ForEach(sortOptions, id: \.self) { option in
+                                Button(action: { selectedSortBy = option }) {
+                                    HStack {
+                                        Text(option)
+                                            .font(selectedSortBy == option
+                                                  ? .custom("Montserrat-SemiBold", size: 14)
+                                                  : .custom("Montserrat-Regular", size: 14))
+                                            .foregroundColor(selectedSortBy == option ? .white : .white.opacity(0.5))
+                                        Spacer()
+                                        if selectedSortBy == option {
+                                            Image(systemName: "checkmark")
+                                                .font(.system(size: 12, weight: .semibold))
+                                                .foregroundColor(.white)
+                                        }
+                                    }
+                                    .padding(.vertical, 14)
+                                }
+                                if option != sortOptions.last {
+                                    Divider().background(Color.white.opacity(0.06))
+                                }
+                            }
+                        }
+                    }
+
+                    Divider().background(Color.white.opacity(0.1))
+
+                    // GENDER
+                    FilterSection(title: "GENDER") {
+                        HStack(spacing: 10) {
+                            ForEach(genderOptions, id: \.self) { option in
+                                Button(action: { selectedGender = option }) {
+                                    Text(option)
+                                        .font(selectedGender == option
+                                              ? .custom("Montserrat-SemiBold", size: 13)
+                                              : .custom("Montserrat-Regular", size: 13))
+                                        .foregroundColor(selectedGender == option ? .black : .white.opacity(0.7))
+                                        .padding(.horizontal, 20)
+                                        .padding(.vertical, 10)
+                                        .background(selectedGender == option ? Color.white : Color.white.opacity(0.08))
+                                        .cornerRadius(4)
+                                }
+                            }
+                        }
+                    }
+
+                    Divider().background(Color.white.opacity(0.1))
+
+                    // PRICE
+                    FilterSection(title: "PRICE") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Text("$\(Int(minPrice))")
+                                    .font(.custom("Montserrat-Regular", size: 13))
+                                    .foregroundColor(.white.opacity(0.6))
+                                Spacer()
+                                Text("$\(Int(maxPrice))\(maxPrice >= 2000 ? "+" : "")")
+                                    .font(.custom("Montserrat-Regular", size: 13))
+                                    .foregroundColor(.white.opacity(0.6))
+                            }
+                            // Min price slider
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Min")
+                                    .font(.custom("Montserrat-Regular", size: 11))
+                                    .foregroundColor(.white.opacity(0.35))
+                                Slider(value: $minPrice, in: 0...maxPrice, step: 10)
+                                    .accentColor(.white)
+                            }
+                            // Max price slider
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Max")
+                                    .font(.custom("Montserrat-Regular", size: 11))
+                                    .foregroundColor(.white.opacity(0.35))
+                                Slider(value: $maxPrice, in: minPrice...2000, step: 10)
+                                    .accentColor(.white)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 24)
+                .padding(.bottom, 40)
+            }
+
+            // Apply Button
+            Button(action: onApply) {
+                Text("APPLY")
+                    .font(.custom("Montserrat-Bold", size: 14))
+                    .kerning(1.5)
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(Color.white)
+                    .cornerRadius(4)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 36)
+        }
+    }
+}
+
+// MARK: - Filter Section Helper
+
+struct FilterSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(title)
+                .font(.custom("Montserrat-Bold", size: 11))
+                .foregroundColor(.white.opacity(0.4))
+                .kerning(1.5)
+            content
+        }
+    }
+}
+
+// MARK: - Placeholder helper
+
+extension View {
+    func placeholder<Content: View>(
+        when shouldShow: Bool,
+        @ViewBuilder placeholder: () -> Content
+    ) -> some View {
+        ZStack(alignment: .leading) {
+            if shouldShow { placeholder() }
+            self
         }
     }
 }
