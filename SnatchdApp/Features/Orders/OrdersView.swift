@@ -16,7 +16,7 @@ struct OrdersView: View {
                 Text("Orders")
                     .font(.custom("Montserrat-Bold", size: 24))
                     .foregroundColor(.white)
-                    .padding(.top, 60)
+                    .padding(.top, 16)
                     .padding(.bottom, 20)
 
                     // Segmented Control
@@ -174,12 +174,7 @@ struct ActiveOrderCard: View {
             OrderStatusBar(status: order.status)
         }
         .padding(24)
-        .background(Color(red: 0.1, green: 0.1, blue: 0.1))
-        .cornerRadius(24)
-        .overlay(
-            RoundedRectangle(cornerRadius: 24)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
-        )
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
     }
 }
 
@@ -235,12 +230,7 @@ struct PastOrderCard: View {
             }
         }
         .padding(20)
-        .background(Color(red: 0.08, green: 0.08, blue: 0.08))
-        .cornerRadius(20)
-        .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
-        )
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
     }
 
     func formattedDate(_ date: Date) -> String {

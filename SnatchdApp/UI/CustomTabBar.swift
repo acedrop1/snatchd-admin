@@ -23,6 +23,7 @@ struct CustomTabBar: View {
     var onTabTapped: (Tab) -> Void
     @Namespace private var namespace
     @FocusState private var isFocused: Bool
+    @EnvironmentObject var cartManager: CartManager
     
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -84,19 +85,36 @@ struct CustomTabBar: View {
                                 Button(action: {
                                     // Notify that a tab was tapped (for reset logic)
                                     onTabTapped(tab)
-                                    
+
                                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                                         selectedTab = tab
                                     }
                                 }) {
                                     VStack(spacing: 3) {
-                                        Image(tab.icon)
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fit)
-                                            .frame(width: 20, height: 20)
-                                            .foregroundColor(selectedTab == tab ? .white : .gray)
-                                            .scaleEffect(selectedTab == tab ? 1.1 : 1.0)
-                                        
+                                        ZStack(alignment: .topTrailing) {
+                                            Image(tab.icon)
+                                                .resizable()
+                                                .aspectRatio(contentMode: .fit)
+                                                .frame(width: 20, height: 20)
+                                                .foregroundColor(selectedTab == tab ? .white : .gray)
+                                                .scaleEffect(selectedTab == tab ? 1.1 : 1.0)
+
+                                            if tab == .cart {
+                                                let count = cartManager.items.reduce(0) { $0 + $1.quantity }
+                                                if count > 0 {
+                                                    Text("\(count)")
+                                                        .font(.system(size: 8, weight: .bold))
+                                                        .foregroundColor(.black)
+                                                        .frame(minWidth: 14, minHeight: 14)
+                                                        .padding(.horizontal, 2)
+                                                        .background(Color.white)
+                                                        .clipShape(Capsule())
+                                                        .offset(x: 8, y: -6)
+                                                }
+                                            }
+                                        }
+                                        .frame(width: 28, height: 26)
+
                                         Text(tab.rawValue)
                                             .font(.custom("Montserrat-Medium", size: 9))
                                             .foregroundColor(selectedTab == tab ? .white : .gray)
@@ -171,6 +189,7 @@ extension UIApplication {
         VStack {
             Spacer()
             CustomTabBar(selectedTab: .constant(.stores), showSearch: .constant(false), searchText: .constant(""), onTabTapped: { _ in })
+                .environmentObject(CartManager())
         }
     }
 }

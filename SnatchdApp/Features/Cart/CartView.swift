@@ -104,11 +104,7 @@ struct CartView: View {
                         }
                     }
                     .padding()
-                    .background(
-                        VisualEffectBlur(blurStyle: .systemUltraThinMaterialDark)
-                    )
-                    .background(Color.black.opacity(0.8))
-                    .cornerRadius(30, corners: [.topLeft, .topRight])
+                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 30))
                 }
             }
         }
@@ -123,15 +119,26 @@ struct CartView: View {
 struct CartItemRow: View {
     let item: CartItem
     @EnvironmentObject var cartManager: CartManager
-    
+
     var body: some View {
         HStack(alignment: .top, spacing: 15) {
             // Product Image
-            Image(item.product.imageName)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: 80, height: 80)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+            Group {
+                if item.product.isRemoteImage, let urlString = item.product.imageURL, let url = URL(string: urlString) {
+                    CachedAsyncImage(url: url) { image in
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        Color.white.opacity(0.1)
+                            .overlay(ProgressView())
+                    }
+                } else {
+                    Image(item.product.imageName)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                }
+            }
+            .frame(width: 80, height: 80)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
             
             VStack(alignment: .leading, spacing: 5) {
                 HStack {
@@ -192,17 +199,7 @@ struct CartItemRow: View {
             }
         }
         .padding()
-        .background(
-            ZStack {
-                VisualEffectBlur(blurStyle: .systemUltraThinMaterialDark)
-                Color.white.opacity(0.03)
-            }
-        )
-        .cornerRadius(15)
-        .overlay(
-            RoundedRectangle(cornerRadius: 15)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
-        )
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 15))
     }
 }
 

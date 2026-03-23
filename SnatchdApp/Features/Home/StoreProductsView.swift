@@ -382,7 +382,11 @@ struct StoreProductsView: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
-                    .glassEffect(.regular, in: Circle())
+                    .background(
+                        Circle()
+                            .fill(.ultraThinMaterial)
+                            .overlay(Circle().fill(Color.black.opacity(0.4)))
+                    )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 20)
@@ -400,7 +404,11 @@ struct StoreProductsView: View {
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 22, height: 22)
                         .frame(width: 44, height: 44)
-                        .glassEffect(.regular, in: Circle())
+                        .background(
+                            Circle()
+                                .fill(.ultraThinMaterial)
+                                .overlay(Circle().fill(Color.black.opacity(0.4)))
+                        )
 
                     if cartManager.items.reduce(0, { $0 + $1.quantity }) > 0 {
                         Text("\(cartManager.items.reduce(0) { $0 + $1.quantity })")
