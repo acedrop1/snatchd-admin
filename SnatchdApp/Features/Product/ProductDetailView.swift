@@ -67,16 +67,6 @@ struct ProductDetailView: View {
             }
             .edgesIgnoringSafeArea(.all)
             .simultaneousGesture(
-                DragGesture(coordinateSpace: .global)
-                    .onChanged { value in
-                        // Detect swipe right from left edge for back navigation
-                        if value.startLocation.x < 50 && value.translation.width > 50 {
-                            // User is swiping right from left edge - dismiss
-                            presentationMode.wrappedValue.dismiss()
-                        }
-                    }
-            )
-            .simultaneousGesture(
                 TapGesture()
                     .onEnded { _ in
                         withAnimation {
@@ -357,8 +347,7 @@ struct ProductDetailView: View {
             
         }
         .navigationBarHidden(true)
-        .enableSwipeBack()
-        .background(SwipeBackHandler(presentationMode: presentationMode))
+        .swipeToDismiss { presentationMode.wrappedValue.dismiss() }
         .onAppear {
             DispatchQueue.main.async {
                 showTabBar = false
@@ -514,45 +503,6 @@ struct RoundedCorner: Shape {
     func path(in rect: CGRect) -> Path {
         let path = UIBezierPath(roundedRect: rect, byRoundingCorners: corners, cornerRadii: CGSize(width: radius, height: radius))
         return Path(path.cgPath)
-    }
-}
-
-// Swipe Back Handler for Product Detail View
-struct SwipeBackHandler: UIViewControllerRepresentable {
-    @Binding var presentationMode: PresentationMode
-    
-    init(presentationMode: Binding<PresentationMode>) {
-        self._presentationMode = presentationMode
-    }
-    
-    func makeUIViewController(context: Context) -> SwipeBackViewController {
-        let controller = SwipeBackViewController()
-        controller.presentationMode = _presentationMode
-        return controller
-    }
-    
-    func updateUIViewController(_ uiViewController: SwipeBackViewController, context: Context) {
-        uiViewController.enableEdgeSwipe()
-    }
-    
-    class SwipeBackViewController: UIViewController {
-        var presentationMode: Binding<PresentationMode>?
-        
-        override func viewDidLoad() {
-            super.viewDidLoad()
-            view.backgroundColor = .clear
-        }
-        
-        override func viewDidAppear(_ animated: Bool) {
-            super.viewDidAppear(animated)
-            enableEdgeSwipe()
-        }
-        
-        func enableEdgeSwipe() {
-            guard let navController = navigationController else { return }
-            navController.interactivePopGestureRecognizer?.isEnabled = true
-            navController.interactivePopGestureRecognizer?.delegate = nil
-        }
     }
 }
 

@@ -150,7 +150,7 @@ struct CheckoutView: View {
             Text(stripeError ?? "")
         }
         .navigationBarHidden(true)
-        .enableSwipeBack()
+        .swipeToDismiss { presentationMode.wrappedValue.dismiss() }
         .onAppear {
             loadDefaultAddress()
             // Auto-select the default payment method so Place Order is always ready
