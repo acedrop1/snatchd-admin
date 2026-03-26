@@ -3,8 +3,8 @@ import UIKit
 
 // MARK: - enableSwipeBack()
 // For views pushed via NavigationLink.
-// UINavigationController+Extensions.swift handles the gesture globally;
-// this just makes sure the recogniser stays enabled on the current nav controller.
+// UINavigationController+Extensions.swift handles the gesture globally —
+// this just ensures the recogniser stays enabled on the current nav controller.
 
 extension View {
     func enableSwipeBack() -> some View {
@@ -14,7 +14,6 @@ extension View {
 
 private struct SwipeBackEnabler: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController { UIViewController() }
-
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
         DispatchQueue.main.async {
             uiViewController.navigationController?.interactivePopGestureRecognizer?.isEnabled = true
@@ -23,69 +22,61 @@ private struct SwipeBackEnabler: UIViewControllerRepresentable {
 }
 
 // MARK: - swipeToDismiss(onDismiss:)
-// For views presented via fullScreenCover (no UINavigationController involved).
-// Uses UIScreenEdgePanGestureRecognizer — a UIKit recogniser designed specifically
-// for left-edge pans — so it never conflicts with scroll views or other gestures.
+// For fullScreenCover views (no UINavigationController).
+// Tracks the drag in real-time so the screen follows the finger.
+// Horizontal swipe from the left edge only — doesn't conflict with
+// vertical scroll views or sheet gestures.
 
 extension View {
     func swipeToDismiss(onDismiss: @escaping () -> Void) -> some View {
-        self.background(SwipeToDismissHandler(onDismiss: onDismiss))
+        self.modifier(SwipeToDismissModifier(onDismiss: onDismiss))
     }
 }
 
-private struct SwipeToDismissHandler: UIViewControllerRepresentable {
+struct SwipeToDismissModifier: ViewModifier {
     let onDismiss: () -> Void
+    @State private var offsetX: CGFloat = 0
+    @State private var active = false
 
-    func makeCoordinator() -> Coordinator { Coordinator(onDismiss: onDismiss) }
+    private let screenWidth = UIScreen.main.bounds.width
 
-    func makeUIViewController(context: Context) -> UIViewController {
-        let vc = UIViewController()
-        vc.view.backgroundColor = .clear
-        vc.view.isUserInteractionEnabled = false
-        return vc
-    }
+    var dismissProgress: CGFloat { min(max(offsetX, 0) / screenWidth, 1) }
 
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
-        context.coordinator.onDismiss = onDismiss
-        guard context.coordinator.gesture == nil else { return }
-
-        DispatchQueue.main.async {
-            // Walk the parent chain to reach the UIHostingController that
-            // owns this fullScreenCover — it has no further parent.
-            var root: UIViewController = uiViewController
-            while let p = root.parent { root = p }
-
-            let gesture = UIScreenEdgePanGestureRecognizer(
-                target: context.coordinator,
-                action: #selector(Coordinator.handleEdgePan(_:))
+    func body(content: Content) -> some View {
+        content
+            .offset(x: max(0, offsetX))
+            .opacity(1 - dismissProgress * 0.35)
+            .animation(.interactiveSpring(response: 0.25, dampingFraction: 0.86), value: offsetX)
+            .gesture(
+                DragGesture(minimumDistance: 8, coordinateSpace: .global)
+                    .onChanged { v in
+                        let dx = v.translation.width
+                        let dy = abs(v.translation.height)
+                        // Activate only when swipe starts within 60 pts of left edge
+                        // and is more horizontal than vertical
+                        if !active {
+                            guard v.startLocation.x < 60, dx > 0, dx > dy else { return }
+                            active = true
+                        }
+                        offsetX = max(0, dx)
+                    }
+                    .onEnded { v in
+                        guard active else { return }
+                        active = false
+                        let dx = v.translation.width
+                        let vel = v.predictedEndTranslation.width - v.translation.width
+                        if dx > screenWidth * 0.3 || vel > screenWidth * 0.4 {
+                            // Fly off screen then dismiss
+                            withAnimation(.easeOut(duration: 0.18)) { offsetX = screenWidth }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                                var t = Transaction(); t.disablesAnimations = true
+                                withTransaction(t) { onDismiss() }
+                                offsetX = 0
+                            }
+                        } else {
+                            withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { offsetX = 0 }
+                        }
+                    }
             )
-            gesture.edges = .left
-            root.view.addGestureRecognizer(gesture)
-            context.coordinator.gesture = gesture
-        }
-    }
-
-    class Coordinator: NSObject {
-        var onDismiss: () -> Void
-        weak var gesture: UIScreenEdgePanGestureRecognizer?
-
-        init(onDismiss: @escaping () -> Void) {
-            self.onDismiss = onDismiss
-        }
-
-        @objc func handleEdgePan(_ gesture: UIScreenEdgePanGestureRecognizer) {
-            guard gesture.state == .ended else { return }
-            let translation = gesture.translation(in: gesture.view)
-            let velocity = gesture.velocity(in: gesture.view)
-            // Dismiss if dragged ≥25% of screen width OR flicked fast enough
-            let threshold = UIScreen.main.bounds.width * 0.25
-            if translation.x > threshold || velocity.x > 600 {
-                DispatchQueue.main.async { self.onDismiss() }
-            }
-        }
-
-        deinit {
-            if let g = gesture { g.view?.removeGestureRecognizer(g) }
-        }
     }
 }

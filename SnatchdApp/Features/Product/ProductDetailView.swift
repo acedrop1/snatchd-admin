@@ -22,7 +22,20 @@ struct ProductDetailView: View {
     // Bottom Sheet State
     @State private var dragOffset: CGFloat = 0
     @State private var isSheetExpanded = false
-    
+
+    // Interactive dismiss (follows finger like Instagram)
+    @State private var dismissTranslation: CGSize = .zero
+    @State private var dismissAxis: DismissAxis = .none
+    enum DismissAxis { case none, horizontal, vertical }
+
+    private var dismissProgress: CGFloat {
+        switch dismissAxis {
+        case .horizontal: return min(max(0, dismissTranslation.width)  / UIScreen.main.bounds.width,  1)
+        case .vertical:   return min(max(0, dismissTranslation.height) / UIScreen.main.bounds.height, 1)
+        case .none:       return 0
+        }
+    }
+
     // Real-Time Stock Check State
     @StateObject private var locationManager = LocationManager()
     @State private var isCheckingStock = false
@@ -33,6 +46,19 @@ struct ProductDetailView: View {
     private let collapsedHeight: CGFloat = 300 // Height visible when collapsed
     private let expandedOffset: CGFloat = 0 // Offset when fully expanded
     
+    private var dismissOffsetX: CGFloat {
+        dismissAxis == .horizontal ? max(0, dismissTranslation.width) : 0
+    }
+    private var dismissOffsetY: CGFloat {
+        dismissAxis == .vertical ? max(0, dismissTranslation.height) : 0
+    }
+    private var dismissScale: CGFloat {
+        dismissAxis == .vertical ? max(0.88, 1 - dismissProgress * 0.12) : 1.0
+    }
+    private var dismissAlpha: Double {
+        dismissAxis == .none ? 1.0 : max(0.55, 1 - dismissProgress * 0.45)
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             // 1. Background Image Area (Full Screen)
@@ -71,6 +97,49 @@ struct ProductDetailView: View {
                     .onEnded { _ in
                         withAnimation {
                             showFullImage = true
+                        }
+                    }
+            )
+            // ── Interactive dismiss gesture on image area ──
+            // Swipe right from left edge → horizontal slide dismiss
+            // Swipe down anywhere on image → vertical slide dismiss
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 8, coordinateSpace: .global)
+                    .onChanged { value in
+                        let dx = value.translation.width
+                        let dy = value.translation.height
+                        if dismissAxis == .none {
+                            if value.startLocation.x < 60 && dx > 0 && abs(dx) > abs(dy) * 1.2 {
+                                dismissAxis = .horizontal
+                            } else if dy > 8 && abs(dy) > abs(dx) * 1.2 {
+                                dismissAxis = .vertical
+                            }
+                        }
+                        switch dismissAxis {
+                        case .horizontal: dismissTranslation = CGSize(width: max(0, dx), height: 0)
+                        case .vertical:   dismissTranslation = CGSize(width: 0, height: max(0, dy))
+                        case .none: break
+                        }
+                    }
+                    .onEnded { value in
+                        defer {
+                            withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+                                dismissTranslation = .zero
+                            }
+                            dismissAxis = .none
+                        }
+                        let dx = value.translation.width
+                        let dy = value.translation.height
+                        let vx = value.predictedEndTranslation.width  - dx
+                        let vy = value.predictedEndTranslation.height - dy
+                        let sw = UIScreen.main.bounds.width
+                        let sh = UIScreen.main.bounds.height
+                        switch dismissAxis {
+                        case .horizontal:
+                            if dx > sw * 0.3 || vx > sw * 0.4 { presentationMode.wrappedValue.dismiss() }
+                        case .vertical:
+                            if dy > sh * 0.2 || vy > sh * 0.35 { presentationMode.wrappedValue.dismiss() }
+                        case .none: break
                         }
                     }
             )
@@ -346,8 +415,11 @@ struct ProductDetailView: View {
             .edgesIgnoringSafeArea(.bottom)
             
         }
+        .offset(x: dismissOffsetX, y: dismissOffsetY)
+        .scaleEffect(dismissScale)
+        .opacity(dismissAlpha)
+        .animation(.interactiveSpring(response: 0.25, dampingFraction: 0.86), value: dismissTranslation)
         .navigationBarHidden(true)
-        .swipeToDismiss { presentationMode.wrappedValue.dismiss() }
         .onAppear {
             DispatchQueue.main.async {
                 showTabBar = false
