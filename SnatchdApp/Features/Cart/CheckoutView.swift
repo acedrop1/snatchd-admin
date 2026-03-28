@@ -35,13 +35,16 @@ struct CheckoutView: View {
     @State private var selectedPayment: PaymentMethod?
     
     // Constants
-    let deliveryFee: Double = 6.00
     let taxRate: Double = 0.08875
-    
+
+    var deliveryFee: Double {
+        selectedDeliveryOption == "Priority" ? db.priorityDeliveryFee : db.standardDeliveryFee
+    }
+
     var taxAmount: Double {
         cartManager.total * taxRate
     }
-    
+
     var totalAmount: Double {
         cartManager.total + deliveryFee + taxAmount
     }
@@ -357,7 +360,7 @@ struct CheckoutView: View {
                     showSchedulePicker = false
                 }
             
-            DeliveryOptionRow(title: "Priority", detail: "30-60 min", price: "+$6.99", isSelected: selectedDeliveryOption == "Priority")
+            DeliveryOptionRow(title: "Priority", detail: "30-60 min", price: String(format: "+$%.2f", db.priorityDeliveryFee), isSelected: selectedDeliveryOption == "Priority")
                 .onTapGesture { 
                     selectedDeliveryOption = "Priority"
                     showSchedulePicker = false

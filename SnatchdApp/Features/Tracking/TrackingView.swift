@@ -2,6 +2,10 @@ import SwiftUI
 import MapKit
 import CoreLocation
 
+extension Notification.Name {
+    static let switchToOrdersTab = Notification.Name("switchToOrdersTab")
+}
+
 // MARK: - Map Annotation Items
 
 struct TrackingPin: Identifiable {
@@ -136,8 +140,11 @@ struct TrackingView: View {
             // ── Top Nav Bar ───────────────────────────────────────────────
             VStack {
                 HStack(spacing: 16) {
-                    Button(action: { presentationMode.wrappedValue.dismiss() }) {
-                        Image(systemName: "chevron.left")
+                    Button(action: {
+                        presentationMode.wrappedValue.dismiss()
+                        NotificationCenter.default.post(name: .switchToOrdersTab, object: nil)
+                    }) {
+                        Image(systemName: "xmark")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(width: 40, height: 40)

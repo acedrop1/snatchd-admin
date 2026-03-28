@@ -400,13 +400,41 @@ export default function SettingsPage() {
     const [testModeLoading, setTestModeLoading] = useState(false);
     const [testModeLoaded, setTestModeLoaded] = useState(false);
 
-    // Load test mode from Firestore on mount
+    // Delivery fees state
+    const [standardFee, setStandardFee] = useState<string>("6.00");
+    const [priorityFee, setPriorityFee] = useState<string>("6.99");
+    const [feesLoading, setFeesLoading] = useState(false);
+    const [feesSaved, setFeesSaved] = useState(false);
+
+    // Load test mode + fees from Firestore on mount
     useEffect(() => {
         getDoc(doc(db, "config", "app")).then((snap) => {
             if (snap.exists()) setTestMode(snap.data()?.testMode ?? false);
             setTestModeLoaded(true);
         });
+        getDoc(doc(db, "config", "fees")).then((snap) => {
+            if (snap.exists()) {
+                setStandardFee(String(snap.data()?.standardFee ?? "6.00"));
+                setPriorityFee(String(snap.data()?.priorityFee ?? "6.99"));
+            }
+        });
     }, []);
+
+    const saveFees = async () => {
+        const std = parseFloat(standardFee);
+        const pri = parseFloat(priorityFee);
+        if (isNaN(std) || isNaN(pri) || std < 0 || pri < 0) return;
+        setFeesLoading(true);
+        try {
+            await setDoc(doc(db, "config", "fees"), { standardFee: std, priorityFee: pri }, { merge: true });
+            setFeesSaved(true);
+            setTimeout(() => setFeesSaved(false), 3000);
+        } catch (e) {
+            console.error("Failed to save fees", e);
+        } finally {
+            setFeesLoading(false);
+        }
+    };
 
     const handleSeedStores = async () => {
         setSeedStatus("running");
@@ -1125,6 +1153,57 @@ export default function SettingsPage() {
                     : revertStatus === "done" ? <><CheckCircle className="h-4 w-4" /> Done — Re-upload via Stores page</>
                     : <><XCircle className="h-4 w-4" /> Clear All Store Images</>}
                 </button>
+            </div>
+
+            {/* Delivery Fees */}
+            <div className="rounded-xl border border-white/10 bg-neutral-900/50 p-6 space-y-4">
+                <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-neutral-800">
+                        <Settings className="h-5 w-5 text-neutral-400" />
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-semibold text-white">Delivery Fees</h3>
+                        <p className="text-sm text-neutral-400">Set the base delivery fees shown to customers at checkout. Changes go live instantly in the app.</p>
+                    </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                        <label className="text-xs font-medium text-neutral-400 uppercase tracking-wide">Standard Fee ($)</label>
+                        <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={standardFee}
+                            onChange={(e) => setStandardFee(e.target.value)}
+                            className="w-full bg-neutral-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-white/30"
+                            placeholder="6.00"
+                        />
+                        <p className="text-xs text-neutral-500">Standard 60–90 min delivery</p>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs font-medium text-neutral-400 uppercase tracking-wide">Priority Fee ($)</label>
+                        <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={priorityFee}
+                            onChange={(e) => setPriorityFee(e.target.value)}
+                            className="w-full bg-neutral-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-white/30"
+                            placeholder="6.99"
+                        />
+                        <p className="text-xs text-neutral-500">Priority 30–60 min delivery</p>
+                    </div>
+                </div>
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={saveFees}
+                        disabled={feesLoading}
+                        className="px-4 py-2 bg-white text-black text-sm font-medium rounded-lg hover:bg-neutral-200 transition disabled:opacity-50"
+                    >
+                        {feesLoading ? <Loader2 className="h-4 w-4 animate-spin inline" /> : "Save Fees"}
+                    </button>
+                    {feesSaved && <span className="text-sm text-green-400 flex items-center gap-1"><CheckCircle className="h-4 w-4" /> Saved — live in app</span>}
+                </div>
             </div>
 
             {/* Test Mode Toggle */}

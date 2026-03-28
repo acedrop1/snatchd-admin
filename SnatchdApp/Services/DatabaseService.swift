@@ -17,6 +17,8 @@ class DatabaseService: ObservableObject {
     @Published var storeOrderConfig: [String: [String]] = [:]
     /// true when the portal's Test Mode toggle is on — checkout skips real payment
     @Published var testMode: Bool = false
+    @Published var standardDeliveryFee: Double = 6.00
+    @Published var priorityDeliveryFee: Double = 6.99
 
     // Listener handles — kept so we can detach if needed
     private var storesListener: ListenerRegistration?
@@ -42,6 +44,7 @@ class DatabaseService: ObservableObject {
         listenToConfig()
         listenToJustDropped()
         listenToStoreOrder()
+        listenToFees()
     }
 
     // MARK: - App Config Listener (test mode, feature flags)
@@ -59,6 +62,22 @@ class DatabaseService: ObservableObject {
                 DispatchQueue.main.async {
                     self.testMode = isTestMode
                     print("⚙️ Test mode: \(isTestMode)")
+                }
+            }
+    }
+
+    // MARK: - Delivery Fees Listener
+
+    func listenToFees() {
+        db.collection("config").document("fees")
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self = self, error == nil else { return }
+                let data = snapshot?.data() ?? [:]
+                let standard = data["standardFee"] as? Double ?? 6.00
+                let priority = data["priorityFee"] as? Double ?? 6.99
+                DispatchQueue.main.async {
+                    self.standardDeliveryFee = standard
+                    self.priorityDeliveryFee = priority
                 }
             }
     }
