@@ -370,9 +370,6 @@ struct StoreProductsView: View {
                 }
             }
             .edgesIgnoringSafeArea(.top)
-            .fullScreenCover(item: $selectedProduct) { product in
-                ProductDetailView(product: product, showTabBar: $showTabBar, selectedTab: $selectedTab)
-            }
 
             // Back Button (Top Left)
             Button(action: {
@@ -425,6 +422,18 @@ struct StoreProductsView: View {
             .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.top, 20)
             .padding(.trailing, 16)
+
+            // Product Detail overlay — parent stays rendered so it shows through during swipe
+            if let product = selectedProduct {
+                ProductDetailView(
+                    product: product,
+                    showTabBar: $showTabBar,
+                    selectedTab: $selectedTab,
+                    onDismiss: { selectedProduct = nil }
+                )
+                .zIndex(10)
+                .transition(.identity)
+            }
         }
         .navigationBarHidden(true)
         .enableSwipeBack()

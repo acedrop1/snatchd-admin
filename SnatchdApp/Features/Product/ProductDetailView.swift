@@ -5,35 +5,31 @@ struct ProductDetailView: View {
     let product: Product
     @Binding var showTabBar: Bool
     @Binding var selectedTab: Tab
-    @Environment(\.presentationMode) var presentationMode
+    let onDismiss: () -> Void
     @EnvironmentObject var cartManager: CartManager
-    
+
     // Animation State
     @State private var cartScale: CGFloat = 1.0
     @State private var showCart = false
-    
+
     // Expandable sections state
     @State private var isDescriptionExpanded = true
-    
+
     // Interaction State
     @State private var showFullImage = false
     @State private var selectedSize: String = ""
-    
+
     // Bottom Sheet State
     @State private var dragOffset: CGFloat = 0
     @State private var isSheetExpanded = false
 
-    // Interactive dismiss (follows finger like Instagram)
-    @State private var dismissTranslation: CGSize = .zero
-    @State private var dismissAxis: DismissAxis = .none
-    enum DismissAxis { case none, horizontal, vertical }
-
-    private var dismissProgress: CGFloat {
-        switch dismissAxis {
-        case .horizontal: return min(max(0, dismissTranslation.width)  / UIScreen.main.bounds.width,  1)
-        case .vertical:   return min(max(0, dismissTranslation.height) / UIScreen.main.bounds.height, 1)
-        case .none:       return 0
-        }
+    // Omnidirectional interactive dismiss — follows finger, no re-renders during drag
+    @GestureState private var dismissDrag: CGSize = .zero
+    private var dismissDistance: CGFloat {
+        sqrt(pow(dismissDrag.width, 2) + pow(dismissDrag.height, 2))
+    }
+    private var dismissScale: CGFloat {
+        max(0.88, 1.0 - dismissDistance / UIScreen.main.bounds.height * 0.15)
     }
 
     // Real-Time Stock Check State
@@ -41,23 +37,10 @@ struct ProductDetailView: View {
     @State private var isCheckingStock = false
     @State private var stockAvailability: [StoreAvailability] = []
     @State private var stockError: String?
-    
+
     // Constants
-    private let collapsedHeight: CGFloat = 300 // Height visible when collapsed
-    private let expandedOffset: CGFloat = 0 // Offset when fully expanded
-    
-    private var dismissOffsetX: CGFloat {
-        dismissAxis == .horizontal ? max(0, dismissTranslation.width) : 0
-    }
-    private var dismissOffsetY: CGFloat {
-        dismissAxis == .vertical ? max(0, dismissTranslation.height) : 0
-    }
-    private var dismissScale: CGFloat {
-        dismissAxis == .vertical ? max(0.88, 1 - dismissProgress * 0.12) : 1.0
-    }
-    private var dismissAlpha: Double {
-        dismissAxis == .none ? 1.0 : max(0.55, 1 - dismissProgress * 0.45)
-    }
+    private let collapsedHeight: CGFloat = 300
+    private let expandedOffset: CGFloat = 0
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -100,52 +83,22 @@ struct ProductDetailView: View {
                         }
                     }
             )
-            // ── Interactive dismiss gesture on image area ──
-            // Swipe right from left edge → horizontal slide dismiss
-            // Swipe down anywhere on image → vertical slide dismiss
             .simultaneousGesture(
-                DragGesture(minimumDistance: 8, coordinateSpace: .global)
-                    .onChanged { value in
-                        let dx = value.translation.width
-                        let dy = value.translation.height
-                        if dismissAxis == .none {
-                            if value.startLocation.x < 60 && dx > 0 && abs(dx) > abs(dy) * 1.2 {
-                                dismissAxis = .horizontal
-                            } else if dy > 8 && abs(dy) > abs(dx) * 1.2 {
-                                dismissAxis = .vertical
-                            }
-                        }
-                        switch dismissAxis {
-                        case .horizontal: dismissTranslation = CGSize(width: max(0, dx), height: 0)
-                        case .vertical:   dismissTranslation = CGSize(width: 0, height: max(0, dy))
-                        case .none: break
-                        }
+                DragGesture(minimumDistance: 10, coordinateSpace: .global)
+                    .updating($dismissDrag) { value, state, _ in
+                        state = value.translation
                     }
                     .onEnded { value in
-                        defer {
-                            withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
-                                dismissTranslation = .zero
-                            }
-                            dismissAxis = .none
-                        }
-                        let dx = value.translation.width
-                        let dy = value.translation.height
-                        let vx = value.predictedEndTranslation.width  - dx
-                        let vy = value.predictedEndTranslation.height - dy
-                        let sw = UIScreen.main.bounds.width
-                        let sh = UIScreen.main.bounds.height
-                        switch dismissAxis {
-                        case .horizontal:
-                            if dx > sw * 0.3 || vx > sw * 0.4 { presentationMode.wrappedValue.dismiss() }
-                        case .vertical:
-                            if dy > sh * 0.2 || vy > sh * 0.35 { presentationMode.wrappedValue.dismiss() }
-                        case .none: break
+                        let dist = sqrt(pow(value.translation.width, 2) + pow(value.translation.height, 2))
+                        let predicted = sqrt(pow(value.predictedEndTranslation.width, 2) + pow(value.predictedEndTranslation.height, 2))
+                        if dist > 90 || predicted > 180 {
+                            onDismiss()
                         }
                     }
             )
-            
+
             // 2. Back Button (Top Left) — matches StoreProductsView
-            Button(action: { presentationMode.wrappedValue.dismiss() }) {
+            Button(action: { onDismiss() }) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.white)
@@ -163,7 +116,7 @@ struct ProductDetailView: View {
 
             // 3. Cart Button (Top Right) — matches StoreProductsView
             Button(action: {
-                presentationMode.wrappedValue.dismiss()
+                onDismiss()
                 selectedTab = .cart
                 showTabBar = true
             }) {
@@ -415,10 +368,8 @@ struct ProductDetailView: View {
             .edgesIgnoringSafeArea(.bottom)
             
         }
-        .offset(x: dismissOffsetX, y: dismissOffsetY)
+        .offset(x: dismissDrag.width, y: dismissDrag.height)
         .scaleEffect(dismissScale)
-        .opacity(dismissAlpha)
-        .animation(.interactiveSpring(response: 0.25, dampingFraction: 0.86), value: dismissTranslation)
         .navigationBarHidden(true)
         .onAppear {
             DispatchQueue.main.async {

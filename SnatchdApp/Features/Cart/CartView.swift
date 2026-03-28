@@ -64,17 +64,6 @@ struct CartView: View {
                     // Footer with Liquid Glass
                     VStack(spacing: 20) {
                         HStack {
-                            Text("Apply Promo Code")
-                                .foregroundColor(.white)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                            .foregroundColor(.gray)
-                        }
-                        .padding(.vertical)
-                        
-                        Divider().background(Color.gray)
-                        
-                        HStack {
                             Text("Total Due")
                                 .foregroundColor(.gray)
                             Image(systemName: "info.circle")

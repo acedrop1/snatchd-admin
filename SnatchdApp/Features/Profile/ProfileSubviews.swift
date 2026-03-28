@@ -1,41 +1,98 @@
 import SwiftUI
-
-
+import FirebaseAuth
 
 // MARK: - Order History
 struct OrderHistoryView: View {
+    @StateObject private var db = DatabaseService.shared
+
     var body: some View {
         ZStack {
             Color.black.edgesIgnoringSafeArea(.all)
-            
-            VStack {
+
+            VStack(spacing: 0) {
                 CustomNavBar(title: "Order History")
-                
-                ScrollView {
-                    VStack(spacing: 20) {
-                        Spacer().frame(height: 50)
-                        
+
+                if db.pastOrders.isEmpty {
+                    Spacer()
+                    VStack(spacing: 16) {
                         Image(systemName: "clock.arrow.circlepath")
                             .font(.system(size: 60))
                             .foregroundColor(.gray.opacity(0.5))
-                        
                         Text("No past orders")
                             .font(.custom("Montserrat-SemiBold", size: 20))
                             .foregroundColor(.white)
-                        
                         Text("Your past orders will appear here once you've completed a purchase.")
                             .font(.custom("Montserrat-Regular", size: 14))
                             .foregroundColor(.gray)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 40)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 50)
+                    Spacer()
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 12) {
+                            ForEach(db.pastOrders) { order in
+                                PastOrderRow(order: order)
+                            }
+                        }
+                        .padding()
+                    }
                 }
             }
         }
         .navigationBarHidden(true)
         .enableSwipeBack()
+        .onAppear {
+            if let uid = Auth.auth().currentUser?.uid {
+                db.listenToOrders(userId: uid)
+            }
+        }
+    }
+}
+
+// MARK: - Past Order Row
+private struct PastOrderRow: View {
+    let order: Order
+    private let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        return f
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(order.orderNumber.isEmpty ? "Order" : order.orderNumber)
+                        .font(.custom("Montserrat-Bold", size: 15))
+                        .foregroundColor(.white)
+                    Text(order.storeSummary)
+                        .font(.custom("Montserrat-Regular", size: 13))
+                        .foregroundColor(.gray)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(String(format: "$%.2f", order.total))
+                        .font(.custom("Montserrat-SemiBold", size: 15))
+                        .foregroundColor(.white)
+                    Text(order.statusLabel)
+                        .font(.custom("Montserrat-Medium", size: 12))
+                        .foregroundColor(order.status == "delivered" ? .green : .orange)
+                }
+            }
+            Text(dateFormatter.string(from: order.createdAt))
+                .font(.custom("Montserrat-Regular", size: 12))
+                .foregroundColor(.gray)
+
+            if !order.items.isEmpty {
+                Text("\(order.items.count) item\(order.items.count == 1 ? "" : "s")")
+                    .font(.custom("Montserrat-Regular", size: 12))
+                    .foregroundColor(.gray)
+            }
+        }
+        .padding()
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 15))
     }
 }
 

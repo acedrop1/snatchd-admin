@@ -27,12 +27,12 @@ class UserProfileManager: ObservableObject {
            let decoded = try? JSONDecoder().decode(UserProfile.self, from: data) {
             self.profile = decoded
         } else {
-            // Default profile
+            // New user — blank profile, populated after sign-in
             self.profile = UserProfile(
-                firstName: "John",
-                lastName: "Doe",
-                email: "johndoe@gmail.com",
-                phoneNumber: "+1 (555) 123-4567"
+                firstName: "",
+                lastName: "",
+                email: "",
+                phoneNumber: ""
             )
         }
         

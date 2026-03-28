@@ -13,6 +13,7 @@ struct SearchView: View {
     @ObservedObject private var databaseService = DatabaseService.shared
     
     var body: some View {
+        ZStack {
         VStack(spacing: 0) {
             // Header / Search Bar Area
             HStack(spacing: 12) {
@@ -180,12 +181,22 @@ struct SearchView: View {
         .onAppear {
             isFocused = true
         }
-        .fullScreenCover(item: $selectedProduct) { product in
-            ProductDetailView(product: product, showTabBar: .constant(false), selectedTab: .constant(.stores))
-        }
         .fullScreenCover(item: $selectedStore) { store in
             StoreProductsView(store: store, showTabBar: .constant(false), selectedTab: .constant(.stores))
         }
+
+        // Product detail overlay — parent stays rendered so it shows through during swipe
+        if let product = selectedProduct {
+            ProductDetailView(
+                product: product,
+                showTabBar: .constant(false),
+                selectedTab: .constant(.stores),
+                onDismiss: { selectedProduct = nil }
+            )
+            .zIndex(10)
+            .transition(.identity)
+        }
+        } // end ZStack
     }
     
     var filteredStores: [Store] {

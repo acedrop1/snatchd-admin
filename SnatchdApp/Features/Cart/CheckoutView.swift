@@ -31,12 +31,7 @@ struct CheckoutView: View {
         }
     }
     
-    // Stripe test cards pre-loaded so you can test without a real card
-    @State private var paymentMethods = [
-        PaymentMethod(id: UUID(), cardNumber: "4242", cardholderName: "Test User", expirationMonth: 12, expirationYear: 2028, cardType: .visa, isDefault: true),
-        PaymentMethod(id: UUID(), cardNumber: "5555", cardholderName: "Test User", expirationMonth: 8, expirationYear: 2028, cardType: .amex, isDefault: false),
-        PaymentMethod(id: UUID(), cardNumber: "0000", cardholderName: "Apple Pay", expirationMonth: 1, expirationYear: 2099, cardType: .unknown, isDefault: false)
-    ]
+    @StateObject private var paymentManager = PaymentManager()
     @State private var selectedPayment: PaymentMethod?
     
     // Constants
@@ -139,7 +134,7 @@ struct CheckoutView: View {
             AddressSelectionView(selectedAddress: $selectedAddress)
         }
         .sheet(isPresented: $showPaymentSheet) {
-            PaymentSelectionView(paymentMethods: $paymentMethods, selectedPayment: $selectedPayment)
+            PaymentSelectionView(paymentMethods: $paymentManager.paymentMethods, selectedPayment: $selectedPayment)
         }
         .alert("Payment Error", isPresented: Binding(
             get: { stripeError != nil },
@@ -155,7 +150,7 @@ struct CheckoutView: View {
             loadDefaultAddress()
             // Auto-select the default payment method so Place Order is always ready
             if selectedPayment == nil {
-                selectedPayment = paymentMethods.first(where: { $0.isDefault }) ?? paymentMethods.first
+                selectedPayment = paymentManager.paymentMethods.first(where: { $0.isDefault }) ?? paymentManager.paymentMethods.first
             }
         }
     }

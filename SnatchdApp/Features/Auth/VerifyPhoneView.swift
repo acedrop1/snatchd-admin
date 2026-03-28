@@ -14,7 +14,10 @@ struct VerifyPhoneView: View {
     var lastName: String = ""
     var email: String = ""
     var password: String = ""
+    var phoneNumber: String = ""
     var verificationID: String = ""
+
+    @State private var currentVerificationID: String = ""
     
     var body: some View {
         ZStack {
@@ -104,8 +107,8 @@ struct VerifyPhoneView: View {
                             let code = otpCode.joined()
                             guard code.count == 6 else { return }
                             
-                            // Use the verificationID passed from AuthView, or fallback to UserDefaults for safety
-                            let verID = verificationID.isEmpty ? UserDefaults.standard.string(forKey: AppConfig.authVerificationIDKey) ?? "" : verificationID
+                            // Use the most-recent verificationID (updated by Send Again), falling back to UserDefaults
+                            let verID = currentVerificationID.isEmpty ? verificationID : currentVerificationID
                             
                             authManager.verifyCodeAndCreateAccount(
                                 verificationID: verID,
@@ -135,16 +138,27 @@ struct VerifyPhoneView: View {
                         .padding(.horizontal, 40)
                         .padding(.top, 20)
                         
-                        // Send Again
-                        Button(action: {
-                            // Reset timer
-                            timeRemaining = 30
-                        }) {
-                            Text("Send Again")
-                                .font(.custom("Montserrat-SemiBold", size: 16))
-                                .foregroundColor(.white)
+                        // Send Again — only visible once countdown expires
+                        if timeRemaining == 0 {
+                            Button(action: {
+                                guard !phoneNumber.isEmpty else { return }
+                                authManager.verifyPhoneNumber(phoneNumber: phoneNumber) { newVerificationID in
+                                    if let newVerificationID = newVerificationID {
+                                        currentVerificationID = newVerificationID
+                                    }
+                                    timeRemaining = 30
+                                }
+                            }) {
+                                if authManager.isLoading {
+                                    ProgressView().tint(.white)
+                                } else {
+                                    Text("Send Again")
+                                        .font(.custom("Montserrat-SemiBold", size: 16))
+                                        .foregroundColor(.white)
+                                }
+                            }
+                            .padding(.top, 10)
                         }
-                        .padding(.top, 10)
                         
                         Spacer().frame(height: 60)
                         

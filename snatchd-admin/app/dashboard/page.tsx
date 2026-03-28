@@ -1,11 +1,102 @@
 "use client";
 
-import { BarChart3, TrendingUp, DollarSign, Package } from "lucide-react";
-import { useState } from "react";
+import { BarChart3, TrendingUp, DollarSign, Package, ShoppingBag, Users } from "lucide-react";
+import { useState, useEffect } from "react";
+import { db } from "@/lib/firebase";
+import {
+    collection,
+    query,
+    where,
+    orderBy,
+    limit,
+    getDocs,
+    onSnapshot,
+    Timestamp,
+} from "firebase/firestore";
+
+interface KpiData {
+    totalRevenue: number;
+    activeOrdersCount: number;
+    productsCount: number;
+    totalCustomers: number;
+}
+
+interface RecentOrder {
+    id: string;
+    orderNumber: string;
+    total: number;
+    createdAt: Date;
+    storeSummary: string;
+}
 
 export default function DashboardPage() {
     const [isChecking, setIsChecking] = useState(false);
     const [checkResult, setCheckResult] = useState<any>(null);
+    const [kpis, setKpis] = useState<KpiData | null>(null);
+    const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
+    const [loadingKpis, setLoadingKpis] = useState(true);
+
+    useEffect(() => {
+        // ── Active Orders (real-time) ──────────────────────────────────────
+        const activeOrdersQuery = query(
+            collection(db, "orders"),
+            where("isActive", "==", true)
+        );
+        const unsubActive = onSnapshot(activeOrdersQuery, (snap) => {
+            setKpis((prev) => ({ ...(prev ?? { totalRevenue: 0, activeOrdersCount: 0, productsCount: 0, totalCustomers: 0 }), activeOrdersCount: snap.size }));
+        });
+
+        // ── Total Revenue + Recent Orders (real-time) ─────────────────────
+        const recentOrdersQuery = query(
+            collection(db, "orders"),
+            orderBy("createdAt", "desc"),
+            limit(50)
+        );
+        const unsubOrders = onSnapshot(recentOrdersQuery, (snap) => {
+            let revenue = 0;
+            const recent: RecentOrder[] = [];
+            snap.forEach((doc) => {
+                const data = doc.data();
+                revenue += data.total ?? 0;
+                if (recent.length < 6) {
+                    const rawItems: any[] = data.items ?? [];
+                    const storeNames: string[] = Array.from(
+                        new Set(rawItems.map((i: any) => i.storeName as string).filter(Boolean))
+                    ).sort();
+                    let storeSummary = "Snatchd Order";
+                    if (storeNames.length === 1) storeSummary = storeNames[0];
+                    else if (storeNames.length === 2) storeSummary = `${storeNames[0]}, ${storeNames[1]}`;
+                    else if (storeNames.length > 2) storeSummary = `${storeNames[0]}, ${storeNames[1]} +${storeNames.length - 2} other${storeNames.length - 2 > 1 ? "s" : ""}`;
+
+                    recent.push({
+                        id: doc.id,
+                        orderNumber: data.orderNumber ?? doc.id.slice(0, 6).toUpperCase(),
+                        total: data.total ?? 0,
+                        createdAt: (data.createdAt as Timestamp)?.toDate() ?? new Date(),
+                        storeSummary,
+                    });
+                }
+            });
+            setRecentOrders(recent);
+            setKpis((prev) => ({ ...(prev ?? { totalRevenue: 0, activeOrdersCount: 0, productsCount: 0, totalCustomers: 0 }), totalRevenue: revenue }));
+        });
+
+        // ── Products count (one-time) ──────────────────────────────────────
+        getDocs(collection(db, "products")).then((snap) => {
+            setKpis((prev) => ({ ...(prev ?? { totalRevenue: 0, activeOrdersCount: 0, productsCount: 0, totalCustomers: 0 }), productsCount: snap.size }));
+        });
+
+        // ── Customers count (one-time) ─────────────────────────────────────
+        getDocs(collection(db, "users")).then((snap) => {
+            setKpis((prev) => ({ ...(prev ?? { totalRevenue: 0, activeOrdersCount: 0, productsCount: 0, totalCustomers: 0 }), totalCustomers: snap.size }));
+            setLoadingKpis(false);
+        });
+
+        return () => {
+            unsubActive();
+            unsubOrders();
+        };
+    }, []);
 
     const handleStockCheck = async () => {
         setIsChecking(true);
@@ -22,6 +113,7 @@ export default function DashboardPage() {
             setIsChecking(false);
         }
     };
+
     return (
         <div className="space-y-8">
             {/* Header */}
@@ -43,10 +135,34 @@ export default function DashboardPage() {
 
             {/* KPI Grid */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <KpiCard title="Total Revenue" value="$45,231.89" change="+20.1% from last month" icon={DollarSign} />
-                <KpiCard title="Active Orders" value="+573" change="+201 since last hour" icon={Package} />
-                <KpiCard title="Products Active" value="12,234" change="+19 new added today" icon={BarChart3} />
-                <KpiCard title="Growth Rate" value="+12.5%" change="+4.1% from last week" icon={TrendingUp} />
+                <KpiCard
+                    title="Total Revenue"
+                    value={loadingKpis ? "..." : `$${(kpis?.totalRevenue ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    change="From all completed orders"
+                    icon={DollarSign}
+                    loading={loadingKpis}
+                />
+                <KpiCard
+                    title="Active Orders"
+                    value={loadingKpis ? "..." : String(kpis?.activeOrdersCount ?? 0)}
+                    change="Currently in progress"
+                    icon={Package}
+                    loading={loadingKpis}
+                />
+                <KpiCard
+                    title="Products Active"
+                    value={loadingKpis ? "..." : (kpis?.productsCount ?? 0).toLocaleString()}
+                    change="Total in catalogue"
+                    icon={BarChart3}
+                    loading={loadingKpis}
+                />
+                <KpiCard
+                    title="Total Customers"
+                    value={loadingKpis ? "..." : (kpis?.totalCustomers ?? 0).toLocaleString()}
+                    change="Registered users"
+                    icon={Users}
+                    loading={loadingKpis}
+                />
             </div>
 
             {/* Stock Check Result */}
@@ -69,7 +185,7 @@ export default function DashboardPage() {
                 </div>
             )}
 
-            {/* Additional Sections (Placeholders) */}
+            {/* Bottom Row */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
                 <div className="col-span-4 rounded-xl border border-white/10 bg-neutral-900/50 p-6">
                     <h3 className="font-semibold text-white mb-4">Revenue Over Time</h3>
@@ -78,12 +194,21 @@ export default function DashboardPage() {
                     </div>
                 </div>
                 <div className="col-span-3 rounded-xl border border-white/10 bg-neutral-900/50 p-6">
-                    <h3 className="font-semibold text-white mb-4">Recent Sales</h3>
+                    <h3 className="font-semibold text-white mb-4">Recent Orders</h3>
                     <div className="space-y-4">
-                        <SaleItem name="Nike Air Force 1" amount="$120.00" time="2m ago" />
-                        <SaleItem name="Aesop Hand Wash" amount="$45.00" time="15m ago" />
-                        <SaleItem name="Supreme T-Shirt" amount="$55.00" time="42m ago" />
-                        <SaleItem name="Kith Hoodie" amount="$160.00" time="1h ago" />
+                        {recentOrders.length === 0 ? (
+                            <p className="text-neutral-500 text-sm italic">No recent orders</p>
+                        ) : (
+                            recentOrders.map((order) => (
+                                <SaleItem
+                                    key={order.id}
+                                    name={order.orderNumber}
+                                    subtitle={order.storeSummary}
+                                    amount={`$${order.total.toFixed(2)}`}
+                                    time={timeAgo(order.createdAt)}
+                                />
+                            ))
+                        )}
                     </div>
                 </div>
             </div>
@@ -91,32 +216,42 @@ export default function DashboardPage() {
     );
 }
 
-function KpiCard({ title, value, change, icon: Icon }: any) {
+function KpiCard({ title, value, change, icon: Icon, loading }: any) {
     return (
         <div className="rounded-xl border border-white/10 bg-neutral-900/50 p-6 backdrop-blur-sm">
             <div className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <span className="text-sm font-medium text-neutral-400">{title}</span>
                 <Icon className="h-4 w-4 text-neutral-400" />
             </div>
-            <div className="text-2xl font-bold text-white">{value}</div>
+            <div className={`text-2xl font-bold ${loading ? "text-neutral-600 animate-pulse" : "text-white"}`}>{value}</div>
             <p className="text-xs text-neutral-500 mt-1">{change}</p>
         </div>
-    )
+    );
 }
 
-function SaleItem({ name, amount, time }: any) {
+function SaleItem({ name, subtitle, amount, time }: any) {
     return (
         <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
                 <div className="h-8 w-8 rounded-full bg-white/10 flex items-center justify-center">
-                    <span className="text-xs text-white">U</span>
+                    <ShoppingBag className="h-4 w-4 text-white" />
                 </div>
                 <div>
                     <p className="text-sm font-medium text-white">{name}</p>
-                    <p className="text-xs text-neutral-500">User via iOS • {time}</p>
+                    <p className="text-xs text-neutral-500">{subtitle} • {time}</p>
                 </div>
             </div>
             <div className="font-medium text-white">{amount}</div>
         </div>
-    )
+    );
+}
+
+function timeAgo(date: Date): string {
+    const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
 }

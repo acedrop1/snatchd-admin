@@ -53,29 +53,8 @@ class PaymentManager: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: userDefaultsKey),
            let decoded = try? JSONDecoder().decode([PaymentMethod].self, from: data) {
             self.paymentMethods = decoded
-        } else {
-            // Default payment methods
-            self.paymentMethods = [
-                PaymentMethod(
-                    id: UUID(),
-                    cardNumber: "4242",
-                    cardholderName: "John Doe",
-                    expirationMonth: 12,
-                    expirationYear: 2025,
-                    cardType: .visa,
-                    isDefault: true
-                ),
-                PaymentMethod(
-                    id: UUID(),
-                    cardNumber: "5555",
-                    cardholderName: "John Doe",
-                    expirationMonth: 8,
-                    expirationYear: 2026,
-                    cardType: .mastercard,
-                    isDefault: false
-                )
-            ]
         }
+        // No defaults — user must add their own payment methods
     }
     
     private func savePaymentMethods() {
