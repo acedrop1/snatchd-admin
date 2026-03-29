@@ -746,43 +746,195 @@ struct PaymentSelectionView: View {
 
 
 
-// Payment Form View
+// Payment Form View — add or edit a card
 struct PaymentFormView: View {
     @Environment(\.presentationMode) var presentationMode
-    let payment: PaymentMethod?
+    let payment: PaymentMethod?       // nil = add, non-nil = edit
     let onSave: (PaymentMethod) -> Void
-    
+
+    @State private var cardNumber: String = ""
+    @State private var cardholderName: String = ""
+    @State private var expirationMonth: String = ""
+    @State private var expirationYear: String = ""
+    @State private var cvv: String = ""
+    @State private var isDefault: Bool = false
+    @State private var errorMessage: String?
+
+    private let helper = PaymentManager()
+    private var isEditing: Bool { payment != nil }
+
     var body: some View {
         NavigationView {
             ZStack {
                 Color.black.edgesIgnoringSafeArea(.all)
-                
-                VStack(spacing: 20) {
-                    Text("Payment editing is available in the Profile section")
-                        .font(.custom("Montserrat-Regular", size: 16))
-                        .foregroundColor(.white)
-                        .multilineTextAlignment(.center)
+
+                ScrollView {
+                    VStack(spacing: 20) {
+
+                        if let error = errorMessage {
+                            HStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red)
+                                Text(error)
+                                    .font(.custom("Montserrat-Medium", size: 14))
+                                    .foregroundColor(.white)
+                            }
+                            .padding()
+                            .glassEffect(in: RoundedRectangle(cornerRadius: 12))
+                        }
+
+                        // Card Number (hidden in edit mode — can't re-enter full number)
+                        if !isEditing {
+                            formField(label: "Card Number", placeholder: "1234 5678 9012 3456", text: $cardNumber, keyboard: .numberPad)
+                                .onChange(of: cardNumber) { cardNumber = formatCardNumber($0) }
+                        }
+
+                        // Cardholder Name
+                        formField(label: "Cardholder Name", placeholder: "Full name on card", text: $cardholderName)
+                            .autocapitalization(.words)
+
+                        // Expiry + CVV
+                        HStack(spacing: 15) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Expiration").font(.custom("Montserrat-Medium", size: 14)).foregroundColor(.gray)
+                                HStack(spacing: 8) {
+                                    TextField("MM", text: $expirationMonth)
+                                        .font(.custom("Montserrat-Regular", size: 16))
+                                        .foregroundColor(.white)
+                                        .padding(.vertical, 16).padding(.horizontal, 16)
+                                        .keyboardType(.numberPad)
+                                        .onChange(of: expirationMonth) { if $0.count > 2 { expirationMonth = String($0.prefix(2)) } }
+                                        .glassEffect(in: RoundedRectangle(cornerRadius: 12))
+                                    Text("/").foregroundColor(.gray)
+                                    TextField("YY", text: $expirationYear)
+                                        .font(.custom("Montserrat-Regular", size: 16))
+                                        .foregroundColor(.white)
+                                        .padding(.vertical, 16).padding(.horizontal, 16)
+                                        .keyboardType(.numberPad)
+                                        .onChange(of: expirationYear) { if $0.count > 2 { expirationYear = String($0.prefix(2)) } }
+                                        .glassEffect(in: RoundedRectangle(cornerRadius: 12))
+                                }
+                            }
+                            if !isEditing {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("CVV").font(.custom("Montserrat-Medium", size: 14)).foregroundColor(.gray)
+                                    TextField("123", text: $cvv)
+                                        .font(.custom("Montserrat-Regular", size: 16))
+                                        .foregroundColor(.white)
+                                        .padding(.vertical, 16).padding(.horizontal, 16)
+                                        .keyboardType(.numberPad)
+                                        .onChange(of: cvv) { if $0.count > 4 { cvv = String($0.prefix(4)) } }
+                                        .glassEffect(in: RoundedRectangle(cornerRadius: 12))
+                                }
+                            }
+                        }
+
+                        // Default toggle
+                        Toggle(isOn: $isDefault) {
+                            Text("Set as default")
+                                .font(.custom("Montserrat-Medium", size: 16))
+                                .foregroundColor(.white)
+                        }
                         .padding()
+                        .glassEffect(in: RoundedRectangle(cornerRadius: 12))
+
+                        // Save button
+                        Button(action: save) {
+                            Text(isEditing ? "Save Changes" : "Add Card")
+                                .font(.custom("Montserrat-SemiBold", size: 18))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                        }
+                        .glassEffect(in: RoundedRectangle(cornerRadius: 25))
+
+                        Spacer(minLength: 50)
+                    }
+                    .padding()
                 }
             }
-            .navigationTitle("Payment Method")
+            .navigationTitle(isEditing ? "Edit Card" : "Add Card")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    closeButton
+                    Button("Cancel") { presentationMode.wrappedValue.dismiss() }
+                        .foregroundColor(.white)
                 }
             }
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbarBackground(Color.black, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
         }
+        .onAppear { prefill() }
     }
-    
-    private var closeButton: some View {
-        Button("Close") {
-            presentationMode.wrappedValue.dismiss()
+
+    // Pre-fill fields when editing an existing card
+    private func prefill() {
+        guard let p = payment else { return }
+        cardholderName = p.cardholderName
+        expirationMonth = String(format: "%02d", p.expirationMonth)
+        expirationYear = String(p.expirationYear % 100)
+        isDefault = p.isDefault
+    }
+
+    private func save() {
+        errorMessage = nil
+
+        guard !cardholderName.isEmpty else { errorMessage = "Cardholder name is required"; return }
+        guard let month = Int(expirationMonth), month >= 1 && month <= 12 else { errorMessage = "Invalid expiration month"; return }
+        guard let year = Int(expirationYear), year >= 0 else { errorMessage = "Invalid expiration year"; return }
+
+        if isEditing, let existing = payment {
+            // Edit: keep original card number / type, just update mutable fields
+            let updated = PaymentMethod(
+                id: existing.id,
+                cardNumber: existing.cardNumber,
+                cardholderName: cardholderName,
+                expirationMonth: month,
+                expirationYear: 2000 + year,
+                cardType: existing.cardType,
+                isDefault: isDefault
+            )
+            onSave(updated)
+        } else {
+            // Add: validate full card number
+            let clean = cardNumber.filter { $0.isNumber }
+            guard helper.isValidCardNumber(clean) else { errorMessage = "Invalid card number"; return }
+            guard cvv.count >= 3 && cvv.count <= 4 else { errorMessage = "CVV must be 3–4 digits"; return }
+            let new = PaymentMethod(
+                id: UUID(),
+                cardNumber: String(clean.suffix(4)),
+                cardholderName: cardholderName,
+                expirationMonth: month,
+                expirationYear: 2000 + year,
+                cardType: helper.detectCardType(clean),
+                isDefault: isDefault
+            )
+            onSave(new)
         }
-        .foregroundColor(.blue)
+    }
+
+    @ViewBuilder
+    private func formField(label: String, placeholder: String, text: Binding<String>, keyboard: UIKeyboardType = .default) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label).font(.custom("Montserrat-Medium", size: 14)).foregroundColor(.gray)
+            TextField(placeholder, text: text)
+                .font(.custom("Montserrat-Regular", size: 16))
+                .foregroundColor(.white)
+                .padding(.vertical, 16).padding(.horizontal, 16)
+                .keyboardType(keyboard)
+                .glassEffect(in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    private func formatCardNumber(_ input: String) -> String {
+        let digits = input.filter { $0.isNumber }
+        var formatted = ""
+        for (i, char) in digits.enumerated() {
+            if i > 0 && i % 4 == 0 { formatted += " " }
+            formatted.append(char)
+            if formatted.count >= 19 { break }
+        }
+        return formatted
     }
 }
 
