@@ -24,6 +24,4 @@ struct AppConfig {
     // Cart Persistence Key
     static let cartPersistenceKey = "savedCart"
 
-    // UserDefaults Keys
-    static let authVerificationIDKey = "authVerificationID"
 }

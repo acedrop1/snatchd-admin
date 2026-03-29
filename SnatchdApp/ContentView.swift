@@ -83,5 +83,8 @@ struct ContentView: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: showSearch)
+        .onReceive(NotificationCenter.default.publisher(for: .switchToOrdersTab)) { _ in
+            selectedTab = .orders
+        }
     }
 }
