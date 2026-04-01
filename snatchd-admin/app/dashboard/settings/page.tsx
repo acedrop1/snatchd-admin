@@ -377,6 +377,10 @@ export default function SettingsPage() {
     const [zaraCount, setZaraCount] = useState(0);
     const [zaraError, setZaraError] = useState<string | null>(null);
 
+    const [zaraBsStatus, setZaraBsStatus] = useState<"idle" | "running" | "done" | "error">("idle");
+    const [zaraBsResult, setZaraBsResult] = useState<{ added: number; updated: number; total: number } | null>(null);
+    const [zaraBsError, setZaraBsError] = useState<string | null>(null);
+
     // Skims product seed state
     const [skimsStatus, setSkimsStatus] = useState<SeedStatus>("idle");
     const [skimsProgress, setSkimsProgress] = useState(0);
@@ -583,6 +587,23 @@ export default function SettingsPage() {
         } catch (err: any) {
             setZaraError(err.message ?? "Unknown error");
             setZaraStatus("error");
+        }
+    };
+
+    // ── Seed Zara Best Sellers Handler ─────────────────────────────────────
+    const handleSeedZaraBestSellers = async () => {
+        setZaraBsStatus("running");
+        setZaraBsResult(null);
+        setZaraBsError(null);
+        try {
+            const res = await fetch("/api/zara-bestsellers", { method: "POST" });
+            const body = await res.json();
+            if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+            setZaraBsResult(body);
+            setZaraBsStatus("done");
+        } catch (err: any) {
+            setZaraBsError(err.message ?? "Unknown error");
+            setZaraBsStatus("error");
         }
     };
 
@@ -935,6 +956,52 @@ export default function SettingsPage() {
                         <><CheckCircle className="h-4 w-4" /> Seed Again</>
                     ) : (
                         <><Upload className="h-4 w-4" /> Seed Zara Products</>
+                    )}
+                </button>
+            </div>
+
+            {/* Seed Zara Best Sellers */}
+            <div className="rounded-xl border border-teal-500/30 bg-teal-500/5 p-6 space-y-4">
+                <div>
+                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                        <Upload className="h-5 w-5 text-teal-400" />
+                        Seed Zara Best Sellers — Products
+                    </h3>
+                    <p className="text-sm text-neutral-400 mt-1">
+                        Fetches up to 40 products from Zara's live "Best Sellers Women" collection and upserts
+                        them into Firestore. Safe to re-run — existing products are updated, not duplicated.
+                    </p>
+                </div>
+
+                {zaraBsStatus === "running" && (
+                    <div className="flex items-center gap-2 text-sm text-teal-300">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Fetching from Zara…
+                    </div>
+                )}
+                {zaraBsStatus === "done" && zaraBsResult && (
+                    <p className="text-sm text-green-300 font-medium">
+                        <CheckCircle className="inline h-4 w-4 mr-1" />
+                        {zaraBsResult.added} added, {zaraBsResult.updated} updated — {zaraBsResult.total} total products.
+                    </p>
+                )}
+                {zaraBsStatus === "error" && (
+                    <p className="text-sm text-red-300 font-medium">
+                        <XCircle className="inline h-4 w-4 mr-1" />
+                        {zaraBsError ?? "Something went wrong."}
+                    </p>
+                )}
+
+                <button
+                    onClick={handleSeedZaraBestSellers}
+                    disabled={zaraBsStatus === "running"}
+                    className="flex items-center gap-2 rounded-lg bg-teal-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-teal-500 transition disabled:opacity-50"
+                >
+                    {zaraBsStatus === "running" ? (
+                        <><Loader2 className="h-4 w-4 animate-spin" /> Fetching…</>
+                    ) : zaraBsStatus === "done" ? (
+                        <><CheckCircle className="h-4 w-4" /> Seed Again</>
+                    ) : (
+                        <><Upload className="h-4 w-4" /> Seed Zara Best Sellers</>
                     )}
                 </button>
             </div>
