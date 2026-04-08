@@ -13,6 +13,7 @@ const BRAND_CATALOG_URLS: Record<string, string> = {
     "Jacquemus": "https://www.jacquemus.com/en_us/women-newness-view-all?start=0&sz=200",
     "Zara": "https://www.zara.com/us/en/woman-new-in-l1180.html",
     "Skims": "https://skims.com/collections/best-sellers",
+    "Aritzia": "https://www.aritzia.com/us/en/new",
 };
 
 function getBrandFromStoreName(name: string): string {
@@ -236,6 +237,7 @@ export default function EditStorePage() {
     const LIVE_FETCH_ENDPOINTS: Record<string, string> = {
         "Skims": "/api/skims-seed",
         "Kith": "/api/kith-seed",
+        "Aritzia": "/api/aritzia-seed",
         // SFCC brands below use the jacquemus-live scraper with their catalog URL
     };
 
