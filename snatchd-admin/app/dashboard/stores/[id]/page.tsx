@@ -20,6 +20,52 @@ function getBrandFromStoreName(name: string): string {
     return name.split(" ")[0].trim();
 }
 
+// ── Smart category inference ───────────────────────────────────────────────────
+// Looks at product name + description and maps to standard app categories.
+// Categories must match exactly what the app's store filters use.
+const CATEGORY_RULES: { category: string; keywords: string[] }[] = [
+    { category: "Dresses",      keywords: ["dress", "gown", "midi dress", "mini dress", "maxi dress", "slip dress"] },
+    { category: "Jumpsuits",    keywords: ["jumpsuit", "romper", "one-piece", "playsuit", "overall"] },
+    { category: "Jeans",        keywords: ["jean", "denim pant", "denim trouser", "skinny denim", "wide leg denim", "flare denim"] },
+    { category: "Bottoms",      keywords: ["pant", "trouser", "short", "skirt", "legging", "tight", "jogger", "sweatpant", "cargo", "bermuda", "culotte", "capri"] },
+    { category: "Tops",         keywords: ["top", "tee", "t-shirt", "tshirt", "tank", "crop", "blouse", "shirt", "bralette", "bodysuit", "cami", "tube", "halter", "corset"] },
+    { category: "Sweaters",     keywords: ["sweater", "knit", "cardigan", "pullover", "crewneck", "turtleneck", "sweatshirt", "hoodie", "fleece"] },
+    { category: "Outerwear",    keywords: ["jacket", "coat", "blazer", "parka", "puffer", "trench", "cape", "vest", "anorak", "windbreaker"] },
+    { category: "Swimwear",     keywords: ["swimsuit", "bikini", "swim", "one piece", "swimwear", "coverup", "cover-up"] },
+    { category: "Accessories",  keywords: ["bag", "purse", "tote", "clutch", "belt", "hat", "cap", "scarf", "glove", "sock", "jewelry", "necklace", "earring", "bracelet", "ring", "sunglasses", "glasses", "wallet", "keychain"] },
+    { category: "Shoes",        keywords: ["shoe", "boot", "sandal", "sneaker", "heel", "loafer", "flat", "pump", "mule", "clog", "slipper", "wedge"] },
+    { category: "Lingerie",     keywords: ["bra", "underwear", "lingerie", "thong", "brief", "panty", "lounge"] },
+    { category: "Activewear",   keywords: ["sports bra", "athletic", "workout", "gym", "yoga", "running", "cycling short", "compression"] },
+];
+
+function inferCategory(title: string, description: string = ""): string {
+    const text = `${title} ${description}`.toLowerCase();
+    for (const rule of CATEGORY_RULES) {
+        if (rule.keywords.some(k => text.includes(k))) return rule.category;
+    }
+    return "Clothing";
+}
+
+// Normalise a raw category string from the CSV to a standard app category
+function normaliseCategory(raw: string, title: string, description: string): string {
+    if (!raw || raw.toLowerCase() === "clothing") return inferCategory(title, description);
+    const lower = raw.toLowerCase();
+    // Map common variations → standard names
+    if (/(dress|gown)/.test(lower))                         return "Dresses";
+    if (/(jumpsuit|romper|overall)/.test(lower))            return "Jumpsuits";
+    if (/jean|denim/.test(lower))                           return "Jeans";
+    if (/(pant|trouser|short|skirt|legging|bottom)/.test(lower)) return "Bottoms";
+    if (/(top|tee|tank|blouse|shirt|bralette|bodysuit|cami)/.test(lower)) return "Tops";
+    if (/(sweater|knit|cardigan|hoodie|sweatshirt|fleece)/.test(lower)) return "Sweaters";
+    if (/(jacket|coat|blazer|parka|puffer|vest|outerwear)/.test(lower)) return "Outerwear";
+    if (/(swim|bikini)/.test(lower))                        return "Swimwear";
+    if (/(bag|purse|belt|hat|scarf|jewelry|glasses|wallet|accessory|accessories)/.test(lower)) return "Accessories";
+    if (/(shoe|boot|sandal|sneaker|heel|loafer|footwear)/.test(lower)) return "Shoes";
+    if (/(active|athletic|sport|gym|yoga)/.test(lower))     return "Activewear";
+    // Fall back to inferring from the product name/description
+    return inferCategory(title, description);
+}
+
 function getCatalogUrl(storeName: string): string {
     const brand = getBrandFromStoreName(storeName);
     return BRAND_CATALOG_URLS[brand] || "";
@@ -277,28 +323,113 @@ export default function EditStorePage() {
             const allRows = parseCSV(text);
             if (allRows.length < 2) { alert("CSV must have a header row + at least one product."); return; }
 
-            // Normalise header names — strip quotes, spaces, parens, trademark symbols
-            const headers = allRows[0].map(h => h.trim().replace(/^"|"$/g, "").toLowerCase().replace(/[\s()™®]/g, ""));
-            const col = (...names: string[]): number => {
+            // ── Smart column detector ─────────────────────────────────────────
+            // Strategy: 1) name-based matching, 2) content-based fallback
+            // Looks at actual cell values to figure out what each column holds.
+
+            const rawHeaders = allRows[0].map(h => h.trim().replace(/^"|"$/g, ""));
+            const headers    = rawHeaders.map(h => h.toLowerCase().replace(/[\s()™®]/g, ""));
+
+            // Sample up to 10 data rows for content analysis
+            const sample = allRows.slice(1, Math.min(11, allRows.length));
+            const colValues = (idx: number) => sample.map(r => (r[idx] || "").trim()).filter(Boolean);
+
+            // Name-based match (tries multiple aliases)
+            const colByName = (...names: string[]): number => {
                 for (const n of names) {
                     const idx = headers.indexOf(n.toLowerCase().replace(/[\s()™®]/g, ""));
+                    if (idx >= 0) return idx;
+                }
+                // Partial/fuzzy: header contains any alias keyword
+                for (const n of names) {
+                    const idx = headers.findIndex(h => h.includes(n.toLowerCase().replace(/[\s()™®]/g, "")));
                     if (idx >= 0) return idx;
                 }
                 return -1;
             };
 
-            // Supports generic names AND Aritzia's exact column names
-            const nameIdx     = col("productname", "name", "title");
-            const priceIdx    = col("priceusd", "price");
-            const categoryIdx = col("category");
-            const imageIdx    = col("productimage", "imageurl", "image");
-            const urlIdx      = col("producturl", "url");
-            const sizesIdx    = col("selectasize", "sizes", "size");
-            const descIdx     = col("productdescription", "description", "desc");
-            const stylesIdx   = col("availablestyles", "styles", "style");
+            // Content-based detection helpers
+            const looksLikeImageUrl = (vals: string[]) =>
+                vals.length > 0 && vals.filter(v =>
+                    v.startsWith("http") && (
+                        /\.(jpg|jpeg|png|webp|avif|gif)(\?|$)/i.test(v) ||
+                        /(cloudinary|aritzia|assets\.|cdn\.|images\.|img\.|media\.|static\.)/.test(v)
+                    )
+                ).length >= vals.length * 0.5;
 
-            if (nameIdx < 0 || priceIdx < 0) {
-                alert("CSV must have at least a name column (e.g. 'Product Name') and a price column (e.g. 'Price (USD)').");
+            const looksLikeProductUrl = (vals: string[]) =>
+                vals.length > 0 && vals.filter(v =>
+                    v.startsWith("http") && !looksLikeImageUrl([v])
+                ).length >= vals.length * 0.6;
+
+            const looksLikePrice = (vals: string[]) =>
+                vals.length > 0 && vals.filter(v =>
+                    /^[$£€¥]?\s*\d{1,4}(\.\d{1,2})?$/.test(v.trim())
+                ).length >= vals.length * 0.6;
+
+            const looksLikeSizes = (vals: string[]) => {
+                const sizeWords = /^(xs|s|m|l|xl|xxl|xxxl|0{1,2}|[0-9]{1,2}|os|onesize|petite|regular|tall|short|plus)$/i;
+                // Check if multiline values contain size-like tokens
+                const flat = vals.flatMap(v => v.split(/[\n,|;]/).map(x => x.trim()));
+                return flat.length > 0 && flat.filter(v => sizeWords.test(v)).length >= flat.length * 0.5;
+            };
+
+            const looksLikeStyles = (vals: string[]) => {
+                // Short values (likely color/style names), not sizes, not URLs, not long sentences
+                const flat = vals.flatMap(v => v.split(/[\n,|;]/).map(x => x.trim())).filter(Boolean);
+                const isShortNonSize = (v: string) =>
+                    v.length > 1 && v.length < 30 && !v.startsWith("http") &&
+                    !/^(xs|s|m|l|xl|xxl|\d{1,2}|os)$/i.test(v) && !/\s{2,}/.test(v);
+                return flat.length > 0 && flat.filter(isShortNonSize).length >= flat.length * 0.6;
+            };
+
+            const looksLikeDescription = (vals: string[]) =>
+                vals.filter(v => v.length > 40 && !v.startsWith("http")).length >= vals.length * 0.4;
+
+            const looksLikeName = (vals: string[]) =>
+                vals.filter(v => v.length > 2 && v.length < 120 && !v.startsWith("http") &&
+                    !/^[$£€\d]/.test(v)).length >= vals.length * 0.7;
+
+            // Step 1: name-based detection
+            let nameIdx     = colByName("productname", "name", "title", "product");
+            let priceIdx    = colByName("priceusd", "price", "cost", "msrp", "retail");
+            let categoryIdx = colByName("category", "type", "dept", "department");
+            let imageIdx    = colByName("productimage", "imageurl", "image", "photo", "img", "picture");
+            let urlIdx      = colByName("producturl", "url", "link", "href");
+            let sizesIdx    = colByName("selectasize", "sizes", "size", "availablesizes");
+            let descIdx     = colByName("productdescription", "description", "desc", "details", "about");
+            let stylesIdx   = colByName("availablestyles", "styles", "style", "color", "colour", "colors");
+
+            // Step 2: content-based fallback for unresolved columns
+            const assigned = new Set([nameIdx, priceIdx, categoryIdx, imageIdx, urlIdx, sizesIdx, descIdx, stylesIdx].filter(i => i >= 0));
+
+            for (let ci = 0; ci < headers.length; ci++) {
+                if (assigned.has(ci)) continue;
+                const vals = colValues(ci);
+                if (vals.length === 0) continue;
+
+                if (imageIdx < 0 && looksLikeImageUrl(vals))         { imageIdx = ci; assigned.add(ci); continue; }
+                if (urlIdx   < 0 && looksLikeProductUrl(vals))       { urlIdx   = ci; assigned.add(ci); continue; }
+                if (priceIdx < 0 && looksLikePrice(vals))            { priceIdx = ci; assigned.add(ci); continue; }
+                if (sizesIdx < 0 && looksLikeSizes(vals))            { sizesIdx = ci; assigned.add(ci); continue; }
+                if (descIdx  < 0 && looksLikeDescription(vals))      { descIdx  = ci; assigned.add(ci); continue; }
+                if (stylesIdx < 0 && looksLikeStyles(vals))          { stylesIdx = ci; assigned.add(ci); continue; }
+                if (nameIdx  < 0 && looksLikeName(vals))             { nameIdx  = ci; assigned.add(ci); continue; }
+            }
+
+            if (nameIdx < 0) {
+                // Last resort: longest text column is probably the name
+                let best = -1, bestLen = 0;
+                for (let ci = 0; ci < headers.length; ci++) {
+                    if (assigned.has(ci)) continue;
+                    const avg = colValues(ci).reduce((s, v) => s + v.length, 0) / (colValues(ci).length || 1);
+                    if (avg > bestLen) { bestLen = avg; best = ci; }
+                }
+                if (best >= 0) nameIdx = best;
+            }
+
+            if (nameIdx < 0) {
+                alert("Could not detect a product name column. Please check your CSV.");
                 return;
             }
 
@@ -347,7 +478,7 @@ export default function EditStorePage() {
                     externalId:  `csv_${i}_${Date.now()}`,
                     title:       rawName,
                     price:       parseFloat(rawPrice) || 0,
-                    category:    categoryIdx >= 0 ? cols[categoryIdx]?.trim() || "Clothing" : "Clothing",
+                    category:    normaliseCategory(categoryIdx >= 0 ? cols[categoryIdx]?.trim() || "" : "", rawName, rawDesc),
                     brand:       getBrandFromStoreName(name),
                     gender:      "Women",
                     description: rawDesc,
