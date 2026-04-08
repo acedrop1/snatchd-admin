@@ -499,6 +499,41 @@ export default function EditStorePage() {
         setSavedProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter((p: any) => p.storeId === storeId));
     };
 
+    // ── Fix missing images for already-saved products ─────────────────────────
+    const handleFixSavedImages = async () => {
+        const missing = savedProducts.filter(
+            p => (!p.imageURL && !p.images?.length) && p.productUrl
+        );
+        if (missing.length === 0) { alert("All saved products already have images."); return; }
+
+        setEnrichingImages(true);
+        setEnrichProgress({ done: 0, total: missing.length, found: 0 });
+
+        let found = 0;
+        for (const product of missing) {
+            try {
+                const res = await fetch(`/api/og-image?url=${encodeURIComponent(product.productUrl)}`);
+                if (res.ok) {
+                    const { imageUrl } = await res.json();
+                    if (imageUrl) {
+                        await updateDoc(doc(db, "products", product.id), {
+                            imageURL: imageUrl,
+                            images: [imageUrl],
+                        });
+                        found++;
+                    }
+                }
+            } catch { /* skip */ }
+            setEnrichProgress(prev => ({ ...prev, done: prev.done + 1, found }));
+        }
+
+        // Refresh saved products list
+        const snap = await getDocs(collection(db, "products"));
+        setSavedProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter((p: any) => p.storeId === storeId));
+        setEnrichingImages(false);
+        alert(`Done — added images to ${found} of ${missing.length} products.`);
+    };
+
     // ── Delete all products for this store ────────────────────────────────────
     const handleDeleteAllProducts = async () => {
         if (!confirm(`Delete all ${savedProducts.length} products from this store? This cannot be undone.`)) return;
@@ -812,11 +847,22 @@ export default function EditStorePage() {
                                 </p>
                             </div>
                             {savedProducts.length > 0 && (
-                                <button onClick={handleDeleteAllProducts} disabled={deletingProducts}
-                                    className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 text-red-500 rounded text-xs font-medium hover:bg-red-500/20 transition">
-                                    <Trash2 className="h-3 w-3" />
-                                    {deletingProducts ? "Clearing..." : `Clear ${savedProducts.length} Products`}
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    {savedProducts.some(p => (!p.imageURL && !p.images?.length) && p.productUrl) && (
+                                        <button onClick={handleFixSavedImages} disabled={enrichingImages}
+                                            className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 text-amber-400 rounded text-xs font-medium hover:bg-amber-500/20 transition disabled:opacity-50">
+                                            {enrichingImages
+                                                ? <><Loader2 className="h-3 w-3 animate-spin" /> {enrichProgress.done}/{enrichProgress.total} images…</>
+                                                : <><ImageIcon className="h-3 w-3" /> Fix Missing Images</>
+                                            }
+                                        </button>
+                                    )}
+                                    <button onClick={handleDeleteAllProducts} disabled={deletingProducts}
+                                        className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 text-red-500 rounded text-xs font-medium hover:bg-red-500/20 transition">
+                                        <Trash2 className="h-3 w-3" />
+                                        {deletingProducts ? "Clearing..." : `Clear ${savedProducts.length} Products`}
+                                    </button>
+                                </div>
                             )}
                         </div>
 
