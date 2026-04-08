@@ -785,7 +785,9 @@ struct PaymentFormView: View {
                         // Card Number (hidden in edit mode — can't re-enter full number)
                         if !isEditing {
                             formField(label: "Card Number", placeholder: "1234 5678 9012 3456", text: $cardNumber, keyboard: .numberPad)
-                                .onChange(of: cardNumber) { cardNumber = formatCardNumber($0) }
+                                .onChange(of: cardNumber) { oldValue, newValue in
+                                    cardNumber = formatCardNumber(newValue)
+                                }
                         }
 
                         // Cardholder Name
@@ -802,7 +804,9 @@ struct PaymentFormView: View {
                                         .foregroundColor(.white)
                                         .padding(.vertical, 16).padding(.horizontal, 16)
                                         .keyboardType(.numberPad)
-                                        .onChange(of: expirationMonth) { if $0.count > 2 { expirationMonth = String($0.prefix(2)) } }
+                                        .onChange(of: expirationMonth) { oldValue, newValue in
+                                            if newValue.count > 2 { expirationMonth = String(newValue.prefix(2)) }
+                                        }
                                         .glassEffect(in: RoundedRectangle(cornerRadius: 12))
                                     Text("/").foregroundColor(.gray)
                                     TextField("YY", text: $expirationYear)
@@ -810,7 +814,9 @@ struct PaymentFormView: View {
                                         .foregroundColor(.white)
                                         .padding(.vertical, 16).padding(.horizontal, 16)
                                         .keyboardType(.numberPad)
-                                        .onChange(of: expirationYear) { if $0.count > 2 { expirationYear = String($0.prefix(2)) } }
+                                        .onChange(of: expirationYear) { oldValue, newValue in
+                                            if newValue.count > 2 { expirationYear = String(newValue.prefix(2)) }
+                                        }
                                         .glassEffect(in: RoundedRectangle(cornerRadius: 12))
                                 }
                             }
@@ -822,7 +828,9 @@ struct PaymentFormView: View {
                                         .foregroundColor(.white)
                                         .padding(.vertical, 16).padding(.horizontal, 16)
                                         .keyboardType(.numberPad)
-                                        .onChange(of: cvv) { if $0.count > 4 { cvv = String($0.prefix(4)) } }
+                                        .onChange(of: cvv) { oldValue, newValue in
+                                            if newValue.count > 4 { cvv = String(newValue.prefix(4)) }
+                                        }
                                         .glassEffect(in: RoundedRectangle(cornerRadius: 12))
                                 }
                             }

@@ -64,7 +64,7 @@ class PaymentManager: ObservableObject {
     }
     
     func addPaymentMethod(_ method: PaymentMethod) {
-        var newMethod = method
+        let newMethod: PaymentMethod = method
         // If this is set as default, unset others
         if newMethod.isDefault {
             for index in paymentMethods.indices {

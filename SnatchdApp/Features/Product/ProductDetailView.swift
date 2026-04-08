@@ -29,7 +29,8 @@ struct ProductDetailView: View {
         sqrt(pow(dismissDrag.width, 2) + pow(dismissDrag.height, 2))
     }
     private var dismissScale: CGFloat {
-        max(0.88, 1.0 - dismissDistance / UIScreen.main.bounds.height * 0.15)
+        let screenHeight: CGFloat = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.bounds.height ?? 800
+        return max(0.88, 1.0 - dismissDistance / screenHeight * 0.15)
     }
 
     // Real-Time Stock Check State
@@ -269,7 +270,13 @@ struct ProductDetailView: View {
                                     }
                                 }
                             }) {
-                                Text(product.inStock ? "Add to Cart" : "SOLD OUT")
+                                let buttonText: String = product.inStock ? "Add to Cart" : "SOLD OUT"
+                                let backgroundColor: Color = product.inStock ? Color.clear : Color.black.opacity(0.6)
+                                let grayscaleAmount: Double = product.inStock ? 0 : 1.0
+                                let topShadowColor: Color = product.inStock ? Color.white.opacity(0.2) : Color.clear
+                                let bottomShadowColor: Color = product.inStock ? Color.black.opacity(0.3) : Color.clear
+
+                                Text(buttonText)
                                     .font(.custom("Montserrat-SemiBold", size: 18))
                                     .foregroundColor(.white)
                                     .frame(maxWidth: .infinity)
@@ -281,11 +288,11 @@ struct ProductDetailView: View {
                                     )
                                     .background(
                                         RoundedRectangle(cornerRadius: 30)
-                                            .fill(product.inStock ? Color.clear : Color.black.opacity(0.6))
+                                            .fill(backgroundColor)
                                     )
-                                    .grayscale(product.inStock ? 0 : 1.0)
-                                    .shadow(color: product.inStock ? Color.white.opacity(0.2) : Color.clear, radius: 20, x: 0, y: 8)
-                                    .shadow(color: product.inStock ? Color.black.opacity(0.3) : Color.clear, radius: 15, x: 0, y: 5)
+                                    .grayscale(grayscaleAmount)
+                                    .shadow(color: topShadowColor, radius: 20, x: 0, y: 8)
+                                    .shadow(color: bottomShadowColor, radius: 15, x: 0, y: 5)
                             }
                             .disabled(!product.inStock)
                             .padding(.vertical, 10)

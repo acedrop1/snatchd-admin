@@ -246,10 +246,10 @@ struct TrackingView: View {
             dotTimer?.invalidate()
             dotTimer = nil
         }
-        .onChange(of: order?.id) { _ in
+        .onChange(of: order?.id) { oldValue, newValue in
             loadMapData()
         }
-        .onChange(of: isAssigning) { assigning in
+        .onChange(of: isAssigning) { oldValue, assigning in
             if assigning { startDotAnimation() } else { dotTimer?.invalidate() }
         }
         .sheet(isPresented: $showHelpSheet) {

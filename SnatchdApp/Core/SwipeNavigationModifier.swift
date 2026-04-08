@@ -31,7 +31,7 @@ extension View {
 private struct SwipeToDismissModifier: ViewModifier {
     let onDismiss: () -> Void
     @GestureState private var dragX: CGFloat = 0
-    private let screenWidth: CGFloat = UIScreen.main.bounds.width
+    private let screenWidth: CGFloat = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.bounds.width ?? 390
 
     func body(content: Content) -> some View {
         content

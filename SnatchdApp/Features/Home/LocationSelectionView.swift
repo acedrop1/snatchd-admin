@@ -63,7 +63,7 @@ struct LocationSelectionView: View {
                     TextField("Search for an address", text: $searchQuery)
                         .font(.custom("Montserrat-Regular", size: 15))
                         .foregroundColor(.white)
-                        .onChange(of: searchQuery) { newValue in
+                        .onChange(of: searchQuery) { oldValue, newValue in
                             if !newValue.isEmpty {
                                 locationManager.searchAddress(query: newValue) { _ in }
                             } else {

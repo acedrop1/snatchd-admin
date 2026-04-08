@@ -350,7 +350,7 @@ struct HomeView: View {
                             Spacer(minLength: 100)
                         }
                     }
-                    .onChange(of: scrollToTop) { shouldScroll in
+                    .onChange(of: scrollToTop) { oldValue, shouldScroll in
                         if shouldScroll {
                             withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
                                 proxy.scrollTo("top", anchor: .top)
@@ -371,7 +371,7 @@ struct HomeView: View {
                 .onDisappear {
                     isAtRoot = false
                 }
-                .onChange(of: locationManager.currentAddress) { address in
+                .onChange(of: locationManager.currentAddress) { oldValue, address in
                     // Only update header from GPS when user hasn't manually picked a location
                     if manualCoordinate == nil,
                        address != "Fetching location...",

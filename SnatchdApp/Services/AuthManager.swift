@@ -12,15 +12,22 @@ class AuthManager: ObservableObject {
     @Published var isAuthenticated: Bool = false
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
-    
+
     private var db = Firestore.firestore()
-    
+    private var authStateListener: AuthStateDidChangeListenerHandle?
+
     init() {
         // Listen for Auth state changes
-        Auth.auth().addStateDidChangeListener { [weak self] _, user in
+        authStateListener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             DispatchQueue.main.async {
                 self?.isAuthenticated = (user != nil)
             }
+        }
+    }
+
+    deinit {
+        if let authListener = authStateListener {
+            Auth.auth().removeStateDidChangeListener(authListener)
         }
     }
     

@@ -27,14 +27,15 @@ struct SavedAddress: Identifiable, Codable {
 // MARK: - Address Manager
 class AddressManager: ObservableObject {
     @Published var addresses: [SavedAddress] = []
-    
+
     private var db = Firestore.firestore()
     private var listenerRegistration: ListenerRegistration?
     private var userID: String?
-    
+    private var authStateListener: AuthStateDidChangeListenerHandle?
+
     init() {
         // Listen for Auth changes to update userID
-        Auth.auth().addStateDidChangeListener { [weak self] _, user in
+        authStateListener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             self?.userID = user?.uid
             if let uid = user?.uid {
                 self?.listenToAddresses(uid: uid)
@@ -47,6 +48,9 @@ class AddressManager: ObservableObject {
     
     deinit {
         listenerRegistration?.remove()
+        if let authListener = authStateListener {
+            Auth.auth().removeStateDidChangeListener(authListener)
+        }
     }
     
     private func listenToAddresses(uid: String) {

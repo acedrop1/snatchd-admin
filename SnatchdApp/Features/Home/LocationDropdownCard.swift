@@ -27,7 +27,7 @@ struct LocationDropdownCard: View {
                 TextField("Search for an address", text: $searchQuery)
                     .font(.custom("Montserrat-Regular", size: 15))
                     .foregroundColor(.white)
-                    .onChange(of: searchQuery) { newValue in
+                    .onChange(of: searchQuery) { oldValue, newValue in
                         if !newValue.isEmpty {
                             locationManager.searchAddress(query: newValue) { _ in }
                         } else {
@@ -166,7 +166,7 @@ struct LocationDropdownCard: View {
                             RoundedRectangle(cornerRadius: 12)
                                 .stroke(selectedAddressId == nil ? Color.white.opacity(0.5) : Color.clear, lineWidth: 1.5)
                         )
-                        .onChange(of: locationManager.currentAddress) { newAddress in
+                        .onChange(of: locationManager.currentAddress) { oldValue, newAddress in
                             if !newAddress.isEmpty && newAddress != "Fetching location..." {
                                 selectedLocation = extractNeighborhood(from: newAddress)
                                 selectedCoordinate = nil
