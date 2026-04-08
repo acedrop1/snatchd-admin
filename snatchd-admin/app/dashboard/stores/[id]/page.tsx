@@ -245,7 +245,7 @@ export default function EditStorePage() {
             if (lines.length < 2) { alert("CSV must have a header row + at least one product."); return; }
 
             // Normalise header names — strip spaces, parens, special chars for flexible matching
-            const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/[\s()]/g, ""));
+            const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, "").toLowerCase().replace(/[\s()™]/g, ""));
             // Try multiple aliases, return first match
             const col = (...names: string[]): number => {
                 for (const n of names) {
