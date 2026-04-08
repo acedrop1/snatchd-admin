@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, Loader2, Package, RefreshCw, CheckCircle, XCircle, ExternalLink, Trash2, AlertTriangle, Layers, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Loader2, Package, RefreshCw, CheckCircle, XCircle, ExternalLink, Trash2, AlertTriangle, Layers, Eye, EyeOff, Upload, Download } from "lucide-react";
 import { db, storage } from "@/lib/firebase";
 import { doc, getDoc, updateDoc, deleteDoc, collection, getDocs, setDoc, serverTimestamp, query, where } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -229,6 +229,96 @@ export default function EditStorePage() {
         } finally {
             setTogglingActive(false);
         }
+    };
+
+    // ── CSV upload ────────────────────────────────────────────────────────────
+    const csvInputRef = useRef<HTMLInputElement>(null);
+
+    const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const text = ev.target?.result as string;
+            const lines = text.split(/\r?\n/).filter(l => l.trim());
+            if (lines.length < 2) { alert("CSV must have a header row + at least one product."); return; }
+
+            // Normalise header names
+            const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/\s+/g, ""));
+            const col = (name: string) => headers.indexOf(name);
+
+            const nameIdx     = col("name")     >= 0 ? col("name")     : col("title");
+            const priceIdx    = col("price");
+            const categoryIdx = col("category");
+            const imageIdx    = col("imageurl") >= 0 ? col("imageurl") : col("image");
+            const urlIdx      = col("producturl") >= 0 ? col("producturl") : col("url");
+            const sizesIdx    = col("sizes");
+
+            if (nameIdx < 0 || priceIdx < 0) {
+                alert("CSV must have at least 'name' and 'price' columns.");
+                return;
+            }
+
+            const parsed: any[] = [];
+            for (let i = 1; i < lines.length; i++) {
+                // Handle quoted fields with commas inside them
+                const cols: string[] = [];
+                let cur = "", inQ = false;
+                for (const ch of lines[i]) {
+                    if (ch === '"') { inQ = !inQ; }
+                    else if (ch === "," && !inQ) { cols.push(cur.trim()); cur = ""; }
+                    else { cur += ch; }
+                }
+                cols.push(cur.trim());
+
+                const rawName  = cols[nameIdx]?.replace(/^"|"$/g, "") || "";
+                const rawPrice = cols[priceIdx]?.replace(/[^0-9.]/g, "") || "0";
+                if (!rawName) continue;
+
+                const rawSizes = sizesIdx >= 0 ? cols[sizesIdx]?.replace(/^"|"$/g, "") : "";
+                const sizes = rawSizes
+                    ? rawSizes.split(/[|,;]/).map(s => s.trim()).filter(Boolean)
+                    : ["XS", "S", "M", "L", "XL"];
+
+                parsed.push({
+                    externalId: `csv_${i}_${Date.now()}`,
+                    title:      rawName,
+                    price:      parseFloat(rawPrice) || 0,
+                    category:   categoryIdx >= 0 ? cols[categoryIdx]?.replace(/^"|"$/g, "") || "Clothing" : "Clothing",
+                    brand:      getBrandFromStoreName(name),
+                    gender:     "Women",
+                    description: "",
+                    imageURL:   imageIdx >= 0 ? cols[imageIdx]?.replace(/^"|"$/g, "") || "" : "",
+                    images:     imageIdx >= 0 && cols[imageIdx] ? [cols[imageIdx].replace(/^"|"$/g, "")] : [],
+                    productUrl: urlIdx >= 0 ? cols[urlIdx]?.replace(/^"|"$/g, "") || "" : "",
+                    sizes,
+                    inStock:    true,
+                    isRemoteImage: !!(imageIdx >= 0 && cols[imageIdx]),
+                });
+            }
+
+            if (parsed.length === 0) { alert("No valid products found in CSV."); return; }
+            setFetchedProducts(parsed);
+            setFetchStatus("done");
+            setFetchError(null);
+        };
+        reader.readAsText(file);
+        // Reset so same file can be re-uploaded
+        e.target.value = "";
+    };
+
+    const handleDownloadTemplate = () => {
+        const header = "name,price,category,imageURL,productUrl,sizes";
+        const example = `"The Effortless Pant",148,Pants,https://assets.aritzia.com/image/upload/q_auto/example.jpg,https://www.aritzia.com/us/en/product/example/77775.html,"XS|S|M|L|XL"`;
+        const csv = `${header}\n${example}\n`;
+        const blob = new Blob([csv], { type: "text/csv" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${getBrandFromStoreName(name) || "store"}-products-template.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
     };
 
     // ── Fetch products from brand website ─────────────────────────────────────
@@ -673,7 +763,7 @@ export default function EditStorePage() {
                         </div>
 
                         {/* Action Buttons */}
-                        <div className="flex gap-3">
+                        <div className="flex flex-wrap gap-3">
                             <button
                                 onClick={handleFetchFromWebsite}
                                 disabled={fetchStatus === "fetching" || !catalogUrl}
@@ -693,6 +783,31 @@ export default function EditStorePage() {
                                     Use Pre-Loaded Data
                                 </button>
                             )}
+
+                            {/* CSV Upload */}
+                            <input
+                                ref={csvInputRef}
+                                type="file"
+                                accept=".csv,text/csv"
+                                className="hidden"
+                                onChange={handleCSVUpload}
+                            />
+                            <button
+                                onClick={() => csvInputRef.current?.click()}
+                                disabled={fetchStatus === "fetching"}
+                                className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-md text-sm font-bold hover:bg-blue-500/30 transition disabled:opacity-50"
+                            >
+                                <Upload className="h-4 w-4" />
+                                Upload CSV
+                            </button>
+
+                            <button
+                                onClick={handleDownloadTemplate}
+                                className="flex items-center gap-2 px-4 py-2 bg-neutral-800 text-neutral-300 rounded-md text-sm font-medium hover:bg-neutral-700 transition"
+                            >
+                                <Download className="h-4 w-4" />
+                                CSV Template
+                            </button>
                         </div>
 
                         {/* Fetch Error */}
