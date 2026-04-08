@@ -18,6 +18,8 @@ struct ProductDetailView: View {
     // Interaction State
     @State private var showFullImage = false
     @State private var selectedSize: String = ""
+    @State private var selectedStyle: String = ""
+    @State private var currentImageIndex: Int = 0
 
     // Bottom Sheet State
     @State private var dragOffset: CGFloat = 0
@@ -45,43 +47,89 @@ struct ProductDetailView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // 1. Background Image Area (Full Screen)
+            // 1. Background Image Area — carousel if multiple images, single if one
             GeometryReader { geometry in
-                // Remote or Local Image
-                if product.isRemoteImage, let urlString = product.imageURL, let url = URL(string: urlString) {
-                    CachedAsyncImage(url: url) { image in
-                        image
+                let imageHeight = geometry.size.height * 0.65
+                let allImages = product.images.isEmpty
+                    ? (product.imageURL.map { [$0] } ?? [])
+                    : product.images
+
+                ZStack(alignment: .bottom) {
+                    if allImages.count > 1 {
+                        // ── Multi-image carousel ──────────────────────────────
+                        TabView(selection: $currentImageIndex) {
+                            ForEach(Array(allImages.enumerated()), id: \.offset) { idx, urlString in
+                                if let url = URL(string: urlString) {
+                                    CachedAsyncImage(url: url) { image in
+                                        image
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                            .frame(width: geometry.size.width, height: imageHeight)
+                                            .clipped()
+                                    } placeholder: {
+                                        Rectangle()
+                                            .fill(Color.black.opacity(0.3))
+                                            .frame(width: geometry.size.width, height: imageHeight)
+                                            .overlay(ProgressView().tint(.white))
+                                    }
+                                    .tag(idx)
+                                }
+                            }
+                        }
+                        .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
+                        .frame(width: geometry.size.width, height: imageHeight)
+
+                        // Dot indicators
+                        HStack(spacing: 6) {
+                            ForEach(0..<allImages.count, id: \.self) { idx in
+                                Circle()
+                                    .fill(idx == currentImageIndex ? Color.white : Color.white.opacity(0.4))
+                                    .frame(width: idx == currentImageIndex ? 7 : 5, height: idx == currentImageIndex ? 7 : 5)
+                                    .animation(.spring(response: 0.3), value: currentImageIndex)
+                            }
+                        }
+                        .padding(.bottom, 16)
+
+                    } else if let urlString = allImages.first, let url = URL(string: urlString) {
+                        // ── Single remote image ───────────────────────────────
+                        CachedAsyncImage(url: url) { image in
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: geometry.size.width, height: imageHeight)
+                                .clipped()
+                        } placeholder: {
+                            Rectangle()
+                                .fill(Color.black.opacity(0.3))
+                                .frame(width: geometry.size.width, height: imageHeight)
+                                .overlay(ProgressView().tint(.white))
+                        }
+
+                    } else if product.imageName.contains(".fill") || product.imageName == "tshirt" || product.imageName == "bag" {
+                        // ── System image fallback ─────────────────────────────
+                        Image(systemName: product.imageName)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .padding(40)
+                            .frame(width: geometry.size.width, height: imageHeight)
+                            .background(Color(red: 248/255, green: 245/255, blue: 240/255))
+                            .foregroundColor(.black.opacity(0.8))
+
+                    } else {
+                        // ── Local asset fallback ──────────────────────────────
+                        Image(product.imageName)
                             .resizable()
                             .aspectRatio(contentMode: .fill)
-                            .frame(width: geometry.size.width, height: geometry.size.height * 0.65)
+                            .frame(width: geometry.size.width, height: imageHeight)
                             .clipped()
-                    } placeholder: {
-                        ProgressView()
-                            .frame(width: geometry.size.width, height: geometry.size.height * 0.65)
                     }
-                } else if product.imageName.contains(".fill") || product.imageName == "tshirt" || product.imageName == "bag" {
-                    Image(systemName: product.imageName)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .padding(40)
-                        .frame(width: geometry.size.width, height: geometry.size.height * 0.65)
-                        .background(Color(red: 248/255, green: 245/255, blue: 240/255))
-                        .foregroundColor(.black.opacity(0.8))
-                } else {
-                    Image(product.imageName)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: geometry.size.width, height: geometry.size.height * 0.65)
-                        .clipped()
                 }
             }
             .edgesIgnoringSafeArea(.all)
             .simultaneousGesture(
                 TapGesture()
                     .onEnded { _ in
-                        withAnimation {
-                            showFullImage = true
-                        }
+                        withAnimation { showFullImage = true }
                     }
             )
             .simultaneousGesture(
@@ -193,28 +241,41 @@ struct ProductDetailView: View {
                                     .frame(maxWidth: .infinity)
                             }
 
-                            // Styles — colour / style options
+                            // Styles — selectable colour / style chips
                             if !product.styles.isEmpty {
                                 VStack(alignment: .leading, spacing: 10) {
-                                    Text("AVAILABLE STYLES")
-                                        .font(.custom("Montserrat-Bold", size: 11))
-                                        .foregroundColor(.gray)
-                                        .tracking(1.2)
-
+                                    HStack {
+                                        Text("STYLE")
+                                            .font(.custom("Montserrat-Bold", size: 11))
+                                            .foregroundColor(.gray)
+                                            .tracking(1.2)
+                                        if !selectedStyle.isEmpty {
+                                            Text("· \(selectedStyle)")
+                                                .font(.custom("Montserrat-SemiBold", size: 11))
+                                                .foregroundColor(.white)
+                                        }
+                                    }
                                     ScrollView(.horizontal, showsIndicators: false) {
                                         HStack(spacing: 8) {
                                             ForEach(product.styles, id: \.self) { style in
-                                                Text(style)
-                                                    .font(.custom("Montserrat-SemiBold", size: 13))
-                                                    .foregroundColor(.white)
-                                                    .padding(.horizontal, 14)
-                                                    .padding(.vertical, 8)
-                                                    .background(Color.white.opacity(0.1))
-                                                    .overlay(
-                                                        RoundedRectangle(cornerRadius: 20)
-                                                            .stroke(Color.white.opacity(0.25), lineWidth: 1)
-                                                    )
-                                                    .cornerRadius(20)
+                                                let isSelected = selectedStyle == style
+                                                Button(action: {
+                                                    withAnimation(.spring(response: 0.2)) {
+                                                        selectedStyle = isSelected ? "" : style
+                                                    }
+                                                }) {
+                                                    Text(style)
+                                                        .font(.custom("Montserrat-SemiBold", size: 13))
+                                                        .foregroundColor(isSelected ? .black : .white)
+                                                        .padding(.horizontal, 14)
+                                                        .padding(.vertical, 8)
+                                                        .background(isSelected ? Color.white : Color.white.opacity(0.1))
+                                                        .overlay(
+                                                            RoundedRectangle(cornerRadius: 20)
+                                                                .stroke(isSelected ? Color.white : Color.white.opacity(0.25), lineWidth: 1)
+                                                        )
+                                                        .cornerRadius(20)
+                                                }
                                             }
                                         }
                                     }

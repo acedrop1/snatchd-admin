@@ -186,23 +186,20 @@ class DatabaseService: ObservableObject {
                     else if let i = data["price"] as? Int { price = Double(i) }
                     else if let i = data["price"] as? Int64 { price = Double(i) }
                     else { price = 0.0 }
-                    // Images: try [String] first, fall back to [Any] element cast
+                    // Images: full array for gallery + single imageURL for legacy
                     let images: [String]
                     if let direct = data["images"] as? [String] { images = direct }
                     else if let raw = data["images"] as? [Any] { images = raw.compactMap { $0 as? String } }
                     else { images = [] }
-                    // imageURL: prefer images array, fall back to explicit imageURL field
                     let imageURL = images.first ?? (data["imageURL"] as? String)
                     let imageName = data["imageName"] as? String ?? "photo"
                     let deliveryTime = data["deliveryTime"] as? String ?? "45 Mins"
                     let category = data["category"] as? String ?? ""
                     let gender = data["gender"] as? String ?? ""
-                    // Sizes: try [String] first, fall back to [Any] element cast
                     let sizes: [String]
                     if let direct = data["sizes"] as? [String] { sizes = direct }
                     else if let raw = data["sizes"] as? [Any] { sizes = raw.compactMap { $0 as? String } }
                     else { sizes = [] }
-                    // Styles (colour/style options)
                     let styles: [String]
                     if let direct = data["styles"] as? [String] { styles = direct }
                     else if let raw = data["styles"] as? [Any] { styles = raw.compactMap { $0 as? String } }
@@ -218,6 +215,7 @@ class DatabaseService: ObservableObject {
                         price: price,
                         imageName: imageName,
                         imageURL: imageURL,
+                        images: images,
                         deliveryTime: deliveryTime,
                         category: category,
                         gender: gender,
@@ -342,6 +340,7 @@ class DatabaseService: ObservableObject {
                             price: price,
                             imageName: "photo",
                             imageURL: imageURL,
+                            images: images,
                             deliveryTime: deliveryTime,
                             category: category,
                             gender: gender,

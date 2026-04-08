@@ -321,20 +321,39 @@ export default function EditStorePage() {
                     ? rawStyles.split(/[\n|,;]/).map(s => s.trim()).filter(Boolean)
                     : [];
 
-                const rawDesc     = descIdx  >= 0 ? cols[descIdx]?.trim()  || "" : "";
-                const rawImageUrl = imageIdx >= 0 ? cols[imageIdx]?.trim() || "" : "";
+                const rawDesc = descIdx >= 0 ? cols[descIdx]?.trim() || "" : "";
+
+                // ── Images: collect from all image-like columns ───────────────
+                // 1. Primary image column (pipe/newline/comma-separated URLs inside one cell)
+                const primaryImgRaw = imageIdx >= 0 ? cols[imageIdx]?.trim() || "" : "";
+                const primaryImgs = primaryImgRaw
+                    ? primaryImgRaw.split(/[\n|]/).map(s => s.trim()).filter(s => s.startsWith("http"))
+                    : [];
+
+                // 2. Additional numbered columns: Image 1, Image 2, Image 3... or Photo 1, Photo 2...
+                const extraImgs: string[] = [];
+                headers.forEach((h, idx) => {
+                    if (idx === imageIdx) return;
+                    if (/^(image|photo|img)\d+$/.test(h) || /^(productimage)\d+$/.test(h)) {
+                        const v = cols[idx]?.trim();
+                        if (v && v.startsWith("http")) extraImgs.push(v);
+                    }
+                });
+
+                const allProductImages = [...new Set([...primaryImgs, ...extraImgs])].filter(Boolean);
+                const rawImageUrl = allProductImages[0] || "";
 
                 parsed.push({
                     externalId:  `csv_${i}_${Date.now()}`,
                     title:       rawName,
                     price:       parseFloat(rawPrice) || 0,
-                    category:    categoryIdx >= 0 ? cols[categoryIdx]?.replace(/^"|"$/g, "") || "Clothing" : "Clothing",
+                    category:    categoryIdx >= 0 ? cols[categoryIdx]?.trim() || "Clothing" : "Clothing",
                     brand:       getBrandFromStoreName(name),
                     gender:      "Women",
                     description: rawDesc,
                     imageURL:    rawImageUrl,
-                    images:      rawImageUrl ? [rawImageUrl] : [],
-                    productUrl:  urlIdx >= 0 ? cols[urlIdx]?.replace(/^"|"$/g, "") || "" : "",
+                    images:      allProductImages,
+                    productUrl:  urlIdx >= 0 ? cols[urlIdx]?.trim() || "" : "",
                     sizes,
                     styles,
                     inStock:     true,

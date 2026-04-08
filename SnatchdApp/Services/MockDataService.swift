@@ -6,8 +6,9 @@ struct Product: Identifiable {
     let title: String
     let brand: String
     let price: Double
-    let imageName: String // Local asset name (fallback)
-    let imageURL: String? // Remote image URL from admin
+    let imageName: String    // Local asset name (fallback)
+    let imageURL: String?    // Primary remote image URL (first of images array)
+    var images: [String]     // All remote image URLs — used for gallery/carousel
     let deliveryTime: String
     let category: String
     let gender: String       // "Men" | "Women" | "Kids" | "Unisex" | ""
@@ -17,14 +18,17 @@ struct Product: Identifiable {
     var inStock: Bool = true
     var zaraProductId: String? = nil
 
-    init(id: UUID = UUID(), storeId: String = "", title: String, brand: String, price: Double, imageName: String, imageURL: String? = nil, deliveryTime: String, category: String, gender: String = "", sizes: [String] = [], styles: [String] = [], description: String = "", inStock: Bool = true, zaraProductId: String? = nil) {
+    init(id: UUID = UUID(), storeId: String = "", title: String, brand: String, price: Double, imageName: String, imageURL: String? = nil, images: [String] = [], deliveryTime: String, category: String, gender: String = "", sizes: [String] = [], styles: [String] = [], description: String = "", inStock: Bool = true, zaraProductId: String? = nil) {
         self.id = id
         self.storeId = storeId
         self.title = title
         self.brand = brand
         self.price = price
         self.imageName = imageName
-        self.imageURL = imageURL
+        // Reconcile imageURL and images: always keep them in sync
+        let allImages = images.isEmpty ? (imageURL.map { [$0] } ?? []) : images
+        self.images = allImages
+        self.imageURL = allImages.first ?? imageURL
         self.deliveryTime = deliveryTime
         self.category = category
         self.gender = gender
@@ -34,13 +38,12 @@ struct Product: Identifiable {
         self.inStock = inStock
         self.zaraProductId = zaraProductId
     }
-    
-    // Computed property to determine which image to use
+
+    // Computed property to determine which image to use (for single-image contexts)
     var displayImageName: String {
-        // If we have a remote URL, return it; otherwise use local asset
         return imageURL ?? imageName
     }
-    
+
     var isRemoteImage: Bool {
         return imageURL != nil && !imageURL!.isEmpty
     }
