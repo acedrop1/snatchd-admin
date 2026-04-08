@@ -1,236 +1,81 @@
 import { NextResponse } from "next/server";
 
-// ── Algolia config (from Aritzia's public page config) ─────────────────────────
-const ALGOLIA_APP_ID  = "SONLJM8OH6";
-const ALGOLIA_API_KEY = "1455bca7c6c33e746a0f38beb28422e6";
-const INDEX_BASE      = "production_ecommerce_aritzia__Aritzia_US";
+// ── Aritzia New Arrivals — scraped April 2026 ─────────────────────────────────
+// Source: https://www.aritzia.com/us/en/new (React fiber / Algolia hit data)
+// Refresh by re-running the browser extraction script on the same page.
 
-// ── Category mapping from product type string ─────────────────────────────────
-function mapCategory(raw: string): string {
-    const s = (raw || "").toLowerCase();
-    if (s.includes("dress"))                        return "Dresses";
-    if (s.includes("top") || s.includes("blouse") || s.includes("shirt") || s.includes("tee")) return "Tops";
-    if (s.includes("pant") || s.includes("trouser") || s.includes("legging")) return "Pants";
-    if (s.includes("jacket") || s.includes("coat") || s.includes("blazer") || s.includes("outerwear")) return "Jackets";
-    if (s.includes("skirt"))                        return "Skirts";
-    if (s.includes("short"))                        return "Shorts";
-    if (s.includes("sweater") || s.includes("knit") || s.includes("cardigan")) return "Knitwear";
-    if (s.includes("bag") || s.includes("tote") || s.includes("purse") || s.includes("clutch")) return "Bags";
-    if (s.includes("shoe") || s.includes("sandal") || s.includes("boot") || s.includes("heel") || s.includes("flat")) return "Shoes";
-    if (s.includes("accessory") || s.includes("accessories") || s.includes("hat") || s.includes("scarf") || s.includes("belt")) return "Accessories";
-    if (s.includes("bodysuit"))                     return "Bodysuits";
-    if (s.includes("jumpsuit") || s.includes("romper")) return "Jumpsuits";
-    if (s.includes("swim"))                         return "Swimwear";
-    return "Clothing";
-}
+const PRODUCTS = [
+  // ── Pants ────────────────────────────────────────────────────────────────────
+  { externalId: "77775",  title: "The Effortless Pant™ - Crepette™",     price: 148, category: "Pants",   sizes: ["00","0","2","4","6","8","10","12","14","16"], imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a06_77775_36527_on_a",   productUrl: "https://www.aritzia.com/us/en/product/the-effortless-pant%E2%84%A2/77775.html" },
+  { externalId: "118495", title: "The Lodge Pant™ - Crepette™",           price: 138, category: "Pants",   sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a06_118495_18891_on_a", productUrl: "https://www.aritzia.com/us/en/product/the-lodge-pant%E2%84%A2/118495.html" },
+  { externalId: "132573", title: "Seville Pant",                           price: 148, category: "Pants",   sizes: ["0","2","4","6","8","10"],                      imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a06_132573_36948_on_a", productUrl: "https://www.aritzia.com/us/en/product/seville-pant/132573.html" },
+  { externalId: "132654", title: "Melina Pant",                            price: 128, category: "Pants",   sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a06_132654_36948_on_a", productUrl: "https://www.aritzia.com/us/en/product/melina-pant/132654.html" },
+  { externalId: "131380", title: "The Alanis Pant™",                       price: 118, category: "Pants",   sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a06_131380_36527_on_a", productUrl: "https://www.aritzia.com/us/en/product/the-alanis-pant%E2%84%A2/131380.html" },
+  { externalId: "131400", title: "The Alanis Pant™ - Linen",               price: 128, category: "Pants",   sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a06_131400_36948_on_a", productUrl: "https://www.aritzia.com/us/en/product/the-alanis-pant%E2%84%A2/131400.html" },
+  { externalId: "130057", title: "Beaumont Pant",                          price: 118, category: "Pants",   sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a06_130057_36527_on_a", productUrl: "https://www.aritzia.com/us/en/product/beaumont-pant/130057.html" },
+  { externalId: "130469", title: "Solis Pant",                             price: 108, category: "Pants",   sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a06_130469_36948_on_a", productUrl: "https://www.aritzia.com/us/en/product/solis-pant/130469.html" },
+  { externalId: "129913", title: "Contour Knit Flare Pant",                price: 118, category: "Pants",   sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a06_129913_11420_on_a", productUrl: "https://www.aritzia.com/us/en/product/contour-knit-flare-pant/129913.html" },
+  { externalId: "130034", title: "Contour Rib Cargo Pant",                 price: 128, category: "Pants",   sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a06_130034_11420_on_a", productUrl: "https://www.aritzia.com/us/en/product/contour-rib-cargo-pant/130034.html" },
+  { externalId: "130749", title: "TNS Straight Pant",                      price: 108, category: "Pants",   sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a06_130749_36948_on_a", productUrl: "https://www.aritzia.com/us/en/product/tns-straight-pant/130749.html" },
 
-// ── Default sizes for Aritzia ────────────────────────────────────────────────
-function getDefaultSizes(category: string): string[] {
-    if (["Bags", "Accessories"].includes(category)) return ["OS"];
-    if (["Shoes"].includes(category))               return ["6", "7", "8", "9", "10", "11"];
-    return ["XXS", "XS", "S", "M", "L", "XL"];
-}
+  // ── Tops ─────────────────────────────────────────────────────────────────────
+  { externalId: "115785", title: "Wilfred Drapey Crew T-Shirt",            price: 55,  category: "Tops",    sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a01_115785_1275_on_a",   productUrl: "https://www.aritzia.com/us/en/product/wilfred-drapey-crew-t-shirt/115785.html" },
+  { externalId: "127845", title: "Le Fou Wilfred Wrap Blouse",             price: 88,  category: "Tops",    sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a01_127845_1274_on_a",   productUrl: "https://www.aritzia.com/us/en/product/le-fou-wilfred-wrap-blouse/127845.html" },
+  { externalId: "125363", title: "Loom Linen Larimer Tank",                price: 48,  category: "Tops",    sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a01_125363_1275_on_a",   productUrl: "https://www.aritzia.com/us/en/product/loom-linen-larimer-tank/125363.html" },
+  { externalId: "120105", title: "Contour Knit Henley Top",                price: 78,  category: "Tops",    sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a01_120105_11420_on_a",  productUrl: "https://www.aritzia.com/us/en/product/contour-knit-henley-top/120105.html" },
+  { externalId: "132402", title: "Loom Linen Henley Shirt",                price: 68,  category: "Tops",    sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a01_132402_1275_on_a",   productUrl: "https://www.aritzia.com/us/en/product/loom-linen-henley-shirt/132402.html" },
+  { externalId: "126089", title: "Contour Rib Polo Shirt",                 price: 78,  category: "Tops",    sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a01_126089_11420_on_a",  productUrl: "https://www.aritzia.com/us/en/product/contour-rib-polo-shirt/126089.html" },
+  { externalId: "124566", title: "Loom Linen Boxy T-Shirt",                price: 50,  category: "Tops",    sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a01_124566_1275_on_a",   productUrl: "https://www.aritzia.com/us/en/product/loom-linen-boxy-t-shirt/124566.html" },
+  { externalId: "124945", title: "Loom Linen Quay T-Shirt",                price: 50,  category: "Tops",    sizes: ["2XS","XS","S","M","L"],                       imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a01_124945_1275_on_a",   productUrl: "https://www.aritzia.com/us/en/product/loom-linen-quay-t-shirt/124945.html" },
 
-// ── Query Algolia (server-side, no CORS restriction) ─────────────────────────
-async function queryAlgolia(indexName: string, categoryId: string, hitsPerPage = 100, page = 0) {
-    const url = `https://${ALGOLIA_APP_ID}.algolia.net/1/indexes/${encodeURIComponent(indexName)}/query`;
-    const body = {
-        query: "",
-        filters: `categoryPageId:"${categoryId}"`,
-        hitsPerPage,
-        page,
-        attributesToRetrieve: [
-            "name", "displayName", "masterId", "pid", "productId",
-            "price", "defaultVariantPrice",
-            "defaultColorSwatchURL", "image", "images", "swatchImages",
-            "productType", "categoryPageId", "categoryIds",
-            "available", "inStock", "availability",
-            "colorName", "sizes", "sizeNames",
-            "productUrl", "url", "pdpUrl",
-            "brand",
-        ],
-    };
+  // ── Dresses ──────────────────────────────────────────────────────────────────
+  { externalId: "106955", title: "Melina Dress",                           price: 158, category: "Dresses", sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a03_106955_36948_on_a",  productUrl: "https://www.aritzia.com/us/en/product/melina-dress/106955.html" },
+  { externalId: "129878", title: "Contour Knit Midi Dress",                price: 148, category: "Dresses", sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a03_129878_11420_on_a",  productUrl: "https://www.aritzia.com/us/en/product/contour-knit-midi-dress/129878.html" },
+  { externalId: "131196", title: "Contour Knit Mini Dress",                price: 128, category: "Dresses", sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a03_131196_11420_on_a",  productUrl: "https://www.aritzia.com/us/en/product/contour-knit-mini-dress/131196.html" },
 
-    const res = await fetch(url, {
-        method: "POST",
-        headers: {
-            "X-Algolia-Application-Id": ALGOLIA_APP_ID,
-            "X-Algolia-API-Key": ALGOLIA_API_KEY,
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-    });
+  // ── Jackets & Blazers ────────────────────────────────────────────────────────
+  { externalId: "125490", title: "Wilfred Effortless Crepe Blazer",        price: 228, category: "Jackets", sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a04_125490_36527_on_a",  productUrl: "https://www.aritzia.com/us/en/product/wilfred-effortless-crepe-blazer/125490.html" },
+  { externalId: "122424", title: "Standout Blazer",                        price: 248, category: "Jackets", sizes: ["00","0","2","4","6","8","10"],                 imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a04_122424_35421_on_a",  productUrl: "https://www.aritzia.com/us/en/product/standout-blazer/122424.html" },
+  { externalId: "131692", title: "Loom Linen Relaxed Jacket",              price: 178, category: "Jackets", sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a04_131692_1275_on_a",   productUrl: "https://www.aritzia.com/us/en/product/loom-linen-relaxed-jacket/131692.html" },
+  { externalId: "129548", title: "The Melina Jacket™",                     price: 198, category: "Jackets", sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a04_129548_36948_on_a",  productUrl: "https://www.aritzia.com/us/en/product/the-melina-jacket%E2%84%A2/129548.html" },
+  { externalId: "132403", title: "Contour Knit Bomber",                    price: 168, category: "Jackets", sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a04_132403_11420_on_a",  productUrl: "https://www.aritzia.com/us/en/product/contour-knit-bomber/132403.html" },
 
-    return res.json();
-}
+  // ── Knitwear ─────────────────────────────────────────────────────────────────
+  { externalId: "128654", title: "Sunday Best Crew Sweater",               price: 128, category: "Knitwear", sizes: ["2XS","XS","S","M","L","XL"],                 imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a07_128654_36527_on_a",  productUrl: "https://www.aritzia.com/us/en/product/sunday-best-crew-sweater/128654.html" },
+  { externalId: "130891", title: "Contour Knit Cardigan",                  price: 138, category: "Knitwear", sizes: ["2XS","XS","S","M","L","XL"],                 imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a07_130891_11420_on_a",  productUrl: "https://www.aritzia.com/us/en/product/contour-knit-cardigan/130891.html" },
+  { externalId: "131820", title: "Contour Knit Polo Sweater",              price: 118, category: "Knitwear", sizes: ["2XS","XS","S","M","L","XL"],                 imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a07_131820_11420_on_a",  productUrl: "https://www.aritzia.com/us/en/product/contour-knit-polo-sweater/131820.html" },
 
-// ── Map an Algolia hit → Snatchd product ──────────────────────────────────────
-function hitToProduct(hit: any) {
-    const rawCategory = hit.productType || hit.categoryPageId || "";
-    const category    = mapCategory(rawCategory);
+  // ── Shorts ───────────────────────────────────────────────────────────────────
+  { externalId: "125003", title: "AirPlush Cotton™ Sail Short",            price: 58,  category: "Shorts",  sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a26_125003_36524_on_a",  productUrl: "https://www.aritzia.com/us/en/product/airplush-cotton%E2%84%A2-sail-short/125003.html" },
+  { externalId: "132801", title: "Effortless Crepe Short",                 price: 88,  category: "Shorts",  sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a26_132801_36527_on_a",  productUrl: "https://www.aritzia.com/us/en/product/effortless-crepe-short/132801.html" },
+  { externalId: "131985", title: "Loom Linen Bermuda Short",               price: 78,  category: "Shorts",  sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a26_131985_1275_on_a",   productUrl: "https://www.aritzia.com/us/en/product/loom-linen-bermuda-short/131985.html" },
+  { externalId: "130902", title: "Contour Rib Bike Short",                 price: 68,  category: "Shorts",  sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a26_130902_11420_on_a",  productUrl: "https://www.aritzia.com/us/en/product/contour-rib-bike-short/130902.html" },
 
-    // Best available image
-    const imageURL =
-        hit.defaultColorSwatchURL ||
-        hit.swatchImages?.[0] ||
-        hit.images?.[0]?.url ||
-        hit.image ||
-        "";
+  // ── Bodysuits & Jumpsuits ────────────────────────────────────────────────────
+  { externalId: "132890", title: "Contour Knit Bodysuit",                  price: 88,  category: "Bodysuits", sizes: ["2XS","XS","S","M","L","XL"],                imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a05_132890_11420_on_a",  productUrl: "https://www.aritzia.com/us/en/product/contour-knit-bodysuit/132890.html" },
+  { externalId: "131402", title: "Effortless Crepe Jumpsuit",              price: 198, category: "Bodysuits", sizes: ["2XS","XS","S","M","L","XL"],                imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a05_131402_36527_on_a",  productUrl: "https://www.aritzia.com/us/en/product/effortless-crepe-jumpsuit/131402.html" },
 
-    const images = [
-        hit.defaultColorSwatchURL,
-        ...(hit.swatchImages || []),
-        ...(hit.images || []).map((i: any) => i?.url || i),
-    ].filter(Boolean).slice(0, 5);
+  // ── Skirts ───────────────────────────────────────────────────────────────────
+  { externalId: "131867", title: "Seville Midi Skirt",                     price: 118, category: "Skirts",  sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a08_131867_36948_on_a",  productUrl: "https://www.aritzia.com/us/en/product/seville-midi-skirt/131867.html" },
+  { externalId: "131943", title: "Effortless Crepe Mini Skirt",            price: 88,  category: "Skirts",  sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a08_131943_36527_on_a",  productUrl: "https://www.aritzia.com/us/en/product/effortless-crepe-mini-skirt/131943.html" },
+  { externalId: "130212", title: "Contour Knit Midi Skirt",                price: 108, category: "Skirts",  sizes: ["2XS","XS","S","M","L","XL"],                  imageURL: "https://assets.aritzia.com/image/upload/c_crop,ar_1920:2623,g_south/q_auto,f_auto,dpr_auto/s26_a08_130212_11420_on_a",  productUrl: "https://www.aritzia.com/us/en/product/contour-knit-midi-skirt/130212.html" },
+];
 
-    // Price: Algolia can nest price differently per currency
-    const rawPrice =
-        hit.price?.USD ||
-        hit.defaultVariantPrice?.USD ||
-        hit.price?.value ||
-        hit.price ||
-        0;
-    const price = typeof rawPrice === "object" ? (rawPrice.default || rawPrice.min || 0) : Number(rawPrice);
+// ── Shared fields applied to every product ────────────────────────────────────
+const SHARED = {
+  brand: "Aritzia",
+  gender: "Women",
+  description: "",
+  inStock: true,
+  isRemoteImage: true,
+};
 
-    const externalId = hit.masterId || hit.pid || hit.productId || hit.objectID || "";
-    const title      = hit.displayName || hit.name || externalId;
-    const productUrl = hit.pdpUrl || hit.productUrl || hit.url
-        ? `https://www.aritzia.com${hit.pdpUrl || hit.productUrl || hit.url || ""}`
-        : `https://www.aritzia.com/us/en/product/${externalId}`;
-
-    const sizes = hit.sizeNames || hit.sizes || getDefaultSizes(category);
-
-    return {
-        externalId,
-        title,
-        price,
-        category,
-        brand: "Aritzia",
-        gender: "Women",
-        sizes: Array.isArray(sizes) ? sizes : [sizes],
-        description: "",
-        imageURL,
-        images,
-        inStock: hit.available !== false && hit.inStock !== false,
-        isRemoteImage: !!imageURL,
-        productUrl,
-    };
-}
-
-// ── Fallback: scrape SFCC category page HTML ──────────────────────────────────
-async function scrapeSFCC(categoryId = "new", sz = 96): Promise<any[]> {
-    const url = `https://www.aritzia.com/on/demandware.store/Sites-Aritzia_US-Site/en_US/Search-Show?cgid=${categoryId}&sz=${sz}&format=ajax`;
-    const res = await fetch(url, {
-        headers: {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml",
-            "Accept-Language": "en-US,en;q=0.9",
-        },
-    });
-    if (!res.ok) return [];
-
-    const html = await res.text();
-    const products: any[] = [];
-    const seen = new Set<string>();
-
-    // Extract data-pid tiles
-    const tileRe = /data-pid="([A-Z0-9_-]+)"/gi;
-    const nameRe  = /class="[^"]*(?:product-name|link)[^"]*"[^>]*>\s*<a[^>]*>([^<]+)<\/a>/i;
-    const priceRe = /class="[^"]*(?:sales|price-standard|regular-price)[^"]*"[^>]*>[\s\S]*?\$\s*([\d,]+\.?\d*)/i;
-    const imgRe   = /data-src="([^"]*assets\.aritzia\.com[^"]+\.jpg[^"]*)".*?data-pid="|<img[^>]+src="([^"]*assets\.aritzia\.com[^"]+)"/i;
-
-    let m: RegExpExecArray | null;
-    while ((m = tileRe.exec(html)) !== null) {
-        const pid = m[1];
-        if (seen.has(pid) || /^\d{1,3}$/.test(pid)) continue;
-        seen.add(pid);
-
-        const start  = Math.max(0, m.index - 200);
-        const end    = Math.min(html.length, m.index + 2000);
-        const block  = html.substring(start, end);
-
-        const nameMatch  = block.match(nameRe);
-        const priceMatch = block.match(priceRe);
-        const imgMatch   = block.match(imgRe);
-
-        const title    = nameMatch?.[1]?.trim() || pid;
-        const price    = priceMatch ? parseFloat(priceMatch[1].replace(",", "")) : 0;
-        const imageURL = imgMatch?.[1] || imgMatch?.[2] || "";
-        const category = mapCategory(pid);
-
-        products.push({
-            externalId: pid,
-            title,
-            price,
-            category,
-            brand: "Aritzia",
-            gender: "Women",
-            sizes: getDefaultSizes(category),
-            description: "",
-            imageURL,
-            images: imageURL ? [imageURL] : [],
-            inStock: true,
-            isRemoteImage: !!imageURL,
-            productUrl: `https://www.aritzia.com/us/en/product/${pid}`,
-        });
-    }
-
-    return products;
-}
-
-// ── Route handler ─────────────────────────────────────────────────────────────
 export async function GET() {
-    const indexVariants = [
-        INDEX_BASE,
-        `${INDEX_BASE}_price_asc`,
-        `${INDEX_BASE}_price_desc`,
-        `${INDEX_BASE}_newest`,
-    ];
+  const products = PRODUCTS.map(p => ({
+    ...SHARED,
+    ...p,
+    images: [p.imageURL],
+  }));
 
-    // ── Try Algolia first ─────────────────────────────────────────────────────
-    for (const indexName of indexVariants) {
-        try {
-            const data = await queryAlgolia(indexName, "new", 100, 0);
-
-            if (data.status === 404 || data.message?.includes("does not exist")) continue;
-            if (!Array.isArray(data.hits) || data.hits.length === 0)              continue;
-
-            // Fetch additional pages if there are more results
-            const allHits = [...data.hits];
-            const totalPages = Math.ceil((data.nbHits || 0) / 100);
-            for (let p = 1; p < Math.min(totalPages, 5); p++) {
-                const more = await queryAlgolia(indexName, "new", 100, p);
-                if (Array.isArray(more.hits)) allHits.push(...more.hits);
-            }
-
-            const products = allHits
-                .map(hitToProduct)
-                .filter(p => p.externalId && p.title);
-
-            return NextResponse.json({
-                source: "algolia",
-                indexUsed: indexName,
-                products,
-                total: products.length,
-            });
-        } catch {
-            continue;
-        }
-    }
-
-    // ── Fallback: SFCC scrape ──────────────────────────────────────────────────
-    try {
-        const products = await scrapeSFCC("new", 96);
-        if (products.length > 0) {
-            return NextResponse.json({
-                source: "sfcc",
-                products,
-                total: products.length,
-            });
-        }
-    } catch (err: any) {
-        return NextResponse.json({ error: `SFCC scrape failed: ${err.message}` }, { status: 500 });
-    }
-
-    return NextResponse.json({ error: "Could not fetch Aritzia products from any source." }, { status: 502 });
+  return NextResponse.json({ products, total: products.length });
 }
