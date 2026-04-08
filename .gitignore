@@ -61,3 +61,4 @@ project.xcworkspace/xcuserdata/
 # App-specific
 GoogleService-Info.plist
 *.plist
+.vercel

@@ -244,33 +244,48 @@ export default function EditStorePage() {
             const lines = text.split(/\r?\n/).filter(l => l.trim());
             if (lines.length < 2) { alert("CSV must have a header row + at least one product."); return; }
 
-            // Normalise header names
-            const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/\s+/g, ""));
-            const col = (name: string) => headers.indexOf(name);
+            // Normalise header names — strip spaces, parens, special chars for flexible matching
+            const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/[\s()]/g, ""));
+            // Try multiple aliases, return first match
+            const col = (...names: string[]): number => {
+                for (const n of names) {
+                    const idx = headers.indexOf(n.toLowerCase().replace(/[\s()]/g, ""));
+                    if (idx >= 0) return idx;
+                }
+                return -1;
+            };
 
-            const nameIdx     = col("name")     >= 0 ? col("name")     : col("title");
-            const priceIdx    = col("price");
+            // Supports generic names AND Aritzia's exact column names
+            const nameIdx     = col("productname", "name", "title");
+            const priceIdx    = col("priceusd", "price");
             const categoryIdx = col("category");
-            const imageIdx    = col("imageurl") >= 0 ? col("imageurl") : col("image");
-            const urlIdx      = col("producturl") >= 0 ? col("producturl") : col("url");
-            const sizesIdx    = col("sizes");
+            const imageIdx    = col("productimage", "imageurl", "image");
+            const urlIdx      = col("producturl", "url");
+            const sizesIdx    = col("selectasize", "sizes", "size");
+            const descIdx     = col("productdescription", "description", "desc");
+            const stylesIdx   = col("availablestyles", "styles", "style");
 
             if (nameIdx < 0 || priceIdx < 0) {
-                alert("CSV must have at least 'name' and 'price' columns.");
+                alert("CSV must have at least a name column (e.g. 'Product Name') and a price column (e.g. 'Price (USD)').");
                 return;
             }
 
-            const parsed: any[] = [];
-            for (let i = 1; i < lines.length; i++) {
-                // Handle quoted fields with commas inside them
+            // Parse a single CSV line respecting quoted fields with commas inside
+            const parseLine = (line: string): string[] => {
                 const cols: string[] = [];
                 let cur = "", inQ = false;
-                for (const ch of lines[i]) {
+                for (const ch of line) {
                     if (ch === '"') { inQ = !inQ; }
                     else if (ch === "," && !inQ) { cols.push(cur.trim()); cur = ""; }
                     else { cur += ch; }
                 }
                 cols.push(cur.trim());
+                return cols;
+            };
+
+            const parsed: any[] = [];
+            for (let i = 1; i < lines.length; i++) {
+                const cols = parseLine(lines[i]);
 
                 const rawName  = cols[nameIdx]?.replace(/^"|"$/g, "") || "";
                 const rawPrice = cols[priceIdx]?.replace(/[^0-9.]/g, "") || "0";
@@ -281,20 +296,29 @@ export default function EditStorePage() {
                     ? rawSizes.split(/[|,;]/).map(s => s.trim()).filter(Boolean)
                     : ["XS", "S", "M", "L", "XL"];
 
+                const rawStyles = stylesIdx >= 0 ? cols[stylesIdx]?.replace(/^"|"$/g, "") : "";
+                const styles = rawStyles
+                    ? rawStyles.split(/[|,;]/).map(s => s.trim()).filter(Boolean)
+                    : [];
+
+                const rawDesc     = descIdx  >= 0 ? cols[descIdx]?.replace(/^"|"$/g, "")  || "" : "";
+                const rawImageUrl = imageIdx >= 0 ? cols[imageIdx]?.replace(/^"|"$/g, "") || "" : "";
+
                 parsed.push({
-                    externalId: `csv_${i}_${Date.now()}`,
-                    title:      rawName,
-                    price:      parseFloat(rawPrice) || 0,
-                    category:   categoryIdx >= 0 ? cols[categoryIdx]?.replace(/^"|"$/g, "") || "Clothing" : "Clothing",
-                    brand:      getBrandFromStoreName(name),
-                    gender:     "Women",
-                    description: "",
-                    imageURL:   imageIdx >= 0 ? cols[imageIdx]?.replace(/^"|"$/g, "") || "" : "",
-                    images:     imageIdx >= 0 && cols[imageIdx] ? [cols[imageIdx].replace(/^"|"$/g, "")] : [],
-                    productUrl: urlIdx >= 0 ? cols[urlIdx]?.replace(/^"|"$/g, "") || "" : "",
+                    externalId:  `csv_${i}_${Date.now()}`,
+                    title:       rawName,
+                    price:       parseFloat(rawPrice) || 0,
+                    category:    categoryIdx >= 0 ? cols[categoryIdx]?.replace(/^"|"$/g, "") || "Clothing" : "Clothing",
+                    brand:       getBrandFromStoreName(name),
+                    gender:      "Women",
+                    description: rawDesc,
+                    imageURL:    rawImageUrl,
+                    images:      rawImageUrl ? [rawImageUrl] : [],
+                    productUrl:  urlIdx >= 0 ? cols[urlIdx]?.replace(/^"|"$/g, "") || "" : "",
                     sizes,
-                    inStock:    true,
-                    isRemoteImage: !!(imageIdx >= 0 && cols[imageIdx]),
+                    styles,
+                    inStock:     true,
+                    isRemoteImage: !!rawImageUrl,
                 });
             }
 
@@ -309,8 +333,8 @@ export default function EditStorePage() {
     };
 
     const handleDownloadTemplate = () => {
-        const header = "name,price,category,imageURL,productUrl,sizes";
-        const example = `"The Effortless Pant",148,Pants,https://assets.aritzia.com/image/upload/q_auto/example.jpg,https://www.aritzia.com/us/en/product/example/77775.html,"XS|S|M|L|XL"`;
+        const header = "Product Name,Price (USD),Category,Product Image,Product URL,Product Description,Available Styles,Select a Size";
+        const example = `"The Effortless Pant",148,Pants,https://assets.aritzia.com/image/upload/q_auto/example.jpg,https://www.aritzia.com/us/en/product/example/77775.html,"A universally flattering pant with a relaxed straight leg.","Black|White|Navy","XS|S|M|L|XL"`;
         const csv = `${header}\n${example}\n`;
         const blob = new Blob([csv], { type: "text/csv" });
         const url = URL.createObjectURL(blob);
@@ -869,9 +893,9 @@ export default function EditStorePage() {
                                         <tr className="text-xs text-neutral-500 text-left">
                                             <th className="px-4 py-2 font-medium w-12">IMG</th>
                                             <th className="px-4 py-2 font-medium">Title</th>
-                                            <th className="px-4 py-2 font-medium">Category</th>
                                             <th className="px-4 py-2 font-medium text-right">Price</th>
                                             <th className="px-4 py-2 font-medium">Sizes</th>
+                                            <th className="px-4 py-2 font-medium">Styles</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -888,21 +912,30 @@ export default function EditStorePage() {
                                                 </td>
                                                 <td className="px-4 py-2">
                                                     <div className="font-medium text-white truncate max-w-48">{p.title}</div>
-                                                    <div className="text-xs text-neutral-500 font-mono">{p.externalId}</div>
-                                                </td>
-                                                <td className="px-4 py-2">
-                                                    <span className="px-2 py-0.5 rounded bg-white/5 text-xs text-neutral-300">{p.category}</span>
+                                                    {p.description && (
+                                                        <div className="text-xs text-neutral-500 truncate max-w-48">{p.description}</div>
+                                                    )}
                                                 </td>
                                                 <td className="px-4 py-2 text-right text-white font-medium">
                                                     ${p.price}
                                                 </td>
                                                 <td className="px-4 py-2">
                                                     <div className="flex flex-wrap gap-1 max-w-32">
-                                                        {(p.sizes || []).slice(0, 5).map((s: string) => (
+                                                        {(p.sizes || []).slice(0, 4).map((s: string) => (
                                                             <span key={s} className="px-1.5 py-0.5 rounded bg-neutral-800 text-xs text-neutral-300">{s}</span>
                                                         ))}
-                                                        {(p.sizes || []).length > 5 && (
-                                                            <span className="text-xs text-neutral-500">+{(p.sizes || []).length - 5}</span>
+                                                        {(p.sizes || []).length > 4 && (
+                                                            <span className="text-xs text-neutral-500">+{(p.sizes || []).length - 4}</span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-2">
+                                                    <div className="flex flex-wrap gap-1 max-w-32">
+                                                        {(p.styles || []).slice(0, 3).map((s: string) => (
+                                                            <span key={s} className="px-1.5 py-0.5 rounded bg-purple-900/40 text-xs text-purple-300">{s}</span>
+                                                        ))}
+                                                        {(p.styles || []).length > 3 && (
+                                                            <span className="text-xs text-neutral-500">+{(p.styles || []).length - 3}</span>
                                                         )}
                                                     </div>
                                                 </td>

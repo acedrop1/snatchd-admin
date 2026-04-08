@@ -192,7 +192,35 @@ struct ProductDetailView: View {
                                 SelectorMenu(title: "Size", selection: $selectedSize, options: product.sizes)
                                     .frame(maxWidth: .infinity)
                             }
-                            
+
+                            // Styles — colour / style options
+                            if !product.styles.isEmpty {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text("AVAILABLE STYLES")
+                                        .font(.custom("Montserrat-Bold", size: 11))
+                                        .foregroundColor(.gray)
+                                        .tracking(1.2)
+
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(spacing: 8) {
+                                            ForEach(product.styles, id: \.self) { style in
+                                                Text(style)
+                                                    .font(.custom("Montserrat-SemiBold", size: 13))
+                                                    .foregroundColor(.white)
+                                                    .padding(.horizontal, 14)
+                                                    .padding(.vertical, 8)
+                                                    .background(Color.white.opacity(0.1))
+                                                    .overlay(
+                                                        RoundedRectangle(cornerRadius: 20)
+                                                            .stroke(Color.white.opacity(0.25), lineWidth: 1)
+                                                    )
+                                                    .cornerRadius(20)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             // REAL-TIME STOCK CHECK UI
                             if isCheckingStock {
                                 HStack {

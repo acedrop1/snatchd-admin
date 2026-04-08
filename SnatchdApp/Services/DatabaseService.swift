@@ -202,6 +202,11 @@ class DatabaseService: ObservableObject {
                     if let direct = data["sizes"] as? [String] { sizes = direct }
                     else if let raw = data["sizes"] as? [Any] { sizes = raw.compactMap { $0 as? String } }
                     else { sizes = [] }
+                    // Styles (colour/style options)
+                    let styles: [String]
+                    if let direct = data["styles"] as? [String] { styles = direct }
+                    else if let raw = data["styles"] as? [Any] { styles = raw.compactMap { $0 as? String } }
+                    else { styles = [] }
                     let description = data["description"] as? String ?? ""
                     let inStock = data["inStock"] as? Bool ?? true
                     let zaraProductId = data["zaraProductId"] as? String
@@ -217,6 +222,7 @@ class DatabaseService: ObservableObject {
                         category: category,
                         gender: gender,
                         sizes: sizes,
+                        styles: styles,
                         description: description,
                         inStock: inStock,
                         zaraProductId: zaraProductId
@@ -323,6 +329,11 @@ class DatabaseService: ObservableObject {
                         if let direct = data["sizes"] as? [String] { sizes = direct }
                         else if let raw = data["sizes"] as? [Any] { sizes = raw.compactMap { $0 as? String } }
                         else { sizes = [] }
+                        let styles: [String]
+                        if let direct = data["styles"] as? [String] { styles = direct }
+                        else if let raw = data["styles"] as? [Any] { styles = raw.compactMap { $0 as? String } }
+                        else { styles = [] }
+                        let description = data["description"] as? String ?? ""
 
                         return Product(
                             storeId: storeId,
@@ -334,7 +345,9 @@ class DatabaseService: ObservableObject {
                             deliveryTime: deliveryTime,
                             category: category,
                             gender: gender,
-                            sizes: sizes
+                            sizes: sizes,
+                            styles: styles,
+                            description: description
                         )
                     }
                     print("✅ Just Dropped synced: \(self.justDroppedProducts.count)")
