@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, Loader2, Package, RefreshCw, CheckCircle, XCircle, ExternalLink, Trash2, AlertTriangle, Layers, Eye, EyeOff, Upload, Download } from "lucide-react";
+import { ArrowLeft, Loader2, Package, RefreshCw, CheckCircle, XCircle, ExternalLink, Trash2, AlertTriangle, Layers, Eye, EyeOff, Upload, Download, Image as ImageIcon } from "lucide-react";
 import { db, storage } from "@/lib/firebase";
 import { doc, getDoc, updateDoc, deleteDoc, collection, getDocs, setDoc, serverTimestamp, query, where } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -96,6 +96,8 @@ export default function EditStorePage() {
     const [saveProgress, setSaveProgress] = useState(0);
     const [saveCount, setSaveCount] = useState(0);
     const [deletingProducts, setDeletingProducts] = useState(false);
+    const [enrichingImages, setEnrichingImages] = useState(false);
+    const [enrichProgress, setEnrichProgress] = useState({ done: 0, total: 0, found: 0 });
 
     // Load store + existing inventory
     useEffect(() => {
@@ -241,15 +243,45 @@ export default function EditStorePage() {
         const reader = new FileReader();
         reader.onload = (ev) => {
             const text = ev.target?.result as string;
-            const lines = text.split(/\r?\n/).filter(l => l.trim());
-            if (lines.length < 2) { alert("CSV must have a header row + at least one product."); return; }
 
-            // Normalise header names — strip spaces, parens, special chars for flexible matching
-            const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, "").toLowerCase().replace(/[\s()™]/g, ""));
-            // Try multiple aliases, return first match
+            // ── Full CSV parser: handles multiline quoted fields ───────────────
+            // (Aritzia exports sizes/styles as newline-separated values inside quotes)
+            const parseCSV = (raw: string): string[][] => {
+                const rows: string[][] = [];
+                let row: string[] = [];
+                let cur = "";
+                let inQ = false;
+                for (let i = 0; i < raw.length; i++) {
+                    const ch = raw[i];
+                    if (ch === '"') {
+                        if (inQ && raw[i + 1] === '"') { cur += '"'; i++; } // escaped ""
+                        else { inQ = !inQ; }
+                    } else if (ch === ',' && !inQ) {
+                        row.push(cur); cur = "";
+                    } else if (ch === '\r' && !inQ) {
+                        // skip bare \r
+                    } else if (ch === '\n' && !inQ) {
+                        row.push(cur); cur = "";
+                        if (row.some(c => c.trim())) rows.push(row);
+                        row = [];
+                    } else {
+                        cur += ch;
+                    }
+                }
+                // flush last row
+                row.push(cur);
+                if (row.some(c => c.trim())) rows.push(row);
+                return rows;
+            };
+
+            const allRows = parseCSV(text);
+            if (allRows.length < 2) { alert("CSV must have a header row + at least one product."); return; }
+
+            // Normalise header names — strip quotes, spaces, parens, trademark symbols
+            const headers = allRows[0].map(h => h.trim().replace(/^"|"$/g, "").toLowerCase().replace(/[\s()™®]/g, ""));
             const col = (...names: string[]): number => {
                 for (const n of names) {
-                    const idx = headers.indexOf(n.toLowerCase().replace(/[\s()]/g, ""));
+                    const idx = headers.indexOf(n.toLowerCase().replace(/[\s()™®]/g, ""));
                     if (idx >= 0) return idx;
                 }
                 return -1;
@@ -270,39 +302,27 @@ export default function EditStorePage() {
                 return;
             }
 
-            // Parse a single CSV line respecting quoted fields with commas inside
-            const parseLine = (line: string): string[] => {
-                const cols: string[] = [];
-                let cur = "", inQ = false;
-                for (const ch of line) {
-                    if (ch === '"') { inQ = !inQ; }
-                    else if (ch === "," && !inQ) { cols.push(cur.trim()); cur = ""; }
-                    else { cur += ch; }
-                }
-                cols.push(cur.trim());
-                return cols;
-            };
-
             const parsed: any[] = [];
-            for (let i = 1; i < lines.length; i++) {
-                const cols = parseLine(lines[i]);
+            for (let i = 1; i < allRows.length; i++) {
+                const cols = allRows[i];
 
-                const rawName  = cols[nameIdx]?.replace(/^"|"$/g, "") || "";
+                const rawName  = cols[nameIdx]?.trim() || "";
                 const rawPrice = cols[priceIdx]?.replace(/[^0-9.]/g, "") || "0";
                 if (!rawName) continue;
 
-                const rawSizes = sizesIdx >= 0 ? cols[sizesIdx]?.replace(/^"|"$/g, "") : "";
+                // Sizes and styles: Aritzia uses newlines as separators inside the quoted field
+                const rawSizes = sizesIdx >= 0 ? cols[sizesIdx]?.trim() : "";
                 const sizes = rawSizes
-                    ? rawSizes.split(/[|,;]/).map(s => s.trim()).filter(Boolean)
-                    : ["XS", "S", "M", "L", "XL"];
-
-                const rawStyles = stylesIdx >= 0 ? cols[stylesIdx]?.replace(/^"|"$/g, "") : "";
-                const styles = rawStyles
-                    ? rawStyles.split(/[|,;]/).map(s => s.trim()).filter(Boolean)
+                    ? rawSizes.split(/[\n|,;]/).map(s => s.trim()).filter(Boolean)
                     : [];
 
-                const rawDesc     = descIdx  >= 0 ? cols[descIdx]?.replace(/^"|"$/g, "")  || "" : "";
-                const rawImageUrl = imageIdx >= 0 ? cols[imageIdx]?.replace(/^"|"$/g, "") || "" : "";
+                const rawStyles = stylesIdx >= 0 ? cols[stylesIdx]?.trim() : "";
+                const styles = rawStyles
+                    ? rawStyles.split(/[\n|,;]/).map(s => s.trim()).filter(Boolean)
+                    : [];
+
+                const rawDesc     = descIdx  >= 0 ? cols[descIdx]?.trim()  || "" : "";
+                const rawImageUrl = imageIdx >= 0 ? cols[imageIdx]?.trim() || "" : "";
 
                 parsed.push({
                     externalId:  `csv_${i}_${Date.now()}`,
@@ -330,6 +350,40 @@ export default function EditStorePage() {
         reader.readAsText(file);
         // Reset so same file can be re-uploaded
         e.target.value = "";
+    };
+
+    // ── Enrich product images from their product URLs ─────────────────────────
+    const handleEnrichImages = async () => {
+        const missing = fetchedProducts.filter(p => !p.imageURL && p.productUrl);
+        if (missing.length === 0) { alert("All products already have images."); return; }
+
+        setEnrichingImages(true);
+        setEnrichProgress({ done: 0, total: missing.length, found: 0 });
+
+        let found = 0;
+        const updated = [...fetchedProducts];
+
+        for (const product of missing) {
+            try {
+                const res = await fetch(`/api/og-image?url=${encodeURIComponent(product.productUrl)}`);
+                if (res.ok) {
+                    const { imageUrl } = await res.json();
+                    if (imageUrl) {
+                        const idx = updated.findIndex(p => p.externalId === product.externalId);
+                        if (idx >= 0) {
+                            updated[idx] = { ...updated[idx], imageURL: imageUrl, images: [imageUrl], isRemoteImage: true };
+                            found++;
+                        }
+                    }
+                }
+            } catch { /* skip failed */ }
+
+            setEnrichProgress(prev => ({ ...prev, done: prev.done + 1, found }));
+        }
+
+        setFetchedProducts(updated);
+        setEnrichingImages(false);
+        setEnrichProgress(prev => ({ ...prev, done: missing.length, found }));
     };
 
     const handleDownloadTemplate = () => {
@@ -857,9 +911,29 @@ export default function EditStorePage() {
                             <div className="flex items-center justify-between p-4 border-b border-white/5">
                                 <div>
                                     <h4 className="font-semibold text-white">{fetchedProducts.length} Products Ready</h4>
-                                    <p className="text-xs text-neutral-400 mt-0.5">Review before saving to this store</p>
+                                    <p className="text-xs text-neutral-400 mt-0.5">
+                                        {enrichingImages
+                                            ? `Fetching images… ${enrichProgress.done}/${enrichProgress.total} (${enrichProgress.found} found)`
+                                            : enrichProgress.found > 0
+                                                ? `${enrichProgress.found} images fetched from product pages`
+                                                : "Review before saving to this store"
+                                        }
+                                    </p>
                                 </div>
                                 <div className="flex items-center gap-3">
+                                    {/* Fetch Images button — visible when some products are missing images */}
+                                    {fetchedProducts.some(p => !p.imageURL && p.productUrl) && (
+                                        <button
+                                            onClick={handleEnrichImages}
+                                            disabled={enrichingImages || saveStatus === "saving"}
+                                            className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-md text-xs font-bold hover:bg-amber-500/30 transition disabled:opacity-50"
+                                        >
+                                            {enrichingImages
+                                                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Fetching…</>
+                                                : <><ImageIcon className="h-3.5 w-3.5" /> Fetch Images</>
+                                            }
+                                        </button>
+                                    )}
                                     {saveStatus === "done" && (
                                         <span className="flex items-center gap-1 text-xs text-green-400">
                                             <CheckCircle className="h-3.5 w-3.5" /> Saved
@@ -867,7 +941,7 @@ export default function EditStorePage() {
                                     )}
                                     <button
                                         onClick={handleSaveProducts}
-                                        disabled={saveStatus === "saving"}
+                                        disabled={saveStatus === "saving" || enrichingImages}
                                         className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md text-sm font-bold hover:bg-green-700 transition disabled:opacity-50"
                                     >
                                         {saveStatus === "saving" ? (
