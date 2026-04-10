@@ -399,9 +399,16 @@ struct ProductDetailView: View {
                         .padding(25)
                     }
                 }
-                .glassEffect(in: RoundedRectangle(cornerRadius: 30))
+                .background(
+                    RoundedRectangle(cornerRadius: 30)
+                        .fill(Color.black.opacity(0.72))
+                )
+                .background(
+                    RoundedRectangle(cornerRadius: 30)
+                        .fill(.ultraThinMaterial)
+                )
                 .frame(height: geometry.size.height * 0.85) // Sheet height
-                .offset(y: isSheetExpanded ? geometry.size.height * 0.15 : geometry.size.height * 0.60) // Collapsed starts at 60%
+                .offset(y: isSheetExpanded ? geometry.size.height * 0.12 : geometry.size.height * 0.54) // Collapsed starts at 54%
                 .offset(y: dragOffset)
                 .highPriorityGesture(
                     DragGesture(minimumDistance: 10)
@@ -542,7 +549,7 @@ struct SelectorMenu: View {
     let title: String
     @Binding var selection: String
     let options: [String]
-    
+
     var body: some View {
         Menu {
             ForEach(options, id: \.self) { option in
@@ -557,21 +564,27 @@ struct SelectorMenu: View {
             }
         } label: {
             HStack {
-                Text("\(title): \(selection)")
+                Text(selection.isEmpty ? title : "\(title): \(selection)")
                     .font(.custom("Montserrat-Medium", size: 14))
+                    .foregroundColor(.white)
                 Spacer()
                 Image(systemName: "chevron.down")
                     .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
             }
-            .foregroundColor(.white)
             .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            .padding(.vertical, 14)
+            // Manual styling — avoids the black flash that glassEffect causes on Menu labels
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color.white.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color.white.opacity(0.25), lineWidth: 1)
+            )
         }
-        .glassEffect(in: RoundedRectangle(cornerRadius: 20))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(Color.white.opacity(0.3), lineWidth: 1)
-        )
+        .menuOrder(.fixed)
     }
 }
 

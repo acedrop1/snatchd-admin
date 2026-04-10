@@ -517,11 +517,11 @@ export default function EditStorePage() {
             try {
                 const res = await fetch(`/api/og-image?url=${encodeURIComponent(product.productUrl)}`);
                 if (res.ok) {
-                    const { imageUrl } = await res.json();
+                    const { imageUrl, images: fetchedImgs } = await res.json();
                     if (imageUrl) {
                         const idx = updated.findIndex(p => p.externalId === product.externalId);
                         if (idx >= 0) {
-                            updated[idx] = { ...updated[idx], imageURL: imageUrl, images: [imageUrl], isRemoteImage: true };
+                            updated[idx] = { ...updated[idx], imageURL: imageUrl, images: fetchedImgs?.length ? fetchedImgs : [imageUrl], isRemoteImage: true };
                             found++;
                         }
                     }
@@ -664,11 +664,12 @@ export default function EditStorePage() {
             try {
                 const res = await fetch(`/api/og-image?url=${encodeURIComponent(product.productUrl)}`);
                 if (res.ok) {
-                    const { imageUrl } = await res.json();
+                    const { imageUrl, images: fetchedImgs } = await res.json();
                     if (imageUrl) {
+                        const allImgs = fetchedImgs?.length ? fetchedImgs : [imageUrl];
                         await updateDoc(doc(db, "products", product.id), {
                             imageURL: imageUrl,
-                            images: [imageUrl],
+                            images: allImgs,
                         });
                         found++;
                     }
