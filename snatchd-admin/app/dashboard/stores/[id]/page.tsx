@@ -649,24 +649,24 @@ export default function EditStorePage() {
         setSavedProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter((p: any) => p.storeId === storeId));
     };
 
-    // ── Fix missing images for already-saved products ─────────────────────────
+    // ── Fetch/refresh images for all saved products that have a productUrl ───────
+    // Runs on ALL products (not just ones missing images) so single-image products
+    // get upgraded to a full gallery.
     const handleFixSavedImages = async () => {
-        const missing = savedProducts.filter(
-            p => (!p.imageURL && !p.images?.length) && p.productUrl
-        );
-        if (missing.length === 0) { alert("All saved products already have images."); return; }
+        const targets = savedProducts.filter(p => p.productUrl);
+        if (targets.length === 0) { alert("No products have a product URL to fetch images from."); return; }
 
         setEnrichingImages(true);
-        setEnrichProgress({ done: 0, total: missing.length, found: 0 });
+        setEnrichProgress({ done: 0, total: targets.length, found: 0 });
 
         let found = 0;
-        for (const product of missing) {
+        for (const product of targets) {
             try {
                 const res = await fetch(`/api/og-image?url=${encodeURIComponent(product.productUrl)}`);
                 if (res.ok) {
                     const { imageUrl, images: fetchedImgs } = await res.json();
                     if (imageUrl) {
-                        const allImgs = fetchedImgs?.length ? fetchedImgs : [imageUrl];
+                        const allImgs = fetchedImgs?.length > 1 ? fetchedImgs : (fetchedImgs ?? [imageUrl]);
                         await updateDoc(doc(db, "products", product.id), {
                             imageURL: imageUrl,
                             images: allImgs,
@@ -678,11 +678,10 @@ export default function EditStorePage() {
             setEnrichProgress(prev => ({ ...prev, done: prev.done + 1, found }));
         }
 
-        // Refresh saved products list
         const snap = await getDocs(collection(db, "products"));
         setSavedProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter((p: any) => p.storeId === storeId));
         setEnrichingImages(false);
-        alert(`Done — added images to ${found} of ${missing.length} products.`);
+        alert(`Done — refreshed images for ${found} of ${targets.length} products.`);
     };
 
     // ── Delete all products for this store ────────────────────────────────────
@@ -999,12 +998,12 @@ export default function EditStorePage() {
                             </div>
                             {savedProducts.length > 0 && (
                                 <div className="flex items-center gap-2">
-                                    {savedProducts.some(p => (!p.imageURL && !p.images?.length) && p.productUrl) && (
+                                    {savedProducts.some(p => p.productUrl) && (
                                         <button onClick={handleFixSavedImages} disabled={enrichingImages}
                                             className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 text-amber-400 rounded text-xs font-medium hover:bg-amber-500/20 transition disabled:opacity-50">
                                             {enrichingImages
                                                 ? <><Loader2 className="h-3 w-3 animate-spin" /> {enrichProgress.done}/{enrichProgress.total} images…</>
-                                                : <><ImageIcon className="h-3 w-3" /> Fix Missing Images</>
+                                                : <><ImageIcon className="h-3 w-3" /> Refresh All Images</>
                                             }
                                         </button>
                                     )}

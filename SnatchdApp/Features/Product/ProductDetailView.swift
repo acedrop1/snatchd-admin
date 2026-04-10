@@ -407,8 +407,8 @@ struct ProductDetailView: View {
                     RoundedRectangle(cornerRadius: 30)
                         .fill(.ultraThinMaterial)
                 )
-                .frame(height: geometry.size.height * 0.85) // Sheet height
-                .offset(y: isSheetExpanded ? geometry.size.height * 0.12 : geometry.size.height * 0.54) // Collapsed starts at 54%
+                .frame(height: geometry.size.height * 1.05) // Overshoot so bottom never shows a gap
+                .offset(y: isSheetExpanded ? geometry.size.height * 0.10 : geometry.size.height * 0.54) // Collapsed starts at 54%
                 .offset(y: dragOffset)
                 .highPriorityGesture(
                     DragGesture(minimumDistance: 10)
