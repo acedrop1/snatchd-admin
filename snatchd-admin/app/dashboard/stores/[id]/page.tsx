@@ -1172,11 +1172,16 @@ export default function EditStorePage() {
                                         {fetchedProducts.map((p, i) => (
                                             <tr key={p.externalId || i} className="border-t border-white/5 hover:bg-white/5 transition">
                                                 <td className="px-4 py-2">
-                                                    <div className="h-10 w-10 rounded bg-neutral-800 overflow-hidden">
+                                                    <div className="relative h-10 w-10 rounded bg-neutral-800 overflow-hidden">
                                                         {p.imageURL ? (
                                                             <img src={p.imageURL} alt="" className="h-full w-full object-cover" />
                                                         ) : (
                                                             <Package className="h-5 w-5 text-neutral-600 m-auto mt-2.5" />
+                                                        )}
+                                                        {(p.images?.length ?? 0) > 1 && (
+                                                            <span className="absolute bottom-0 right-0 bg-blue-600 text-white text-[9px] font-bold px-1 rounded-tl">
+                                                                {p.images.length}
+                                                            </span>
                                                         )}
                                                     </div>
                                                 </td>

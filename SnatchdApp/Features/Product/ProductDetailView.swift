@@ -47,6 +47,7 @@ struct ProductDetailView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
+            Color.black.ignoresSafeArea() // fills behind status bar / dynamic island
             // 1. Background Image Area — carousel if multiple images, single if one
             GeometryReader { geometry in
                 let imageHeight = geometry.size.height * 0.65
@@ -125,7 +126,7 @@ struct ProductDetailView: View {
                     }
                 }
             }
-            .edgesIgnoringSafeArea(.all)
+            .ignoresSafeArea()
             .simultaneousGesture(
                 TapGesture()
                     .onEnded { _ in
