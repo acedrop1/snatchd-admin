@@ -1303,7 +1303,7 @@ export default function EditStorePage() {
                                                     {(() => {
                                                         const a = p.availability || {}; const vals = Object.values(a) as string[];
                                                         const inStock = vals.filter(v => v === "in_stock").length;
-                                                        if (!vals.length || p.availabilitySource === "none") return <span className="text-neutral-500">unconfirmed</span>;
+                                                        if (!vals.length || p.availabilitySource === "none") return <span className="text-neutral-500">not checked yet</span>;
                                                         return <span className={inStock ? "text-green-400" : "text-red-400"}>{inStock}/{vals.length} sizes</span>;
                                                     })()}
                                                 </td>

@@ -34,7 +34,10 @@ struct ProductDetailView: View {
 
     private var unavailableSizes: Set<String> { availability?.unavailableSizes ?? product.unavailableSizes }
     private var selectedSizeUnavailable: Bool { !selectedSize.isEmpty && unavailableSizes.contains(selectedSize) }
+    /// Only a known sold-out blocks the order. Unconfirmed is orderable — the
+    /// Snatcher checks the rack before the card is captured.
     private var canAddToCart: Bool { product.inStock && !selectedSizeUnavailable }
+    private var buttonLabel: String { canAddToCart ? "Add to Cart" : "Sold Out" }
 
     // All images for this product — used in both the detail carousel and the full-screen viewer
     private var allProductImages: [String] {
@@ -331,7 +334,7 @@ struct ProductDetailView: View {
                                     }
                                 }
                             }) {
-                                let buttonText: String = canAddToCart ? "Add to Cart" : "SOLD OUT"
+                                let buttonText: String = buttonLabel
                                 let backgroundColor: Color = canAddToCart ? Color.clear : Color.black.opacity(0.6)
                                 let grayscaleAmount: Double = canAddToCart ? 0 : 1.0
                                 let topShadowColor: Color = canAddToCart ? Color.white.opacity(0.2) : Color.clear

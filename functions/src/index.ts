@@ -127,14 +127,19 @@ async function fetchCatalog(store: StoreSource, limit: number): Promise<{ produc
 
 function patchFor(p: SourceProduct, source: SourceKind) {
     const availability = source === 'bergdorf' && p.storeAvailability ? p.storeAvailability : p.availability;
-    const inStock = Object.values(availability).some(s => s === 'in_stock');
+    const states = Object.values(availability);
+    // No per-size data yet (a listing-only catalog row) is UNKNOWN, not sold out.
+    // Claiming out-of-stock from an empty set is the one mistake this whole
+    // model exists to prevent: it hides real products and reads as "sold out".
+    const unchecked = states.length === 0;
+    const inStock = unchecked ? true : states.some(s => s === 'in_stock');
     return {
         title: p.title, handle: p.handle, externalId: p.externalId, productUrl: p.productUrl,
         price: p.price, compareAtPrice: p.compareAtPrice,
         description: p.description, images: p.images, sizes: p.sizes, styles: p.styles,
         category: p.category, gender: p.gender, productType: p.productType, tags: p.tags,
         variants: p.variants,
-        availability, availabilitySource: source,
+        availability, availabilitySource: unchecked ? 'none' : source,
         availabilityCheckedAt: now(), inStock,
         updatedAt: now(),
     };
