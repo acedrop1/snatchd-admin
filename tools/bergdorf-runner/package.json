@@ -1,0 +1,15 @@
+{
+  "name": "snatchd-bergdorf-runner",
+  "private": true,
+  "type": "module",
+  "description": "Runs on a Mac with real Google Chrome. Reads Bergdorf Goodman's own per-store stock and sends it to Snatchd.",
+  "scripts": {
+    "catalog": "node runner.mjs catalog",
+    "refresh": "node runner.mjs refresh",
+    "serve": "node runner.mjs serve",
+    "check": "node runner.mjs refresh --limit 3"
+  },
+  "dependencies": {
+    "playwright": "^1.47.0"
+  }
+}

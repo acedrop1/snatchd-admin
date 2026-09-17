@@ -166,6 +166,8 @@ class DatabaseService: ObservableObject {
 
     static func parseProduct(_ doc: DocumentSnapshot) -> Product? {
         guard let data = doc.data() else { return nil }
+        // Hidden in the portal (e.g. a runner-imported catalog the operator hasn't curated yet)
+        if data["isActive"] as? Bool == false { return nil }
         func strings(_ key: String) -> [String] {
             if let a = data[key] as? [String] { return a }
             if let a = data[key] as? [Any] { return a.compactMap { $0 as? String } }

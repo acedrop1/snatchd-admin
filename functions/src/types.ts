@@ -1,5 +1,5 @@
 export type SizeState = 'in_stock' | 'out_of_stock' | 'unknown';
-export type SourceKind = 'shopify' | 'skims' | 'manual';
+export type SourceKind = 'shopify' | 'skims' | 'bergdorf' | 'manual';
 
 export interface SourceVariant {
     id: string;
@@ -29,6 +29,8 @@ export interface SourceProduct {
     variants: SourceVariant[];
     availability: Record<string, SizeState>;
     productUrl: string;
+    /** bergdorf: the retailer's own per-store answer, per size */
+    storeAvailability?: Record<string, SizeState>;
 }
 
 /** The fields on a store doc that say where its inventory comes from. */

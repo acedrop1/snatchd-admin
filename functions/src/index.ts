@@ -40,7 +40,7 @@ export const createPaymentIntent = onRequest({
 // ── Inventory ──────────────────────────────────────────────────────────────
 // A store says where its inventory comes from:
 //
-//   inventorySource: 'shopify' | 'skims' | 'manual'   (store doc)
+//   inventorySource: 'shopify' | 'skims' | 'bergdorf' | 'manual'   (store doc)
 //   sourceDomain:     'kith.com'                       (shopify)
 //   sourceCollection: 'best-sellers'                   (skims, optional)
 //
@@ -51,7 +51,9 @@ export const createPaymentIntent = onRequest({
 //   availabilitySource:    'shopify' | 'skims' | 'courier' | 'none'
 //   availabilityCheckedAt: Timestamp
 //
-// Every source is ONLINE availability. In-store truth is the Snatcher.
+// shopify/skims are ONLINE availability. bergdorf is the retailer's own
+// per-store count, delivered by a runner on a Mac (tools/bergdorf-runner) —
+// Cloud Functions can't reach bergdorfgoodman.com (DataDome), a real Chrome can.
 
 // Portal-only endpoints: the caller must present a Firebase ID token carrying
 // the admin claim (Authorization: Bearer <idToken>). checkAvailability stays public.
@@ -62,6 +64,14 @@ async function requireAdmin(req: any, res: any): Promise<boolean> {
         if (token?.admin === true) return true;
     } catch { /* fall through */ }
     res.status(403).json({ error: 'admin only' });
+    return false;
+}
+
+// The Bergdorf runner authenticates with a shared token from functions/.env.
+function requireRunner(req: any, res: any): boolean {
+    const expected = process.env.RUNNER_TOKEN;
+    if (expected && req.get('x-runner-token') === expected) return true;
+    res.status(403).json({ error: 'runner only' });
     return false;
 }
 
@@ -80,7 +90,7 @@ async function loadStore(storeId: string): Promise<StoreSource> {
 }
 
 async function liveStores(): Promise<StoreSource[]> {
-    const snap = await db.collection('stores').where('inventorySource', 'in', ['shopify', 'skims']).get();
+    const snap = await db.collection('stores').where('inventorySource', 'in', ['shopify', 'skims']).get(); // bergdorf refreshes itself via the runner
     return Promise.all(snap.docs.map(d => loadStore(d.id)));
 }
 
@@ -116,14 +126,15 @@ async function fetchCatalog(store: StoreSource, limit: number): Promise<{ produc
 }
 
 function patchFor(p: SourceProduct, source: SourceKind) {
-    const inStock = Object.values(p.availability).some(s => s === 'in_stock');
+    const availability = source === 'bergdorf' && p.storeAvailability ? p.storeAvailability : p.availability;
+    const inStock = Object.values(availability).some(s => s === 'in_stock');
     return {
         title: p.title, handle: p.handle, externalId: p.externalId, productUrl: p.productUrl,
         price: p.price, compareAtPrice: p.compareAtPrice,
         description: p.description, images: p.images, sizes: p.sizes, styles: p.styles,
         category: p.category, gender: p.gender, productType: p.productType, tags: p.tags,
         variants: p.variants,
-        availability: p.availability, availabilitySource: source,
+        availability, availabilitySource: source,
         availabilityCheckedAt: now(), inStock,
         updatedAt: now(),
     };
@@ -286,7 +297,17 @@ export const checkAvailability = onRequest({ cors: true, timeoutSeconds: 30 }, a
         const checkedAt: FirebaseFirestore.Timestamp | undefined = d.availabilityCheckedAt;
         const stale = !checkedAt || Date.now() - checkedAt.toMillis() > FRESH_MS;
         const handle = d.handle || (d.productUrl || '').split('/products/')[1];
-        if (source !== 'manual' && handle && stale && storeSnap) {
+        if (source === 'bergdorf' && stale) {
+            // Ask the Mac runner for a live Find-In-Store answer; wait up to 6s for it.
+            const before = checkedAt?.toMillis() ?? 0;
+            await db.doc(`availabilityRequests/${productId}`).set({ productId, storeId: d.storeId, requestedAt: now() }, { merge: true });
+            for (let i = 0; i < 12; i++) {
+                await sleep(500);
+                const fresh = (await ref.get()).data()!;
+                const at: FirebaseFirestore.Timestamp | undefined = fresh.availabilityCheckedAt;
+                if (at && at.toMillis() > before) { d = fresh; break; }
+            }
+        } else if (source !== 'manual' && handle && stale && storeSnap) {
             try {
                 const store = await loadStore(storeSnap.id);
                 const patch = patchFor(await fetchOne(store, handle), source);
@@ -325,4 +346,73 @@ export const syncSkimsStoreLocation = onRequest({ cors: true, timeoutSeconds: 60
         await db.doc(`stores/${storeId}`).set({ address: flagship.address, latitude: flagship.latitude, longitude: flagship.longitude, phone: flagship.phone, externalId: flagship.externalId }, { merge: true });
         res.json({ ok: true, ...flagship });
     } catch (error: any) { res.status(500).json({ error: error.message }); }
+});
+
+// ── Bergdorf runner endpoints ──────────────────────────────────────────────
+
+/**
+ * POST /ingestInventory  { storeId, source: 'bergdorf', products: SourceProduct[], mode: 'catalog' | 'refresh' }
+ * catalog: upsert everything (new products hidden until the operator shows them).
+ * refresh: update availability/prices for products already present; clears any live-check requests answered.
+ */
+export const ingestInventory = onRequest({ cors: false, timeoutSeconds: 300, memory: '512MiB' }, async (req, res) => {
+    if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
+    if (!requireRunner(req, res)) return;
+    try {
+        const { storeId, source = 'bergdorf', products = [], mode = 'refresh' } = req.body || {};
+        if (!storeId || !Array.isArray(products)) { res.status(400).json({ error: 'storeId and products[] required' }); return; }
+        const store = await loadStore(storeId);
+        const existing = await db.collection('products').where('storeId', '==', storeId).get();
+        const existingIds = new Set(existing.docs.map(d => d.id));
+        const writes: Parameters<typeof commitChunked>[0] = [];
+        const answered: string[] = [];
+        for (const p of products as SourceProduct[]) {
+            const id = `${source}_${p.externalId}_${storeId}`;
+            const data: any = { ...patchFor(p, source as SourceKind), brand: p.brand || store.brand, storeId, deliveryTime: '45 Mins' };
+            if (!existingIds.has(id)) { data.createdAt = now(); data.isActive = mode === 'catalog' ? false : true; }
+            writes.push({ ref: db.doc(`products/${id}`), data, merge: true });
+            answered.push(id);
+        }
+        await commitChunked(writes);
+        // Live-check requests for these products are now satisfied.
+        const reqs = await db.collection('availabilityRequests').where('storeId', '==', storeId).get();
+        const batch = db.batch(); let cleared = 0;
+        for (const r of reqs.docs) if (answered.includes(r.id)) { batch.delete(r.ref); cleared++; }
+        if (cleared) await batch.commit();
+        await setSourceHealth(storeId, true, `${mode}: ${products.length} products`);
+        res.json({ ok: true, written: writes.length, cleared });
+    } catch (error: any) {
+        await alert(`ingestInventory failed: ${error.message}`);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /pendingChecks?storeId=…&wait=25
+ * Long-poll: returns queued live-check requests for the runner as soon as any exist.
+ */
+export const pendingChecks = onRequest({ cors: false, timeoutSeconds: 60 }, async (req, res) => {
+    if (!requireRunner(req, res)) return;
+    const storeId = String(req.query.storeId || '');
+    const wait = Math.min(Number(req.query.wait) || 25, 50) * 1000;
+    if (!storeId) { res.status(400).json({ error: 'storeId required' }); return; }
+    // all=1 → every product shown in the app for this store (the scheduled refresh), no waiting
+    if (req.query.all) {
+        const shown = await db.collection('products').where('storeId', '==', storeId).where('isActive', '==', true).get();
+        res.json({ requests: shown.docs.map(d => ({ productId: d.id, externalId: d.get('externalId'), handle: d.get('handle'), productUrl: d.get('productUrl'), sizes: d.get('sizes') || [], variants: d.get('variants') || [] })) });
+        return;
+    }
+    const q = db.collection('availabilityRequests').where('storeId', '==', storeId);
+    const items = await new Promise<any[]>(resolve => {
+        let done = false;
+        const finish = (docs: any[]) => { if (!done) { done = true; unsub(); clearTimeout(t); resolve(docs); } };
+        const unsub = q.onSnapshot(snap => { if (!snap.empty) finish(snap.docs.map(d => ({ id: d.id, ...d.data() }))); }, () => finish([]));
+        const t = setTimeout(() => finish([]), wait);
+    });
+    // Runner needs the product handles to open the right pages
+    const out = await Promise.all(items.map(async r => {
+        const p = (await db.doc(`products/${r.productId}`).get()).data() || {};
+        return { productId: r.productId, externalId: p.externalId, handle: p.handle, productUrl: p.productUrl, sizes: p.sizes || [], variants: p.variants || [] };
+    }));
+    res.json({ requests: out });
 });

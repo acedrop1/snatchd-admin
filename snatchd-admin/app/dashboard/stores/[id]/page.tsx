@@ -121,7 +121,7 @@ export default function EditStorePage() {
     const [savedProducts, setSavedProducts] = useState<any[]>([]);
     const [fetchedProducts, setFetchedProducts] = useState<any[]>([]);
     // Where this store's inventory comes from — set explicitly, never guessed from the name
-    const [inventorySource, setInventorySource] = useState<"manual" | "shopify" | "skims">("manual");
+    const [inventorySource, setInventorySource] = useState<"manual" | "shopify" | "skims" | "bergdorf">("manual");
     const [sourceDomain, setSourceDomain] = useState("");
     const [savingSource, setSavingSource] = useState(false);
     const [syncing, setSyncing] = useState(false);
@@ -270,6 +270,12 @@ export default function EditStorePage() {
         } finally {
             setTogglingActive(false);
         }
+    };
+
+    const toggleShown = async (p: any) => {
+        const next = p.isActive === false;
+        await updateDoc(doc(db, "products", p.id), { isActive: next });
+        setSavedProducts(prev => prev.map(x => x.id === p.id ? { ...x, isActive: next } : x));
     };
 
     const reloadProducts = async () => {
@@ -1026,10 +1032,11 @@ export default function EditStorePage() {
                             )}
                         </div>
 
-                        <div className="grid gap-3 sm:grid-cols-3">
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                             {([
                                 { v: "skims",   t: "Skims live feed",  d: "skims.com — prices, sizes, availability every 30 min" },
                                 { v: "shopify", t: "Shopify catalog",  d: "Any brand on a standard Shopify store — paste the domain" },
+                                { v: "bergdorf", t: "Bergdorf runner", d: "Their own per-store count, read by the Mac runner. Nightly catalog, 10:30 & 15:00, live on open." },
                                 { v: "manual",  t: "Manual / CSV",     d: "You maintain it. A Snatcher confirms stock in store." },
                             ] as const).map(o => (
                                 <button key={o.v} type="button" onClick={() => setInventorySource(o.v)}
@@ -1050,8 +1057,18 @@ export default function EditStorePage() {
                             </div>
                         )}
 
+                        {inventorySource === "bergdorf" && (
+                            <p className="text-xs text-neutral-400 rounded-lg border border-white/10 bg-black/40 p-3">
+                                Products arrive from the runner (<span className="font-mono">tools/bergdorf-runner</span>). New items land hidden — use <strong className="text-white">Show</strong> on the rows below to carry them. Save the source so the app knows to ask the runner for live checks.
+                            </p>
+                        )}
                         <div className="flex flex-wrap items-center gap-3">
-                            {inventorySource !== "manual" ? (
+                            {inventorySource === "bergdorf" ? (
+                                <button onClick={saveSource} disabled={savingSource}
+                                    className="flex items-center gap-2 px-4 py-2 bg-white text-black rounded-md text-sm font-bold hover:bg-neutral-200 transition disabled:opacity-50">
+                                    {savingSource ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save source"}
+                                </button>
+                            ) : inventorySource !== "manual" ? (
                                 <>
                                     <button onClick={handleSyncCatalog} disabled={syncing || (inventorySource === "shopify" && !sourceDomain.trim())}
                                         className="flex items-center gap-2 px-4 py-2 bg-white text-black rounded-md text-sm font-bold hover:bg-neutral-200 transition disabled:opacity-50">
@@ -1228,7 +1245,7 @@ export default function EditStorePage() {
                             <div className="p-4 border-b border-white/5 flex items-center justify-between">
                                 <div>
                                     <h4 className="font-semibold text-white">Current Inventory</h4>
-                                    <p className="text-xs text-neutral-400 mt-0.5">{savedProducts.length} products in this store</p>
+                                    <p className="text-xs text-neutral-400 mt-0.5">{savedProducts.filter(p => p.isActive !== false).length} shown in app · {savedProducts.length} total</p>
                                 </div>
                                 <div className="flex flex-wrap gap-2">
                                     {/* Category breakdown */}
@@ -1255,6 +1272,7 @@ export default function EditStorePage() {
                                             <th className="px-4 py-2 font-medium text-right">Price</th>
                                             <th className="px-4 py-2 font-medium">Sizes</th>
                                             <th className="px-4 py-2 font-medium">In stock</th>
+                                            <th className="px-4 py-2 font-medium">In app</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1296,6 +1314,12 @@ export default function EditStorePage() {
                                                         if (!vals.length || p.availabilitySource === "none") return <span className="text-neutral-500">unconfirmed</span>;
                                                         return <span className={inStock ? "text-green-400" : "text-red-400"}>{inStock}/{vals.length} sizes</span>;
                                                     })()}
+                                                </td>
+                                                <td className="px-4 py-2">
+                                                    <button onClick={() => toggleShown(p)}
+                                                        className={`px-2 py-1 rounded text-xs font-medium border transition ${p.isActive === false ? "border-neutral-700 text-neutral-400 hover:text-white" : "border-green-500/30 bg-green-500/10 text-green-400"}`}>
+                                                        {p.isActive === false ? "Show" : "Shown"}
+                                                    </button>
                                                 </td>
                                             </tr>
                                         ))}

@@ -543,7 +543,7 @@ struct AvailabilityRow: View {
     }
     private var title: String {
         switch state {
-        case "in_stock":     return size.isEmpty ? "In stock at \(storeName)" : "Size \(size) in stock at \(storeName)"
+        case "in_stock":     return size.isEmpty ? "In stock at \(storeName)" : "Size \(size) \(availability?.source == "bergdorf" ? "on the floor" : "in stock") at \(storeName)"
         case "out_of_stock": return size.isEmpty ? "Sold out at \(storeName)" : "Size \(size) sold out at \(storeName)"
         default:             return "Availability unconfirmed"
         }
@@ -551,8 +551,12 @@ struct AvailabilityRow: View {
     private var subtitle: String {
         switch state {
         case "in_stock", "out_of_stock":
-            let via = availability?.source == "skims_online" ? "skims.com" : "store"
-            return "Checked \(checkedAgo) via \(via) · Snatcher confirms before you're charged"
+            switch availability?.source {
+            case "bergdorf": return "Bergdorf's own in-store count · \(checkedAgo)"
+            case "skims":    return "skims.com online stock · \(checkedAgo) · Snatcher confirms in store"
+            case "shopify":  return "Brand's online stock · \(checkedAgo) · Snatcher confirms in store"
+            default:         return "Checked \(checkedAgo) · Snatcher confirms before you're charged"
+            }
         default:
             return "A Snatcher checks the rack before you're charged"
         }
