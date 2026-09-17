@@ -144,7 +144,8 @@ class DatabaseService: ObservableObject {
                         deliveryRadius: deliveryRadius,
                         deliveryTime: deliveryTime,
                         tags: tags,
-                        isSystemImage: isSystemImage
+                        isSystemImage: isSystemImage,
+                        logoURL: logoURL
                     )
                 }
 

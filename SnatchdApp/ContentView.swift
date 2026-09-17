@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var selectedTab: AppTab = .stores
     @State private var showTabBar = true
     @State private var searchText = ""
+    @State private var tabBeforeSearch: AppTab = .stores
     @State private var scrollToTop = false
     @State private var isHomeAtRoot = true
     @State private var homeNavID = UUID()
@@ -27,6 +28,7 @@ struct ContentView: View {
             get: { selectedTab },
             set: { tab in
                 if tab == selectedTab { resetToRoot(tab) }
+                if tab == .search && selectedTab != .search { tabBeforeSearch = selectedTab }
                 selectedTab = tab
             }
         )
@@ -62,8 +64,9 @@ struct ContentView: View {
             Tab("Profile", image: "profile", value: .profile) {
                 ProfileView(navID: profileNavID)
             }
-            Tab(value: .search, role: .search) {
-                SearchView(searchText: $searchText, selectedTab: $selectedTab)
+            // Icon only — the search field lives at the top of SearchView, not in the bar
+            Tab("Search", systemImage: "magnifyingglass", value: .search, role: .search) {
+                SearchView(searchText: $searchText, selectedTab: $selectedTab, returnTo: tabBeforeSearch)
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
