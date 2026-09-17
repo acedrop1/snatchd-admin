@@ -736,12 +736,13 @@ export const scheduledZaraStock = onSchedule({ schedule: '30 10,15 * * *', timeZ
  * Runner-token operations on a store's products: show/hide by id (or the first
  * `limit` catalogued ones), or delete rows that predate the current source.
  */
-export const adminProducts = onRequest({ cors: true, timeoutSeconds: 120 }, async (req, res) => {
+export const adminProducts = onRequest({ cors: true, timeoutSeconds: 300, memory: '1GiB' }, async (req, res) => {
     if (!requireRunner(req, res)) return;
     try {
         const { storeId, action, ids, limit } = req.body || {};
         const store = await loadStore(storeId);
-        const all = await db.collection('products').where('storeId', '==', storeId).get();
+        // Kith is 10,000 rows: read only what the decision needs
+        const all = await db.collection('products').where('storeId', '==', storeId).select('isActive', 'sizes', 'images', 'title').get();
         let targets = all.docs;
         if (action === 'deleteLegacy') targets = targets.filter(d => !d.id.startsWith(`${store.inventorySource}_`));
         else if (Array.isArray(ids) && ids.length) targets = targets.filter(d => ids.includes(d.id));
