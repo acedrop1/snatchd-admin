@@ -133,17 +133,29 @@ async function productDetail(handle) {
 // ── modes ─────────────────────────────────────────────────────────────────
 async function catalog() {
     log('catalog: walking Get It Fast');
-    let all = [];
-    for (let pg = 0; pg < 80; pg++) {
+    // ?page= is 1-indexed — page=1 is the same as no param. 120 per page.
+    const byId = new Map();
+    let pages = 0;
+    for (let pg = 1; pg <= 60; pg++) {
         const page = await open(`${LISTING}?page=${pg}`);
-        const st = await state(page); await page.close();
-        const list = st?.productListPage?.products?.list || [];
+        const plp = await page.evaluate(() => window.store?.getState?.()?.productListPage || null).catch(() => null);
+        await page.close();
+        const list = plp?.products?.list || [];
         if (!list.length) break;
-        all = all.concat(list.map(fromListing));
-        log(`  page ${pg}: ${list.length} (total ${all.length})`);
-        if (limit && all.length >= limit) { all = all.slice(0, limit); break; }
+        const before = byId.size;
+        for (const p of list) byId.set(p.id, fromListing(p));
+        const added = byId.size - before;
+        pages = pg;
+        log(`  page ${pg}: ${list.length} (+${added} new, ${byId.size} total of ${plp?.products?.total ?? '?'})`);
+        if (!added) { log('  page repeated — end of listing'); break; }
+        if (limit && byId.size >= limit) break;
+        const total = plp?.products?.total;
+        if (total && byId.size >= total) break;
         await sleep(1500);
     }
+    let all = [...byId.values()];
+    if (limit) all = all.slice(0, limit);
+    log(`  walked ${pages} page(s) → ${all.length} unique products`);
     for (let i = 0; i < all.length; i += 200) {
         const r = await post('ingestInventory', { storeId: STORE_ID, source: 'bergdorf', mode: 'catalog', products: all.slice(i, i + 200) });
         log(`  sent ${i + Math.min(200, all.length - i)}/${all.length} (written ${r.written})`);
