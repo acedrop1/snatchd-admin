@@ -1,5 +1,5 @@
 export type SizeState = 'in_stock' | 'out_of_stock' | 'unknown';
-export type SourceKind = 'shopify' | 'skims' | 'bergdorf' | 'manual';
+export type SourceKind = 'shopify' | 'skims' | 'bergdorf' | 'zara' | 'manual';
 
 export interface SourceVariant {
     id: string;
@@ -41,6 +41,8 @@ export interface StoreSource {
     inventorySource: SourceKind;
     sourceDomain?: string;      // shopify: "kith.com"
     sourceCollection?: string;  // skims: collection handle, default best-sellers
+    sourceStoreId?: string;     // zara: physical store id (SoHo 3862, Fifth 3818)
+    sourceQuery?: string;       // zara: comma-separated search terms that seed the catalogue
 }
 
 export const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));

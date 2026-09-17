@@ -5,6 +5,7 @@ import axios from 'axios';
 import Stripe from 'stripe';
 import { fetchSkimsProduct, fetchSkimsCollectionHandles, fetchSkimsStores } from './skims';
 import { fetchShopifyCatalog, fetchShopifyProduct } from './shopify';
+import { fetchZaraCatalog, fetchZaraProduct } from './zara';
 import { SourceProduct, StoreSource, SizeState, SourceKind, sleep } from './types';
 
 admin.initializeApp();
@@ -279,11 +280,14 @@ async function loadStore(storeId: string): Promise<StoreSource> {
         id: snap.id, name: d.name || '', brand: d.brand || d.name || '',
         inventorySource: (d.inventorySource || 'manual') as SourceKind,
         sourceDomain: d.sourceDomain, sourceCollection: d.sourceCollection,
+        sourceStoreId: d.sourceStoreId ? String(d.sourceStoreId) : undefined, sourceQuery: d.sourceQuery,
     };
 }
 
-async function liveStores(): Promise<StoreSource[]> {
-    const snap = await db.collection('stores').where('inventorySource', 'in', ['shopify', 'skims']).get(); // bergdorf refreshes itself via the runner
+// bergdorf refreshes itself via the Mac runner. zara is metered (parse.bot
+// credits, 100 calls/day on the free tier) so it runs on its own cadence.
+async function liveStores(kinds: SourceKind[] = ['shopify', 'skims']): Promise<StoreSource[]> {
+    const snap = await db.collection('stores').where('inventorySource', 'in', kinds).get();
     return Promise.all(snap.docs.map(d => loadStore(d.id)));
 }
 
@@ -295,6 +299,9 @@ async function fetchOne(store: StoreSource, handle: string): Promise<SourceProdu
             return fetchShopifyProduct(store.sourceDomain, store.brand, handle);
         case 'skims':
             return fetchSkimsProduct(handle);
+        case 'zara':
+            if (!store.sourceStoreId) throw new Error(`${store.name}: sourceStoreId missing (SoHo is 3862)`);
+            return fetchZaraProduct(handle, store.brand, store.sourceStoreId);
         default:
             throw new Error(`${store.name} has no live source`);
     }
@@ -305,6 +312,10 @@ async function fetchCatalog(store: StoreSource, limit: number): Promise<{ produc
     if (store.inventorySource === 'shopify') {
         if (!store.sourceDomain) throw new Error(`${store.name}: sourceDomain missing`);
         return { products: await fetchShopifyCatalog(store.sourceDomain, store.brand, limit), failed: [] };
+    }
+    if (store.inventorySource === 'zara') {
+        const queries = (store.sourceQuery || 'blazer, jeans, dress, coat, knit, shirt, trousers, skirt').split(',').map(q => q.trim()).filter(Boolean);
+        return { products: await fetchZaraCatalog(queries, store.brand, limit), failed: [] };
     }
     if (store.inventorySource === 'skims') {
         const handles = (await fetchSkimsCollectionHandles(store.sourceCollection || 'best-sellers')).slice(0, limit);
@@ -325,7 +336,7 @@ function fingerprint(p: SourceProduct, availability: Record<string, SizeState>) 
 }
 
 function patchFor(p: SourceProduct, source: SourceKind) {
-    const availability = source === 'bergdorf' && p.storeAvailability ? p.storeAvailability : p.availability;
+    const availability = (source === 'bergdorf' || source === 'zara') && p.storeAvailability ? p.storeAvailability : p.availability;
     const states = Object.values(availability);
     // No per-size data yet (a listing-only catalog row) is UNKNOWN, not sold out.
     // Claiming out-of-stock from an empty set is the one mistake this whole
@@ -437,10 +448,12 @@ export const syncStoreCatalog = onRequest({ cors: true, timeoutSeconds: 540, mem
 // store is marked `unknown`, an alert fires, and config/inventory flags it.
 // ponytail: stores run one after another, ~1s/product for Skims → keep total
 // under ~450 Skims products or run stores in parallel.
-async function refreshAllStock(): Promise<Record<string, { updated: number; unknown: number; tripped: boolean }>> {
+async function refreshAllStock(kinds?: SourceKind[]): Promise<Record<string, { updated: number; unknown: number; tripped: boolean }>> {
     const report: Record<string, { updated: number; unknown: number; tripped: boolean }> = {};
-    for (const store of await liveStores()) {
-        const snap = await db.collection('products').where('storeId', '==', store.id).get();
+    for (const store of await liveStores(kinds)) {
+        // Metered sources only refresh what customers can actually see
+        const base = db.collection('products').where('storeId', '==', store.id);
+        const snap = store.inventorySource === 'zara' ? await base.where('isActive', '==', true).get() : await base.get();
         const writes: Parameters<typeof commitChunked>[0] = [];
         let updated = 0, unknown = 0, tripped = false;
 
@@ -490,7 +503,7 @@ async function refreshAllStock(): Promise<Record<string, { updated: number; unkn
 
 export const refreshStock = onRequest({ cors: true, timeoutSeconds: 540, memory: '512MiB' }, async (req, res) => {
     if (!(await requireAdmin(req, res))) return;
-    try { res.json({ success: true, stores: await refreshAllStock() }); }
+    try { res.json({ success: true, stores: await refreshAllStock(['shopify', 'skims', 'zara']) }); }
     catch (error: any) { res.status(500).json({ error: error.message }); }
 });
 
@@ -653,7 +666,7 @@ export const pendingChecks = onRequest({ cors: false, timeoutSeconds: 60 }, asyn
  */
 async function syncAllCatalogs(): Promise<Record<string, any>> {
     const report: Record<string, any> = {};
-    for (const store of await liveStores()) {
+    for (const store of await liveStores(['shopify', 'skims', 'zara'])) {
         try {
             const { products } = await fetchCatalog(store, Infinity);
             const existing = await db.collection('products').where('storeId', '==', store.id).get();
@@ -688,4 +701,10 @@ export const syncCatalogs = onRequest({ cors: true, timeoutSeconds: 540, memory:
 export const scheduledCatalogSync = onSchedule({ schedule: 'every day 04:00', timeZone: 'America/New_York', timeoutSeconds: 540, memory: '1GiB' }, async () => {
     try { await syncAllCatalogs(); }
     catch (error: any) { await alert(`scheduledCatalogSync crashed: ${error.message}`); }
+});
+
+/** Zara: twice a day, shown products only — two parse.bot calls per product. */
+export const scheduledZaraStock = onSchedule({ schedule: '30 10,15 * * *', timeZone: 'America/New_York', timeoutSeconds: 540, memory: '512MiB' }, async () => {
+    try { await refreshAllStock(['zara']); }
+    catch (error: any) { await alert(`scheduledZaraStock crashed: ${error.message}`); }
 });

@@ -121,8 +121,10 @@ export default function EditStorePage() {
     const [savedProducts, setSavedProducts] = useState<any[]>([]);
     const [fetchedProducts, setFetchedProducts] = useState<any[]>([]);
     // Where this store's inventory comes from — set explicitly, never guessed from the name
-    const [inventorySource, setInventorySource] = useState<"manual" | "shopify" | "skims" | "bergdorf">("manual");
+    const [inventorySource, setInventorySource] = useState<"manual" | "shopify" | "skims" | "bergdorf" | "zara">("manual");
     const [sourceDomain, setSourceDomain] = useState("");
+    const [sourceStoreId, setSourceStoreId] = useState("3862");   // Zara SoHo, 503 Broadway
+    const [sourceQuery, setSourceQuery] = useState("");
     const [savingSource, setSavingSource] = useState(false);
     const [sourceSaved, setSourceSaved] = useState(false);
     const [syncing, setSyncing] = useState(false);
@@ -153,6 +155,8 @@ export default function EditStorePage() {
                     setBrand(data.brand || (data.name || "").split(" ")[0]);
                     setInventorySource(data.inventorySource || "manual");
                     setSourceDomain(data.sourceDomain || "");
+                    setSourceStoreId(String(data.sourceStoreId || "3862"));
+                    setSourceQuery(data.sourceQuery || "");
                     setRating(data.rating?.toString() || "5.0");
                     setDeliveryTime(data.deliveryTime || "30-45 min");
                     setCurrentLogo(data.logo || "");
@@ -222,6 +226,7 @@ export default function EditStorePage() {
             await updateDoc(doc(db, "stores", storeId), {
                 name, description, externalId, brand: brand.trim() || name.split(" ")[0],
                 inventorySource, sourceDomain: sourceDomain.trim() || null,
+                sourceStoreId: inventorySource === "zara" ? sourceStoreId.trim() : null, sourceQuery: sourceQuery.trim() || null,
                 logo: logoUrl, image: bannerUrl,
                 categories: categories.split(",").map(c => c.trim()).filter(c => c.length > 0),
                 rating: parseFloat(rating),
@@ -309,6 +314,7 @@ export default function EditStorePage() {
         try {
             await updateDoc(doc(db, "stores", storeId), {
                 inventorySource, sourceDomain: sourceDomain.trim() || null, brand: brand.trim() || name.split(" ")[0],
+                sourceStoreId: inventorySource === "zara" ? sourceStoreId.trim() : null, sourceQuery: sourceQuery.trim() || null,
             });
             setSourceSaved(true);
             setTimeout(() => setSourceSaved(false), 4000);
@@ -1061,6 +1067,7 @@ export default function EditStorePage() {
                                 { v: "skims",   t: "Skims live feed",  d: "skims.com — prices, sizes, availability every 30 min" },
                                 { v: "shopify", t: "Shopify catalog",  d: "Any brand on a standard Shopify store — paste the domain" },
                                 { v: "bergdorf", t: "Bergdorf runner", d: "Their own per-store count, read by the Mac runner. Nightly catalog, 10:30 & 15:00, live on open." },
+                                { v: "zara",     t: "Zara store stock", d: "Zara's own per-size count at one store, via parse.bot. 10:30 & 15:00, live on open. Metered." },
                                 { v: "manual",  t: "Manual / CSV",     d: "You maintain it. A Snatcher confirms stock in store." },
                             ] as const).map(o => (
                                 <button key={o.v} type="button" onClick={() => setInventorySource(o.v)}
@@ -1078,6 +1085,32 @@ export default function EditStorePage() {
                                     placeholder="kith.com"
                                     className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white font-mono text-sm placeholder:text-neutral-600 focus:border-white focus:outline-none transition" />
                                 <p className="text-xs text-neutral-500">Verified working: kith.com, aloyoga.com, aimeleondore.com. Anything that serves /products.json.</p>
+                            </div>
+                        )}
+
+                        {inventorySource === "zara" && (
+                            <div className="grid gap-3 sm:grid-cols-2">
+                                <div className="grid gap-2">
+                                    <label className="text-sm font-medium text-neutral-300">Zara store</label>
+                                    <select value={sourceStoreId} onChange={e => setSourceStoreId(e.target.value)}
+                                        className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white text-sm focus:border-white focus:outline-none transition">
+                                        <option value="3862">SoHo · 503 Broadway (3862)</option>
+                                        <option value="3818">Fifth Ave · 500 Fifth (3818)</option>
+                                        <option value="3037">Flatiron · 101 Fifth (3037)</option>
+                                        <option value="3904">FiDi · 222 Broadway (3904)</option>
+                                        <option value="3074">Herald Sq · 39 W 34th (3074)</option>
+                                        <option value="11818">Hudson Yards (11818)</option>
+                                        <option value="3946">Lincoln Sq · 1963 Broadway (3946)</option>
+                                    </select>
+                                    <p className="text-xs text-neutral-500">Stock is read for this one store. One Zara store per Snatchd store.</p>
+                                </div>
+                                <div className="grid gap-2">
+                                    <label className="text-sm font-medium text-neutral-300">Catalog searches</label>
+                                    <input type="text" value={sourceQuery} onChange={e => setSourceQuery(e.target.value)}
+                                        placeholder="blazer, jeans, dress, coat, knit, shirt, trousers, skirt"
+                                        className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white font-mono text-sm placeholder:text-neutral-600 focus:border-white focus:outline-none transition" />
+                                    <p className="text-xs text-neutral-500">Comma-separated. Each term is one search (~36 products). Sizes and store stock arrive when you Show a product.</p>
+                                </div>
                             </div>
                         )}
 
