@@ -2,6 +2,8 @@
 //
 //   node runner.mjs catalog            walk every "Get It Fast" page → all products (hidden until shown in the portal)
 //   node runner.mjs refresh [--limit N] [--handle H]  per-size + per-store stock for products shown in the app (or one handle)
+//   node runner.mjs detail [--limit N] [--hidden]  fill sizes + per-store stock for products that have none yet
+//                                                 (--hidden also enriches items not yet shown in the app)
 //   node runner.mjs serve              stay up: answer live checks, refresh at 10:30 and 15:00, catalog at 03:00
 //
 // Why a Mac and a real browser: bergdorfgoodman.com sits behind DataDome, which
@@ -194,10 +196,18 @@ async function serve() {
         }
     };
     setInterval(tick, 30000);
+    // Anything shown in the app without sizes gets filled in promptly — clicking
+    // Show in the portal is the signal to go read that product properly.
+    let lastFill = 0;
     for (;;) {
         try {
             const { requests } = await get('pendingChecks', { storeId: STORE_ID, wait: 25 });
-            if (requests.length) { log(`live: ${requests.length} check(s)`); await refresh(requests); }
+            if (requests.length) { log(`live: ${requests.length} check(s)`); await refresh(requests); continue; }
+            if (Date.now() - lastFill > 60000) {
+                lastFill = Date.now();
+                const missing = await needingDetail().catch(() => []);
+                if (missing.length) { log(`fill: ${missing.length} shown product(s) missing sizes`); await refresh(missing.slice(0, 20)); }
+            }
         } catch (e) { log(`poll: ${e.message}`); await sleep(5000); }
     }
 }
@@ -207,5 +217,21 @@ async function refreshShown() {
     await refresh(requests);
 }
 
-try { if (mode === 'catalog') await catalog(); else if (mode === 'refresh') await refresh(); else await serve(); }
+// Products the backend knows about that still have no sizes — the listing page
+// doesn't carry them, only each product's own page does.
+async function needingDetail(includeHidden = false) {
+    const q = { storeId: STORE_ID, wait: 0, all: 1, unsized: 1 };
+    if (includeHidden) q.hidden = 1;
+    const { requests } = await get('pendingChecks', q);
+    return requests;
+}
+
+async function detail() {
+    const targets = await needingDetail(argv.includes('--hidden'));
+    if (!targets.length) { log('detail: everything already has sizes'); return; }
+    log(`detail: ${targets.length} product(s) without sizes`);
+    await refresh(targets);
+}
+
+try { if (mode === 'catalog') await catalog(); else if (mode === 'refresh') await refresh(); else if (mode === 'detail') await detail(); else await serve(); }
 finally { if (mode !== 'serve') await ctx?.close(); }

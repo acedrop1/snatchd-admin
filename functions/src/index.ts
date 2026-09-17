@@ -401,10 +401,16 @@ export const pendingChecks = onRequest({ cors: false, timeoutSeconds: 60 }, asyn
     const storeId = String(req.query.storeId || '');
     const wait = Math.min(Number(req.query.wait) || 25, 50) * 1000;
     if (!storeId) { res.status(400).json({ error: 'storeId required' }); return; }
-    // all=1 → every product shown in the app for this store (the scheduled refresh), no waiting
+    // all=1 → every product shown in the app for this store (the scheduled refresh), no waiting.
+    // unsized=1 → only those with no sizes yet: a listing row that still needs its product page read.
     if (req.query.all) {
-        const shown = await db.collection('products').where('storeId', '==', storeId).where('isActive', '==', true).get();
-        res.json({ requests: shown.docs.map(d => ({ productId: d.id, externalId: d.get('externalId'), handle: d.get('handle'), productUrl: d.get('productUrl'), sizes: d.get('sizes') || [], variants: d.get('variants') || [] })) });
+        // hidden=1 → include products not yet shown in the app, for operator-driven
+        // catalog enrichment (so sizes are visible while curating).
+        const base = db.collection('products').where('storeId', '==', storeId);
+        const snap = req.query.hidden ? await base.get() : await base.where('isActive', '==', true).get();
+        let docs = snap.docs;
+        if (req.query.unsized) docs = docs.filter(d => !(d.get('sizes') || []).length);
+        res.json({ requests: docs.map(d => ({ productId: d.id, externalId: d.get('externalId'), handle: d.get('handle'), productUrl: d.get('productUrl'), sizes: d.get('sizes') || [], variants: d.get('variants') || [] })) });
         return;
     }
     const q = db.collection('availabilityRequests').where('storeId', '==', storeId);
