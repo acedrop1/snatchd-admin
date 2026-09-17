@@ -701,7 +701,7 @@ export default function EditStorePage() {
                                     <input type="text" value={sourceQuery} onChange={e => setSourceQuery(e.target.value)}
                                         placeholder="blazer, jeans, dress, coat, knit, shirt, trousers, skirt"
                                         className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white font-mono text-sm placeholder:text-neutral-600 focus:border-white focus:outline-none transition" />
-                                    <p className="text-xs text-neutral-500">Comma-separated. Each term is one search (~36 products). Sizes and store stock arrive when you Show a product.</p>
+                                    <p className="text-xs text-neutral-500">Comma-separated. Each term is one search (~36 products). Sizes and photos arrive with the sync; the SoHo count runs on products you Show.</p>
                                 </div>
                             </div>
                         )}
@@ -814,7 +814,9 @@ export default function EditStorePage() {
                                                         const a = p.availability || {}; const vals = Object.values(a) as string[];
                                                         const inStock = vals.filter(v => v === "in_stock").length;
                                                         if (!vals.length || p.availabilitySource === "none") return <span className="text-neutral-500">not checked yet</span>;
-                                                        return <span className={inStock ? "text-green-400" : "text-red-400"}>{inStock}/{vals.length} sizes</span>;
+                                                        const src = p.availabilitySource === "zara" || p.availabilitySource === "bergdorf" ? "at store"
+                                                            : p.availabilitySource === "zara_online" || p.availabilitySource === "shopify" || p.availabilitySource === "skims" ? "online" : "";
+                                                        return <span className={inStock ? "text-green-400" : "text-red-400"}>{inStock}/{vals.length} sizes{src && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-neutral-500">{src}</span>}</span>;
                                                     })()}
                                                 </td>
                                                 <td className="px-4 py-2">
