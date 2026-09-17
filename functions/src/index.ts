@@ -125,6 +125,12 @@ async function fetchCatalog(store: StoreSource, limit: number): Promise<{ produc
     throw new Error(`${store.name} has no live source`);
 }
 
+/** What we compare to decide whether a write is needed at all. */
+function fingerprint(p: SourceProduct, availability: Record<string, SizeState>) {
+    return [p.title, p.price, p.images.length, p.sizes.join('|'),
+        Object.entries(availability).sort().map(([k, v]) => `${k}:${v}`).join(',')].join('~');
+}
+
 function patchFor(p: SourceProduct, source: SourceKind) {
     const availability = source === 'bergdorf' && p.storeAvailability ? p.storeAvailability : p.availability;
     const states = Object.values(availability);
@@ -140,7 +146,7 @@ function patchFor(p: SourceProduct, source: SourceKind) {
         category: p.category, gender: p.gender, productType: p.productType, tags: p.tags,
         variants: p.variants,
         availability, availabilitySource: unchecked ? 'none' : source,
-        availabilityCheckedAt: now(), inStock,
+        availabilityCheckedAt: now(), inStock, fingerprint: fingerprint(p, availability),
         updatedAt: now(),
     };
 }
@@ -180,22 +186,35 @@ async function setSourceHealth(storeId: string, healthy: boolean, detail: string
  */
 export const syncStoreCatalog = onRequest({ cors: true, timeoutSeconds: 540, memory: '512MiB' }, async (req, res) => {
     if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
-    if (!(await requireAdmin(req, res))) return;
+    // Admin (portal) or the runner may trigger a sync — both are trusted to
+    // read a brand's public catalog and write it to our own store.
+    const expected = process.env.RUNNER_TOKEN;
+    const viaRunner = !!expected && req.get('x-runner-token') === expected;
+    if (!viaRunner && !(await requireAdmin(req, res))) return;
     try {
-        const { storeId, limit = 250, replaceLegacy = true } = req.body || {};
+        const { storeId, limit, replaceLegacy = false } = req.body || {};
         if (!storeId) { res.status(400).json({ error: 'Missing storeId' }); return; }
         const store = await loadStore(storeId);
-        const { products, failed } = await fetchCatalog(store, Math.min(Number(limit), 1000));
+        const { products, failed } = await fetchCatalog(store, limit ? Number(limit) : Infinity);
         const source = store.inventorySource;
 
         const existing = await db.collection('products').where('storeId', '==', storeId).get();
-        const existingIds = new Set(existing.docs.map(d => d.id));
-        const writes: Parameters<typeof commitChunked>[0] = products.map(p => {
+        const prints = new Map(existing.docs.map(d => [d.id, d.get('fingerprint')]));
+        const writes: Parameters<typeof commitChunked>[0] = [];
+        let added = 0, unchanged = 0;
+        for (const p of products) {
             const id = `${source}_${p.externalId}_${storeId}`;
-            const data: any = { ...patchFor(p, source), brand: store.brand, storeId, deliveryTime: '45 Mins', isActive: true };
-            if (!existingIds.has(id)) data.createdAt = now();
-            return { ref: db.doc(`products/${id}`), data, merge: true };
-        });
+            const data: any = { ...patchFor(p, source), brand: p.brand || store.brand, storeId, deliveryTime: '45 Mins' };
+            const known = prints.has(id);
+            if (known && prints.get(id) === data.fingerprint) { unchanged++; continue; }
+            if (!known) {
+                // New arrivals stay hidden until the operator carries them
+                data.createdAt = now();
+                data.isActive = false;
+                added++;
+            }
+            writes.push({ ref: db.doc(`products/${id}`), data, merge: true });
+        }
         await commitChunked(writes);
 
         let removed = 0;
@@ -211,8 +230,8 @@ export const syncStoreCatalog = onRequest({ cors: true, timeoutSeconds: 540, mem
             }
             removed = legacy.length;
         }
-        await setSourceHealth(storeId, failed.length < Math.max(1, products.length) / 2, `synced ${products.length}`);
-        res.json({ storeId, source, synced: products.length, failed, removed });
+        await setSourceHealth(storeId, failed.length < Math.max(1, products.length) / 2, `catalog ${products.length}, ${added} new`);
+        res.json({ storeId, source, catalog: products.length, written: writes.length, added, unchanged, failed, removed });
     } catch (error: any) {
         await alert(`syncStoreCatalog failed: ${error.message}`);
         res.status(500).json({ error: error.message });
@@ -234,11 +253,17 @@ async function refreshAllStock(): Promise<Record<string, { updated: number; unkn
 
         if (store.inventorySource === 'shopify') {
             try {
-                const byHandle = new Map((await fetchShopifyCatalog(store.sourceDomain!, store.brand, 1000)).map(p => [p.handle, p]));
+                const byHandle = new Map((await fetchShopifyCatalog(store.sourceDomain!, store.brand)).map(p => [p.handle, p]));
                 for (const doc of snap.docs) {
                     const p = byHandle.get(doc.get('handle'));
-                    if (p) { writes.push({ ref: doc.ref, data: patchFor(p, 'shopify'), merge: true }); updated++; }
-                    else { writes.push({ ref: doc.ref, data: unknownPatch(doc.get('sizes') || []), merge: true }); unknown++; }
+                    if (p) {
+                        const data = patchFor(p, 'shopify');
+                        if (doc.get('fingerprint') === data.fingerprint) continue; // nothing changed
+                        writes.push({ ref: doc.ref, data, merge: true }); updated++;
+                    } else {
+                        // Gone from the brand's catalogue — unknown, never "sold out"
+                        writes.push({ ref: doc.ref, data: unknownPatch(doc.get('sizes') || []), merge: true }); unknown++;
+                    }
                 }
             } catch (e: any) {
                 tripped = true; unknown = snap.size;
@@ -426,4 +451,48 @@ export const pendingChecks = onRequest({ cors: false, timeoutSeconds: 60 }, asyn
         return { productId: r.productId, externalId: p.externalId, handle: p.handle, productUrl: p.productUrl, sizes: p.sizes || [], variants: p.variants || [] };
     }));
     res.json({ requests: out });
+});
+
+/**
+ * Daily: pull each live store's full catalogue so new arrivals appear.
+ * New products land hidden; availability for what we carry is refreshed
+ * separately every 30 minutes by scheduledStock.
+ */
+async function syncAllCatalogs(): Promise<Record<string, any>> {
+    const report: Record<string, any> = {};
+    for (const store of await liveStores()) {
+        try {
+            const { products } = await fetchCatalog(store, Infinity);
+            const existing = await db.collection('products').where('storeId', '==', store.id).get();
+            const prints = new Map(existing.docs.map(d => [d.id, d.get('fingerprint')]));
+            const writes: Parameters<typeof commitChunked>[0] = [];
+            let added = 0;
+            for (const p of products) {
+                const id = `${store.inventorySource}_${p.externalId}_${store.id}`;
+                const data: any = { ...patchFor(p, store.inventorySource), brand: p.brand || store.brand, storeId: store.id, deliveryTime: '45 Mins' };
+                if (prints.has(id)) { if (prints.get(id) === data.fingerprint) continue; }
+                else { data.createdAt = now(); data.isActive = false; added++; }
+                writes.push({ ref: db.doc(`products/${id}`), data, merge: true });
+            }
+            await commitChunked(writes);
+            report[store.id] = { catalog: products.length, written: writes.length, added };
+            console.log(`✅ ${store.name}: catalogue ${products.length}, ${added} new`);
+        } catch (e: any) {
+            report[store.id] = { error: e.message };
+            await alert(`daily catalogue sync failed for ${store.name}: ${e.message}`);
+        }
+    }
+    return report;
+}
+
+export const syncCatalogs = onRequest({ cors: true, timeoutSeconds: 540, memory: '1GiB' }, async (req, res) => {
+    const expected = process.env.RUNNER_TOKEN;
+    if (!(expected && req.get('x-runner-token') === expected) && !(await requireAdmin(req, res))) return;
+    try { res.json({ ok: true, stores: await syncAllCatalogs() }); }
+    catch (error: any) { res.status(500).json({ error: error.message }); }
+});
+
+export const scheduledCatalogSync = onSchedule({ schedule: 'every day 04:00', timeZone: 'America/New_York', timeoutSeconds: 540, memory: '1GiB' }, async () => {
+    try { await syncAllCatalogs(); }
+    catch (error: any) { await alert(`scheduledCatalogSync crashed: ${error.message}`); }
 });

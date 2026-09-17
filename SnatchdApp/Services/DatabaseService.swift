@@ -211,7 +211,11 @@ class DatabaseService: ObservableObject {
     func listenToProducts() {
         guard productsListener == nil else { return }
 
-        productsListener = db.collection("products").addSnapshotListener { [weak self] snapshot, error in
+        // Only products the portal has marked visible. Unfiltered, this listener
+        // would download the entire catalogue (~12,700 docs) on every launch.
+        productsListener = db.collection("products")
+            .whereField("isActive", isEqualTo: true)
+            .addSnapshotListener { [weak self] snapshot, error in
             guard let self = self else { return }
 
             if let error = error {
@@ -238,6 +242,7 @@ class DatabaseService: ObservableObject {
 
         justDroppedListener = db.collection("products")
             .whereField("isJustDropped", isEqualTo: true)
+            .whereField("isActive", isEqualTo: true)
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self = self else { return }
 

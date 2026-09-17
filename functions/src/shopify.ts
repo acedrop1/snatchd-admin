@@ -52,19 +52,31 @@ function normalise(domain: string, brand: string, p: any): SourceProduct {
     };
 }
 
-export async function fetchShopifyCatalog(domain: string, brand: string, limit = 250): Promise<SourceProduct[]> {
-    const out: SourceProduct[] = [];
-    // ponytail: paginate with ?page= (works on the stores we carry); switch to
-    // the since_id cursor if a store returns duplicates past page 1.
-    for (let page = 1; out.length < limit && page <= 8; page++) {
+/**
+ * The whole catalog. /products.json returns 250 products per page WITH their
+ * variants, sizes, prices and availability, so a full store is a few dozen
+ * requests — no per-product page visits. Verified sizes: Skims ~3.7k,
+ * Kith ~5k, Alo ~4k.
+ */
+export async function fetchShopifyCatalog(domain: string, brand: string, limit = Infinity): Promise<SourceProduct[]> {
+    const byId = new Map<string, SourceProduct>();
+    for (let page = 1; page <= 200; page++) {
         const res = await axios.get(`https://${domain}/products.json`, {
-            params: { limit: PAGE, page }, headers: { 'User-Agent': UA, Accept: 'application/json' }, timeout: 20000,
+            params: { limit: PAGE, page }, headers: { 'User-Agent': UA, Accept: 'application/json' }, timeout: 30000,
         });
         const products: any[] = res.data?.products || [];
-        for (const p of products) out.push(normalise(domain, brand, p));
-        if (products.length < PAGE) break;
+        if (!products.length) break;
+        const before = byId.size;
+        for (const p of products) {
+            const n = normalise(domain, brand, p);
+            if (n.variants.length) byId.set(n.externalId, n);
+        }
+        // A page that adds nothing means we've wrapped around
+        if (byId.size === before) break;
+        if (byId.size >= limit || products.length < PAGE) break;
     }
-    return out.slice(0, limit);
+    const all = [...byId.values()];
+    return Number.isFinite(limit) ? all.slice(0, limit) : all;
 }
 
 export async function fetchShopifyProduct(domain: string, brand: string, handle: string): Promise<SourceProduct> {
