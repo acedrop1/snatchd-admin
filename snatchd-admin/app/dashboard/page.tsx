@@ -102,7 +102,7 @@ export default function DashboardPage() {
         setIsChecking(true);
         setCheckResult(null);
         try {
-            const response = await fetch('https://us-central1-snatchd-app26.cloudfunctions.net/updateZaraSohoStock', {
+            const response = await fetch('https://us-central1-snatchd-app26.cloudfunctions.net/refreshSkimsStock', {
                 method: 'POST',
             });
             const data = await response.json();
@@ -122,15 +122,13 @@ export default function DashboardPage() {
                     <h2 className="text-3xl font-bold tracking-tight text-white">Overview</h2>
                     <p className="text-neutral-400">Live metrics from your NYC operations.</p>
                 </div>
-                <div className="flex gap-2">
-                    <button
-                        onClick={handleStockCheck}
-                        disabled={isChecking}
-                        className="px-4 py-2 bg-white rounded-md text-sm font-medium text-black hover:bg-neutral-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {isChecking ? 'Checking Stock...' : 'Check Zara SoHo Stock'}
-                    </button>
-                </div>
+                <button
+                    onClick={handleStockCheck}
+                    disabled={isChecking}
+                    className="px-4 py-2 bg-white rounded-md text-sm font-medium text-black hover:bg-neutral-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    {isChecking ? 'Refreshing Skims…' : 'Refresh Skims Stock'}
+                </button>
             </div>
 
             {/* KPI Grid */}
@@ -165,21 +163,21 @@ export default function DashboardPage() {
                 />
             </div>
 
-            {/* Stock Check Result */}
+            {/* Availability refresh result — Skims */}
             {checkResult && (
                 <div className="rounded-xl border border-white/10 bg-neutral-900/50 p-6">
-                    <h3 className="font-semibold text-white mb-4">Stock Check Result</h3>
+                    <h3 className="font-semibold text-white mb-4">Skims — Availability Refresh</h3>
                     {checkResult.error ? (
                         <p className="text-red-400">Error: {checkResult.error}</p>
                     ) : (
-                        <div className="space-y-2">
-                            <p className="text-green-400">✅ Success! Updated {checkResult.updatedCount} products</p>
-                            <details className="text-neutral-400 text-sm">
-                                <summary className="cursor-pointer hover:text-white">View Details</summary>
-                                <pre className="mt-2 p-4 bg-black/50 rounded overflow-auto max-h-60">
-                                    {JSON.stringify(checkResult.details, null, 2)}
-                                </pre>
-                            </details>
+                        <div className="space-y-1 text-sm">
+                            <p className="text-green-400">✅ Refreshed {checkResult.updated} products from skims.com</p>
+                            {checkResult.unknown > 0 && (
+                                <p className="text-neutral-400">{checkResult.unknown} marked <span className="text-white">unknown</span> — a Snatcher confirms those in store; nothing was marked out of stock by a failed request.</p>
+                            )}
+                            {checkResult.tripped && (
+                                <p className="text-amber-400">⚠️ Circuit breaker tripped: skims.com stopped responding mid-run. Check config/inventory and the alert webhook.</p>
+                            )}
                         </div>
                     )}
                 </div>

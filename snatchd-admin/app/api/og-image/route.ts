@@ -5,24 +5,34 @@ export const runtime = "nodejs";
 /**
  * GET /api/og-image?url=<product_url>
  *
- * Returns { imageUrl, images[] } — primary image + all product images found.
- * Uses Microlink first (bypasses Cloudflare), falls back to direct HTML parse.
+ * Returns { imageUrl, images[], description, title } — primary image + all
+ * product images + meta description + title. Uses Microlink first (bypasses
+ * Cloudflare for retailers like Aritzia), falls back to direct HTML parse.
  */
 export async function GET(req: NextRequest) {
     const url = req.nextUrl.searchParams.get("url");
     if (!url) return NextResponse.json({ error: "Missing url param" }, { status: 400 });
 
     // ── 1. Try Microlink ──────────────────────────────────────────────────────
+    // Microlink runs from a residential-grade browser farm, so it can get past
+    // Cloudflare bot challenges that kill our server-to-server fetch.
     try {
         const mlRes = await fetch(
-            `https://api.microlink.io/?url=${encodeURIComponent(url)}&meta=false&video=false&audio=false`,
+            `https://api.microlink.io/?url=${encodeURIComponent(url)}&meta=true&video=false&audio=false`,
             { signal: AbortSignal.timeout(10000) }
         );
         if (mlRes.ok) {
             const ml = await mlRes.json();
             const imageUrl = ml?.data?.image?.url || ml?.data?.logo?.url || null;
-            if (imageUrl) {
-                return NextResponse.json({ imageUrl, images: [imageUrl] });
+            const description = typeof ml?.data?.description === "string" ? ml.data.description.trim() : "";
+            const title = typeof ml?.data?.title === "string" ? ml.data.title.trim() : "";
+            if (imageUrl || description) {
+                return NextResponse.json({
+                    imageUrl,
+                    images: imageUrl ? [imageUrl] : [],
+                    description,
+                    title,
+                });
             }
         }
     } catch { /* fall through */ }
@@ -93,10 +103,50 @@ export async function GET(req: NextRequest) {
                 }
             }
 
+            // Description — prefer JSON-LD, then og:description, then meta description.
+            let description = "";
+            try {
+                const jsonLdAgain = html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+                for (const match of jsonLdAgain) {
+                    try {
+                        const data = JSON.parse(match[1]);
+                        const items = Array.isArray(data) ? data : data["@graph"] ?? [data];
+                        for (const item of items) {
+                            if (typeof item?.description === "string" && item.description.length > description.length) {
+                                description = item.description;
+                            }
+                        }
+                    } catch { /* skip malformed */ }
+                }
+            } catch { /* skip */ }
+            if (!description) {
+                const ogDesc = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i);
+                if (ogDesc?.[1]) description = ogDesc[1];
+            }
+            if (!description) {
+                const metaDesc = html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i);
+                if (metaDesc?.[1]) description = metaDesc[1];
+            }
+            description = description
+                .replace(/<[^>]+>/g, "")
+                .replace(/&amp;/g, "&")
+                .replace(/&lt;/g, "<")
+                .replace(/&gt;/g, ">")
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'")
+                .replace(/&nbsp;/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+
             // Deduplicate and return
             const unique = [...new Set(allImages)].filter(Boolean);
-            if (unique.length > 0) {
-                return NextResponse.json({ imageUrl: unique[0], images: unique.slice(0, 10) });
+            if (unique.length > 0 || description) {
+                return NextResponse.json({
+                    imageUrl: unique[0] ?? null,
+                    images: unique.slice(0, 10),
+                    description,
+                    title: "",
+                });
             }
         }
     } catch { /* fall through */ }

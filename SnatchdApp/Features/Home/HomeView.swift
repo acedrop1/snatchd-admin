@@ -3,10 +3,7 @@ import CoreLocation
 
 struct HomeView: View {
     @Binding var showTabBar: Bool
-    @Binding var selectedTab: Tab
-    @Binding var showSearch: Bool
-    @Binding var searchText: String
-    @Binding var isTopSearchActive: Bool
+    @Binding var selectedTab: AppTab
     @Binding var scrollToTop: Bool
     @Binding var isAtRoot: Bool
     var navID: UUID
@@ -86,7 +83,7 @@ struct HomeView: View {
     
     var body: some View {
         ZStack {
-            NavigationView {
+            NavigationStack {
                 ZStack(alignment: .top) {
                     Color.black.edgesIgnoringSafeArea(.all)
                     
@@ -152,7 +149,7 @@ struct HomeView: View {
                             
                             // Search Bar Placeholder (Tappable)
                             Button(action: {
-                                showSearch = true
+                                selectedTab = .search
                             }) {
                                 HStack(spacing: 12) {
                                     Image(systemName: "magnifyingglass")
@@ -165,7 +162,7 @@ struct HomeView: View {
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 14)
                             }
-                            .glassEffect(in: RoundedRectangle(cornerRadius: 25))
+                            .glassEffect(.regular.interactive(), in: .capsule)
                             .padding(.horizontal)
                             
                             // Categories
@@ -580,7 +577,7 @@ struct SectionStoresView: View {
     let title: String
     let stores: [Store]
     @Binding var showTabBar: Bool
-    @Binding var selectedTab: Tab
+    @Binding var selectedTab: AppTab
 
     let columns = [GridItem(.flexible(), spacing: 15), GridItem(.flexible(), spacing: 15)]
 
@@ -610,7 +607,7 @@ struct SectionProductsView: View {
     let products: [Product]
     let stores: [Store]
     @Binding var showTabBar: Bool
-    @Binding var selectedTab: Tab
+    @Binding var selectedTab: AppTab
 
     let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
 
@@ -690,6 +687,6 @@ struct JustDroppedProductCard: View {
 }
 
 #Preview {
-    HomeView(showTabBar: .constant(true), selectedTab: .constant(.stores), showSearch: .constant(false), searchText: .constant(""), isTopSearchActive: .constant(false), scrollToTop: .constant(false), isAtRoot: .constant(true), navID: UUID(), manualCoordinate: .constant(nil), selectedAddressId: .constant(nil))
+    HomeView(showTabBar: .constant(true), selectedTab: .constant(.stores), scrollToTop: .constant(false), isAtRoot: .constant(true), navID: UUID(), manualCoordinate: .constant(nil), selectedAddressId: .constant(nil))
         .preferredColorScheme(.dark)
 }

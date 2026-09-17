@@ -1,8 +1,8 @@
 import Foundation
 
 struct AppConfig {
-    // API Endpoints
-    static let stockCheckServiceURL = "https://checkstock-jkfmw4mdua-uc.a.run.app"
+    // Inventory — see functions/src/index.ts `checkAvailability`
+    static let availabilityServiceURL = "https://us-central1-snatchd-app26.cloudfunctions.net/checkAvailability"
 
     // ── Stripe ────────────────────────────────────────────────────────
     // Publishable key: safe to ship in the app (starts with pk_test_ or pk_live_)

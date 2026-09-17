@@ -3,350 +3,283 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import * as admin from 'firebase-admin';
 import axios from 'axios';
 import Stripe from 'stripe';
+import {
+    fetchSkimsProduct, fetchSkimsCollectionHandles, fetchSkimsStores,
+    sleep, SizeState, SkimsProduct,
+} from './skims';
 
 admin.initializeApp();
 const db = admin.firestore();
+const now = () => admin.firestore.FieldValue.serverTimestamp();
 
-// ── Stripe Payment Intent ──────────────────────────────────────────────
-// Set your Stripe secret key as an environment variable before deploying:
-//   firebase functions:secrets:set STRIPE_SECRET_KEY
-// Then add "runWith({ secrets: ['STRIPE_SECRET_KEY'] })" or set via .env
-
+// ── Stripe Payment Intent (unchanged) ──────────────────────────────────────
 const getStripe = () => {
     const key = process.env.STRIPE_SECRET_KEY || '';
     if (!key) console.warn('⚠️ STRIPE_SECRET_KEY is not set — payments will fail');
     return new Stripe(key, { apiVersion: '2024-12-18.acacia' as any });
 };
 
-/**
- * Cloud Function: createPaymentIntent
- *
- * Called by the iOS app before checkout.
- * Returns a Stripe client_secret to initialize the iOS PaymentSheet.
- *
- * POST /createPaymentIntent
- * Body: { amount: number (USD), orderId: string, currency?: string }
- */
 export const createPaymentIntent = onRequest({
-    cors: true,
-    secrets: ['STRIPE_SECRET_KEY'],
-    invoker: 'public',      // allow unauthenticated calls from iOS app
-    timeoutSeconds: 30,     // fail fast so iOS gets a response within its 30s timeout
+    cors: true, secrets: ['STRIPE_SECRET_KEY'], invoker: 'public', timeoutSeconds: 30,
 }, async (req, res) => {
-    if (req.method !== 'POST') {
-        res.status(405).json({ error: 'Method not allowed' });
-        return;
-    }
-
+    if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
     try {
-        const { amount, orderId, currency = 'usd' } = req.body as {
-            amount: number;
-            orderId: string;
-            currency?: string;
-        };
-
-        if (!amount || amount <= 0) {
-            res.status(400).json({ error: 'Invalid amount' });
-            return;
-        }
-
-        const stripe = getStripe();
-
-        // Create a PaymentIntent — amount must be in cents
-        const paymentIntent = await stripe.paymentIntents.create({
-            amount: Math.round(amount * 100),
-            currency,
+        const { amount, orderId, currency = 'usd' } = req.body as { amount: number; orderId: string; currency?: string };
+        if (!amount || amount <= 0) { res.status(400).json({ error: 'Invalid amount' }); return; }
+        const paymentIntent = await getStripe().paymentIntents.create({
+            amount: Math.round(amount * 100), currency,
             automatic_payment_methods: { enabled: true },
             metadata: { orderId: orderId || 'unknown' },
         });
-
-        console.log(`✅ PaymentIntent created: ${paymentIntent.id} for $${amount}`);
-
-        res.status(200).json({
-            clientSecret: paymentIntent.client_secret,
-            paymentIntentId: paymentIntent.id,
-        });
-
+        res.status(200).json({ clientSecret: paymentIntent.client_secret, paymentIntentId: paymentIntent.id });
     } catch (error: any) {
         console.error('❌ Stripe error:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
 
-interface CheckStockRequest {
-    productId: string;        // Firestore doc ID
-    zaraProductId: string;    // Numeric Zara ID
-    latitude: number;         // User location
-    longitude: number;
-    forceRefresh?: boolean;   // Bypass cache
+// ── Inventory ──────────────────────────────────────────────────────────────
+// Product docs carry three availability fields. `availability` is per size and
+// is NEVER collapsed to a boolean by a failure: a fetch error writes `unknown`,
+// not `out_of_stock`. `inStock` (legacy bool the app reads) only changes when
+// we actually have data.
+//
+//   availability:          { S: 'in_stock', M: 'out_of_stock', L: 'unknown' }
+//   availabilitySource:    'skims_online' | 'courier' | 'none'
+//   availabilityCheckedAt: Timestamp
+//
+// Brands without a live source get `none` and the app tells the customer a
+// Snatcher confirms in store before capture.
+
+type Source = 'skims_online' | 'courier' | 'none';
+const FRESH_MS = 10 * 60 * 1000;
+const BATCH = 400; // Firestore hard limit is 500 writes per batch
+
+function skimsPatch(p: SkimsProduct) {
+    const inStock = Object.values(p.availability).some(s => s === 'in_stock');
+    return {
+        title: p.title, handle: p.handle, externalId: p.externalId, productUrl: p.productUrl,
+        price: p.price, compareAtPrice: p.compareAtPrice,
+        description: p.description, images: p.images, sizes: p.sizes, styles: p.styles,
+        category: p.category, gender: p.gender, productType: p.productType, tags: p.tags,
+        variants: p.variants,
+        availability: p.availability, availabilitySource: 'skims_online' as Source,
+        availabilityCheckedAt: now(), inStock,
+        updatedAt: now(),
+    };
 }
 
-interface StoreAvailability {
-    storeId: string;
-    storeName: string;
-    address?: string;
-    inStock: boolean;
-    distance?: number;
-    lastChecked: string;
-}
-
-/**
- * Cloud Function: checkStock (2nd Gen)
- * 
- * Real-time stock checker for Zara products using their public API.
- * Implements 60-minute caching to avoid rate limits.
- */
-export const checkStock = onRequest({ cors: true }, async (req, res) => {
-    // CORS is handled automatically by { cors: true } option in v2
-
-    if (req.method !== 'POST') {
-        res.status(405).json({ error: 'Method not allowed' });
-        return;
-    }
-
-    try {
-        const { productId, zaraProductId, latitude, longitude, forceRefresh } = req.body as CheckStockRequest;
-
-        // Validation
-        if (!productId || !zaraProductId) {
-            res.status(400).json({ error: 'Missing required fields: productId, zaraProductId' });
-            return;
-        }
-
-        if (!latitude || !longitude) {
-            res.status(400).json({ error: 'Missing location: latitude, longitude' });
-            return;
-        }
-
-        console.log(`📍 Stock check requested for product ${productId} (Zara ID: ${zaraProductId}) near ${latitude},${longitude}`);
-
-        // Step 1: Check cache (unless forceRefresh)
-        if (!forceRefresh) {
-            const now = new Date();
-            const availabilityRef = db.collection(`products/${productId}/availability`);
-            const cachedDocs = await availabilityRef
-                .where('expiresAt', '>', now)
-                .get();
-
-            if (!cachedDocs.empty) {
-                console.log(`✅ Cache HIT - Returning ${cachedDocs.size} cached stores`);
-                const stores: StoreAvailability[] = cachedDocs.docs.map(doc => {
-                    const data = doc.data();
-                    return {
-                        storeId: doc.id,
-                        storeName: data.storeName,
-                        address: data.storeAddress,
-                        inStock: data.inStock,
-                        distance: data.distance,
-                        lastChecked: data.lastChecked?.toDate().toISOString() || new Date().toISOString()
-                    };
-                });
-
-                res.status(200).json({
-                    success: true,
-                    cached: true,
-                    stores
-                });
-                return;
-            }
-        }
-
-        // Step 2: Call Zara API
-        console.log(`🌐 Cache MISS - Calling Zara API...`);
-        const zaraUrl = `https://www.zara.com/us/en/stock-sharing/shops/by-physical-stock?lat=${latitude}&lng=${longitude}&productIds=${zaraProductId}`;
-
-        const response = await axios.get(zaraUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1'
-            },
-            timeout: 10000 // 10 second timeout
-        });
-
-        const shops = response.data.shops || [];
-        console.log(`📦 Zara API returned ${shops.length} stores`);
-
-        // Step 3: Update cache (60-minute TTL)
-        const batch = db.batch();
-        const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 60 minutes
-        const stores: StoreAvailability[] = [];
-
-        for (const shop of shops) {
-            const storeId = shop.id || shop.shopId || `store_${shop.name.replace(/\s+/g, '_')}`;
-            const docRef = db.doc(`products/${productId}/availability/${storeId}`);
-
-            const storeData = {
-                inStock: shop.stockStatus === 'in_stock',
-                storeName: shop.name,
-                storeAddress: shop.address || '',
-                distance: shop.distance || null,
-                lastChecked: admin.firestore.FieldValue.serverTimestamp(),
-                expiresAt
-            };
-
-            batch.set(docRef, storeData, { merge: true });
-
-            stores.push({
-                storeId,
-                storeName: shop.name,
-                address: shop.address,
-                inStock: shop.stockStatus === 'in_stock',
-                distance: shop.distance,
-                lastChecked: new Date().toISOString()
-            });
-        }
-
-        await batch.commit();
-        console.log(`✅ Cached ${stores.length} stores with 60min TTL`);
-
-        // Step 4: Return results
-        res.status(200).json({
-            success: true,
-            cached: false,
-            stores
-        });
-
-    } catch (error: any) {
-        console.error('❌ Stock check error:', error.message);
-
-        // Handle specific errors
-        if (error.code === 'ECONNABORTED') {
-            res.status(504).json({ error: 'Zara API timeout' });
-            return;
-        }
-
-        if (error.response?.status === 404) {
-            res.status(404).json({ error: 'Product not found in Zara system' });
-            return;
-        }
-
-        res.status(500).json({
-            error: 'Stock check failed',
-            message: error.message
-        });
-    }
+const unknownPatch = (sizes: string[]) => ({
+    availability: Object.fromEntries(sizes.map(s => [s, 'unknown' as SizeState])),
+    availabilitySource: 'none' as Source,
+    availabilityCheckedAt: now(),
 });
 
-/**
- * Core stock sweep logic — shared by both the scheduled and HTTP-triggered functions.
- * Checks all Zara products against the Zara SoHo store (ID: 11719) and updates
- * the `in_stock_soho` field on each product in Firestore.
- */
-async function runZaraSohoStockSweep(): Promise<{ updatedCount: number; results: any[] }> {
-    const ZARA_SOHO_ID = 11719;
-    const SOHO_LAT = 40.7246;
-    const SOHO_LNG = -73.9985;
-
-    const snapshot = await db.collection("products")
-        .where("brand", "==", "Zara")
-        .get();
-
-    if (snapshot.empty) {
-        console.log("⚠️ No Zara products found in Firestore.");
-        return { updatedCount: 0, results: [] };
+async function commitChunked(writes: Array<{ ref: FirebaseFirestore.DocumentReference; data: any; merge: boolean }>) {
+    for (let i = 0; i < writes.length; i += BATCH) {
+        const batch = db.batch();
+        for (const w of writes.slice(i, i + BATCH)) batch.set(w.ref, w.data, { merge: w.merge });
+        await batch.commit();
     }
+}
 
-    const batch = db.batch();
-    let counter = 0;
-    const results: any[] = [];
+// Slack/Discord webhook from functions/.env → ALERT_WEBHOOK_URL. Kept out of
+// Firestore on purpose: config/* is publicly readable by rule.
+async function alert(message: string) {
+    console.error('🚨', message);
+    const url = process.env.ALERT_WEBHOOK_URL;
+    if (!url) return;
+    try { await axios.post(url, { text: message, content: message }, { timeout: 5000 }); }
+    catch (e: any) { console.error('alert webhook failed:', e.message); }
+}
 
-    for (const doc of snapshot.docs) {
-        const data = doc.data();
-        const productId = doc.id;
-        const zaraProductId = data.zaraProductId;
+async function setSourceHealth(source: string, healthy: boolean, detail: string) {
+    await db.doc('config/inventory').set({ [source]: { healthy, detail, at: now() } }, { merge: true });
+}
 
-        if (!zaraProductId) {
-            console.log(`⚠️ Skipping ${productId}: No zaraProductId`);
-            continue;
-        }
-
-        const url = `https://www.zara.com/us/en/stock-sharing/shops/by-physical-stock?lat=${SOHO_LAT}&lng=${SOHO_LNG}&productIds=${zaraProductId}`;
-        let isAvailable = false;
-
-        try {
-            const response = await axios.get(url, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1' },
-                timeout: 8000
-            });
-
-            const shops = response.data.shops || [];
-
-            // Log actual response shape on first product to catch Zara API changes
-            if (counter === 0 && shops.length > 0) {
-                console.log(`🔍 Zara API sample shop fields: ${Object.keys(shops[0]).join(', ')}`);
-                console.log(`🔍 Sample stock value: stockStatus=${shops[0].stockStatus}, stock=${shops[0].stock}, availability=${shops[0].availability}`);
-            }
-
-            const sohoStore = shops.find((shop: any) =>
-                shop.id == ZARA_SOHO_ID || shop.shopId == ZARA_SOHO_ID
-            );
-
-            if (sohoStore) {
-                // Flexible stock field detection — handles if Zara changes their API response format
-                isAvailable =
-                    sohoStore.stockStatus === "in_stock" ||
-                    sohoStore.stock === "in_stock" ||
-                    sohoStore.availability === true ||
-                    sohoStore.inStock === true ||
-                    sohoStore.available === true;
-            }
-
-            results.push({ productId, zaraProductId, isAvailable });
-        } catch (err: any) {
-            console.error(`❌ Error checking ${productId}:`, err.message);
-            results.push({ productId, error: err.message });
-        }
-
-        const docRef = db.collection("products").doc(productId);
-        batch.update(docRef, {
-            in_stock_soho: isAvailable,
-            last_checked_soho: admin.firestore.FieldValue.serverTimestamp()
-        });
-
-        counter++;
-
-        // Polite delay between Zara API requests
-        await new Promise(r => setTimeout(r, 200));
-    }
-
-    await batch.commit();
-    console.log(`✅ Sweep complete — updated ${counter} Zara products for SoHo.`);
-    return { updatedCount: counter, results };
+// The Skims store doc. Real location from Stockist; matched to an existing
+// store named "Skims" so the portal's manually-created doc keeps its ID.
+async function ensureSkimsStore(preferredStoreId?: string): Promise<string> {
+    if (preferredStoreId) return preferredStoreId;
+    const existing = await db.collection('stores').get();
+    const match = existing.docs.find(d => /skims/i.test(d.get('name') || ''));
+    if (match) return match.id;
+    const flagship = (await fetchSkimsStores()).find(s => s.isOwnStore && /New York, NY/i.test(s.address));
+    if (!flagship) throw new Error('no SKIMS-own NYC store found on Stockist');
+    const ref = await db.collection('stores').add({
+        name: 'Skims', brand: 'Skims', category: 'Modern Basics', categories: ['Clothing', 'Accessories'],
+        address: flagship.address, latitude: flagship.latitude, longitude: flagship.longitude,
+        phone: flagship.phone, externalId: flagship.externalId,
+        deliveryTime: '45 Mins', deliveryRadius: 3, isActive: true, tags: [], logo: '', image: '',
+        createdAt: now(),
+    });
+    return ref.id;
 }
 
 /**
- * Cloud Function: updateZaraSohoStock (HTTP)
- *
- * Manual trigger from Admin Portal → Dashboard "Check Zara SoHo Stock" button.
- * POST /updateZaraSohoStock
+ * GET /skimsCatalog?collection=best-sellers&limit=40
+ * Normalised products for the portal's preview → save flow. Read-only proxy of
+ * public Skims data; capped so it can't be used to hammer them.
  */
-export const updateZaraSohoStock = onRequest({
-    timeoutSeconds: 300,
-    cors: true
-}, async (req, res) => {
-    console.log("🖐 Manual stock sweep triggered via HTTP...");
+export const skimsCatalog = onRequest({ cors: true, timeoutSeconds: 300, memory: '512MiB' }, async (req, res) => {
     try {
-        const { updatedCount, results } = await runZaraSohoStockSweep();
-        res.status(200).json({ success: true, updatedCount, details: results });
+        const collection = String(req.query.collection || 'best-sellers').replace(/[^a-z0-9-]/gi, '');
+        const limit = Math.min(Number(req.query.limit) || 40, 60);
+        const handles = (await fetchSkimsCollectionHandles(collection)).slice(0, limit);
+        const products: SkimsProduct[] = [];
+        const failed: string[] = [];
+        for (const h of handles) {
+            try { products.push(await fetchSkimsProduct(h)); }
+            catch (e: any) { failed.push(h); console.warn(`skims ${h}: ${e.message}`); }
+            await sleep(150);
+        }
+        res.json({ collection, count: products.length, failed, products });
     } catch (error: any) {
-        console.error("❌ Fatal error in manual sweep:", error);
         res.status(500).json({ error: error.message });
     }
 });
 
 /**
- * Cloud Function: scheduledZaraSohoStock (Scheduled)
- *
- * Automatically runs every 15 minutes to keep Zara SoHo stock fresh.
- * Enable Cloud Scheduler in Firebase Console if not already active.
+ * POST /syncSkimsCatalog  { storeId?, collection?, limit? }
+ * Upserts products/skims_<externalId>_<storeId> and the Skims store doc.
  */
-export const scheduledZaraSohoStock = onSchedule({
-    schedule: "every 15 minutes",
-    timeoutSeconds: 300,
-}, async (_context) => {
-    console.log("⏰ Scheduled stock sweep starting...");
+export const syncSkimsCatalog = onRequest({ cors: true, timeoutSeconds: 540, memory: '512MiB' }, async (req, res) => {
+    if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
     try {
-        await runZaraSohoStockSweep();
+        const { storeId: wanted, collection = 'best-sellers', limit = 40, replaceLegacy = false } = req.body || {};
+        const storeId = await ensureSkimsStore(wanted);
+        const handles = (await fetchSkimsCollectionHandles(String(collection))).slice(0, Math.min(Number(limit), 200));
+        const writes: Parameters<typeof commitChunked>[0] = [];
+        const failed: string[] = [];
+        for (const h of handles) {
+            try {
+                const p = await fetchSkimsProduct(h);
+                writes.push({
+                    ref: db.doc(`products/skims_${p.externalId}_${storeId}`),
+                    data: { ...skimsPatch(p), brand: 'Skims', storeId, deliveryTime: '45 Mins', isActive: true, createdAt: now() },
+                    merge: true,
+                });
+            } catch (e: any) { failed.push(h); }
+            await sleep(150);
+        }
+        // Don't clobber createdAt on existing docs.
+        const existing = new Set((await db.collection('products').where('storeId', '==', storeId).get()).docs.map(d => d.id));
+        for (const w of writes) if (existing.has(w.ref.id)) delete w.data.createdAt;
+        await commitChunked(writes);
+        // Older Skims docs (CSV/static seeds) are keyed by handle or row; live docs by
+        // numeric id. With replaceLegacy, an older doc for a product that was just synced
+        // is removed so the app never shows the same product twice. Older docs for
+        // products NOT in this sync are left alone — they're the operator's curation.
+        let removed = 0;
+        if (replaceLegacy) {
+            const synced = new Set(writes.map(w => w.data.handle as string));
+            const handleOf = (d: FirebaseFirestore.QueryDocumentSnapshot) =>
+                d.get('handle') || (d.get('productUrl') || '').split('/products/')[1] || '';
+            const legacy = (await db.collection('products').where('storeId', '==', storeId).where('brand', '==', 'Skims').get())
+                .docs.filter(d => !/^skims_\d+_/.test(d.id) && synced.has(handleOf(d)));
+            for (let i = 0; i < legacy.length; i += BATCH) {
+                const batch = db.batch();
+                for (const d of legacy.slice(i, i + BATCH)) batch.delete(d.ref);
+                await batch.commit();
+            }
+            removed = legacy.length;
+        }
+        await setSourceHealth('skims', failed.length < handles.length / 2, `synced ${writes.length}/${handles.length}`);
+        res.json({ storeId, synced: writes.length, failed, removed });
     } catch (error: any) {
-        console.error("❌ Fatal error in scheduled sweep:", error);
+        await alert(`syncSkimsCatalog failed: ${error.message}`);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Refresh availability on every Skims product. Five consecutive failures trips
+// the breaker: remaining products are marked `unknown`, an alert fires, and the
+// source is flagged unhealthy in config/inventory. Nothing is ever marked out
+// of stock because a request failed.
+// ponytail: sequential, ~1.1s/product → ~450 products fit the 540s timeout; run 4-wide if the catalog grows past that.
+async function refreshSkimsAvailability(): Promise<{ updated: number; unknown: number; tripped: boolean }> {
+    const snap = await db.collection('products').where('brand', '==', 'Skims').get();
+    const writes: Parameters<typeof commitChunked>[0] = [];
+    let failures = 0, updated = 0, unknown = 0, tripped = false;
+
+    for (const doc of snap.docs) {
+        const handle: string | undefined = doc.get('handle') || (doc.get('productUrl') || '').split('/products/')[1];
+        const sizes: string[] = doc.get('sizes') || [];
+        if (tripped || !handle) {
+            writes.push({ ref: doc.ref, data: unknownPatch(sizes), merge: true }); unknown++;
+            continue;
+        }
+        try {
+            const p = await fetchSkimsProduct(handle);
+            writes.push({ ref: doc.ref, data: skimsPatch(p), merge: true });
+            updated++; failures = 0;
+        } catch (e: any) {
+            failures++; unknown++;
+            writes.push({ ref: doc.ref, data: unknownPatch(sizes), merge: true });
+            if (failures >= 5) {
+                tripped = true;
+                await alert(`Skims availability breaker tripped after 5 consecutive failures (last: ${e.message}). Remaining products marked unknown.`);
+            }
+        }
+        await sleep(150);
+    }
+    await commitChunked(writes);
+    await setSourceHealth('skims', !tripped, `refreshed ${updated}, unknown ${unknown}`);
+    console.log(`✅ skims refresh — updated ${updated}, unknown ${unknown}, tripped ${tripped}`);
+    return { updated, unknown, tripped };
+}
+
+export const refreshSkimsStock = onRequest({ cors: true, timeoutSeconds: 540, memory: '512MiB' }, async (_req, res) => {
+    try { res.json({ success: true, ...(await refreshSkimsAvailability()) }); }
+    catch (error: any) { res.status(500).json({ error: error.message }); }
+});
+
+export const scheduledSkimsStock = onSchedule({ schedule: 'every 30 minutes', timeoutSeconds: 540, memory: '512MiB' }, async () => {
+    try { await refreshSkimsAvailability(); }
+    catch (error: any) { await alert(`scheduledSkimsStock crashed: ${error.message}`); }
+});
+
+/**
+ * POST /checkAvailability { productId }
+ * What the app calls on the product page. Returns per-size state plus the
+ * store the Snatcher will walk into. Refreshes live if the record is stale.
+ */
+export const checkAvailability = onRequest({ cors: true, timeoutSeconds: 30 }, async (req, res) => {
+    if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
+    try {
+        const { productId } = req.body || {};
+        if (!productId) { res.status(400).json({ error: 'Missing productId' }); return; }
+        const ref = db.doc(`products/${productId}`);
+        const snap = await ref.get();
+        if (!snap.exists) { res.status(404).json({ error: 'Product not found' }); return; }
+        let d = snap.data()!;
+
+        const checkedAt: FirebaseFirestore.Timestamp | undefined = d.availabilityCheckedAt;
+        const stale = !checkedAt || Date.now() - checkedAt.toMillis() > FRESH_MS;
+        const handle = d.handle || (d.productUrl || '').split('/products/')[1];
+        if (d.brand === 'Skims' && handle && stale) {
+            try {
+                const patch = skimsPatch(await fetchSkimsProduct(handle));
+                await ref.set(patch, { merge: true });
+                d = { ...d, ...patch, availabilityCheckedAt: admin.firestore.Timestamp.now() };
+            } catch (e: any) { console.warn(`live refresh failed for ${productId}: ${e.message}`); }
+        }
+
+        const sizes: string[] = d.sizes || [];
+        const availability: Record<string, SizeState> = Object.fromEntries(sizes.map(s => [s, 'unknown' as SizeState]));
+        for (const [k, v] of Object.entries(d.availability || {})) availability[k] = v as SizeState;
+        const states = Object.values(availability);
+        const state: SizeState = states.some(s => s === 'in_stock') ? 'in_stock'
+            : states.length && states.every(s => s === 'out_of_stock') ? 'out_of_stock' : 'unknown';
+
+        const store = d.storeId ? (await db.doc(`stores/${d.storeId}`).get()).data() : undefined;
+        res.json({
+            productId, state, sizes: availability,
+            source: (d.availabilitySource || 'none') as Source,
+            checkedAt: d.availabilityCheckedAt?.toDate?.().toISOString() ?? null,
+            store: store ? { id: d.storeId, name: store.name, address: store.address ?? null } : null,
+        });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
     }
 });

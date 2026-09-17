@@ -4,7 +4,7 @@ struct StoreProductsView: View {
     let store: Store
     var initialProduct: Product? = nil
     @Binding var showTabBar: Bool
-    @Binding var selectedTab: Tab
+    @Binding var selectedTab: AppTab
     @Environment(\.presentationMode) var presentationMode
     @EnvironmentObject var cartManager: CartManager
     @ObservedObject private var databaseService = DatabaseService.shared
@@ -12,6 +12,7 @@ struct StoreProductsView: View {
     @State private var selectedGender = "All"
     @State private var selectedCategory = "All"
     @State private var selectedProduct: Product?
+    @State private var showProductDetail = false
     @State private var cartScale: CGFloat = 1.0
     @State private var showFilters = false
 
@@ -148,9 +149,7 @@ struct StoreProductsView: View {
                                 }
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
-                                .background(VisualEffectBlur(blurStyle: .systemUltraThinMaterialDark))
-                                .cornerRadius(15)
-                                .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.white.opacity(0.2), lineWidth: 0.5))
+                                .glassEffect(in: .capsule)
 
                                 HStack(spacing: 4) {
                                     Image(systemName: "clock")
@@ -162,9 +161,7 @@ struct StoreProductsView: View {
                                 }
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
-                                .background(VisualEffectBlur(blurStyle: .systemUltraThinMaterialDark))
-                                .cornerRadius(15)
-                                .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.white.opacity(0.2), lineWidth: 0.5))
+                                .glassEffect(in: .capsule)
                             }
                             .padding(.top, 5)
                         }
@@ -339,6 +336,7 @@ struct StoreProductsView: View {
                                         .contentShape(Rectangle())
                                         .onTapGesture {
                                             selectedProduct = product
+                                            showProductDetail = true
                                         }
                                 }
 
@@ -361,6 +359,7 @@ struct StoreProductsView: View {
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     selectedProduct = product
+                                    showProductDetail = true
                                 }
                             }
                         }
@@ -379,11 +378,7 @@ struct StoreProductsView: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
-                    .background(
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                            .overlay(Circle().fill(Color.black.opacity(0.4)))
-                    )
+                    .glassEffect(.regular.interactive(), in: .circle)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 20)
@@ -401,11 +396,7 @@ struct StoreProductsView: View {
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 22, height: 22)
                         .frame(width: 44, height: 44)
-                        .background(
-                            Circle()
-                                .fill(.ultraThinMaterial)
-                                .overlay(Circle().fill(Color.black.opacity(0.4)))
-                        )
+                        .glassEffect(.regular.interactive(), in: .circle)
 
                     if cartManager.items.reduce(0, { $0 + $1.quantity }) > 0 {
                         Text("\(cartManager.items.reduce(0) { $0 + $1.quantity })")
@@ -423,24 +414,26 @@ struct StoreProductsView: View {
             .padding(.top, 20)
             .padding(.trailing, 16)
 
-            // Product Detail overlay — parent stays rendered so it shows through during swipe
+        }
+        .navigationBarHidden(true)
+        .toolbar(.hidden, for: .tabBar)
+        .enableSwipeBack()
+        // navigationDestination is lazy — ProductDetailView is only created when showProductDetail = true
+        .navigationDestination(isPresented: $showProductDetail) {
             if let product = selectedProduct {
                 ProductDetailView(
                     product: product,
                     showTabBar: $showTabBar,
                     selectedTab: $selectedTab,
-                    onDismiss: { selectedProduct = nil }
+                    onDismiss: {}
                 )
-                .zIndex(10)
-                .transition(.identity)
             }
         }
-        .navigationBarHidden(true)
-        .enableSwipeBack()
         .onAppear {
             if let product = initialProduct {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     selectedProduct = product
+                    showProductDetail = true
                 }
             }
         }

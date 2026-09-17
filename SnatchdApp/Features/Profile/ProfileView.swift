@@ -171,7 +171,7 @@ struct ProfileView: View {
                                 .cornerRadius(25)
                         }
                         .padding(.horizontal)
-                        .padding(.bottom, 100) // Space for Tab Bar
+                        .padding(.bottom, 100) // Space for AppTab Bar
                     }
                 }
             }

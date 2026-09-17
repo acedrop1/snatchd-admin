@@ -74,7 +74,7 @@ struct OrdersView: View {
     }
 }
 
-// MARK: - Tab Pill
+// MARK: - AppTab Pill
 
 struct TabPill: View {
     let title: String

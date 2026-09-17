@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct CartView: View {
-    @Binding var selectedTab: Tab
+    @Binding var selectedTab: AppTab
     var isPresentedModally: Bool = false
     @Environment(\.presentationMode) var presentationMode
     @EnvironmentObject var cartManager: CartManager
@@ -85,15 +85,16 @@ struct CartView: View {
                                 .frame(maxWidth: .infinity)
                                 .padding()
                                 .background(Color.white.opacity(0.1))
+                                .clipShape(ConcentricRectangle(corners: .concentric(minimum: .fixed(14)), isUniform: true))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 25)
+                                    ConcentricRectangle(corners: .concentric(minimum: .fixed(14)), isUniform: true)
                                         .stroke(Color.white.opacity(0.3), lineWidth: 1)
                                 )
-                                .cornerRadius(25)
                         }
                     }
                     .padding()
-                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 30))
+                    .containerShape(.rect(cornerRadius: 30))
+                    .glassEffect(.regular, in: .rect(cornerRadius: 30))
                 }
             }
         }
@@ -102,6 +103,8 @@ struct CartView: View {
             CheckoutView()
         }
         .navigationBarHidden(true)
+        // Checkout footer owns the bottom edge when there is something to buy
+        .toolbar(cartManager.items.isEmpty ? .visible : .hidden, for: .tabBar)
     }
 }
 
@@ -147,7 +150,7 @@ struct CartItemRow: View {
                     }
                 }
                 
-                Text(item.product.brand)
+                Text(item.selectedSize.isEmpty ? item.product.brand : "\(item.product.brand) · Size \(item.selectedSize)")
                     .font(.subheadline)
                     .foregroundColor(.gray)
                 

@@ -1,7 +1,7 @@
 import Foundation
 
 struct Product: Identifiable {
-    let id: UUID
+    let id: String           // Firestore document ID — the key everything else (cart, orders, availability) uses
     let storeId: String      // Firestore document ID of the owning store
     let title: String
     let brand: String
@@ -16,9 +16,15 @@ struct Product: Identifiable {
     var styles: [String]     // e.g. ["Black", "White", "Navy"] — available colour/style options
     var description: String  // Product description from the brand website
     var inStock: Bool = true
-    var zaraProductId: String? = nil
 
-    init(id: UUID = UUID(), storeId: String = "", title: String, brand: String, price: Double, imageName: String, imageURL: String? = nil, images: [String] = [], deliveryTime: String, category: String, gender: String = "", sizes: [String] = [], styles: [String] = [], description: String = "", inStock: Bool = true, zaraProductId: String? = nil) {
+    // Per-size availability written by the backend (see functions/src/index.ts):
+    //   availability["M"] == "in_stock" | "out_of_stock" | "unknown"
+    //   availabilitySource == "skims_online" | "courier" | "none"
+    var availability: [String: String] = [:]
+    var availabilitySource: String = "none"
+    var availabilityCheckedAt: Date? = nil
+
+    init(id: String = UUID().uuidString, storeId: String = "", title: String, brand: String, price: Double, imageName: String, imageURL: String? = nil, images: [String] = [], deliveryTime: String, category: String, gender: String = "", sizes: [String] = [], styles: [String] = [], description: String = "", inStock: Bool = true, availability: [String: String] = [:], availabilitySource: String = "none", availabilityCheckedAt: Date? = nil) {
         self.id = id
         self.storeId = storeId
         self.title = title
@@ -36,7 +42,9 @@ struct Product: Identifiable {
         self.styles = styles
         self.description = description
         self.inStock = inStock
-        self.zaraProductId = zaraProductId
+        self.availability = availability
+        self.availabilitySource = availabilitySource
+        self.availabilityCheckedAt = availabilityCheckedAt
     }
 
     // Computed property to determine which image to use (for single-image contexts)
@@ -46,6 +54,11 @@ struct Product: Identifiable {
 
     var isRemoteImage: Bool {
         return imageURL != nil && !imageURL!.isEmpty
+    }
+
+    /// Sizes the backend says are out of stock — the size picker greys these out.
+    var unavailableSizes: Set<String> {
+        Set(availability.filter { $0.value == "out_of_stock" }.map { $0.key })
     }
 }
 
@@ -181,7 +194,7 @@ class MockDataService {
     static let shared = MockDataService()
     
     let trendingProducts: [Product] = [
-        Product(title: "Eleos Hand Balm", brand: "Aesop", price: 120.0, imageName: "product1", imageURL: nil, deliveryTime: "45 Mins", category: "Beauty & Skincare", zaraProductId: "504347744"),
+        Product(title: "Eleos Hand Balm", brand: "Aesop", price: 120.0, imageName: "product1", imageURL: nil, deliveryTime: "45 Mins", category: "Beauty & Skincare"),
         Product(title: "Air Force 1 '07", brand: "Nike", price: 110.0, imageName: "product2", imageURL: nil, deliveryTime: "45 Mins", category: "Clothing"),
         Product(title: "Keepall Bandouliere", brand: "Louis Vuitton", price: 2450.0, imageName: "product3", imageURL: nil, deliveryTime: "35 Mins", category: "Clothing"),
         Product(title: "Silk Pajamas", brand: "Skims", price: 250.0, imageName: "product4", imageURL: nil, deliveryTime: "40 Mins", category: "Clothing"),

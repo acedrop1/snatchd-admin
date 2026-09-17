@@ -2,8 +2,7 @@ import SwiftUI
 
 struct SearchView: View {
     @Binding var searchText: String
-    @Binding var isPresented: Bool
-    @FocusState var isFocused: Bool
+    @Binding var selectedTab: AppTab
     
     @State private var selectedSearchTab = 0 // 0: Recent, 1: Saved
     @State private var selectedProduct: Product?
@@ -14,58 +13,9 @@ struct SearchView: View {
     
     var body: some View {
         ZStack {
+        // Search field is provided by the search tab (Liquid Glass on iOS 26)
+        NavigationStack {
         VStack(spacing: 0) {
-            // Header / Search Bar Area
-            HStack(spacing: 12) {
-                // Back Button
-                Button(action: {
-                    isPresented = false
-                    isFocused = false
-                    searchText = ""
-                }) {
-                    Image(systemName: "arrow.left")
-                        .font(.system(size: 20))
-                        .foregroundColor(.white)
-                        .padding(8)
-                }
-                
-                // Search Field
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.gray)
-                    
-                    TextField("Search for anything", text: $searchText)
-                        .font(.custom("Montserrat-Regular", size: 16))
-                        .foregroundColor(.white)
-                        .focused($isFocused)
-                        .submitLabel(.search)
-                    
-                    if !searchText.isEmpty {
-                        Button(action: { searchText = "" }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.gray)
-                        }
-                    }
-                }
-                .padding(.vertical, 16)
-                .padding(.horizontal, 12)
-                .background(Color(UIColor.systemGray6).opacity(0.2))
-                .cornerRadius(25)
-                
-                // Cancel Button
-                Button(action: {
-                    isPresented = false
-                    isFocused = false
-                    searchText = ""
-                }) {
-                    Text("Cancel")
-                        .font(.custom("Montserrat-Medium", size: 16))
-                        .foregroundColor(.white)
-                }
-            }
-            .padding(.horizontal)
-            .padding(.top, 10) // Safe area adjustment if needed
-            .padding(.bottom, 10)
             
             if searchText.isEmpty {
                 // Empty state
@@ -178,9 +128,10 @@ struct SearchView: View {
             Spacer()
         }
         .background(Color.black.edgesIgnoringSafeArea(.all))
-        .onAppear {
-            isFocused = true
-        }
+        .navigationTitle("Search")
+        .navigationBarTitleDisplayMode(.inline)
+        } // NavigationStack
+        .searchable(text: $searchText, prompt: "Search for anything")
         .fullScreenCover(item: $selectedStore) { store in
             StoreProductsView(store: store, showTabBar: .constant(false), selectedTab: .constant(.stores))
         }

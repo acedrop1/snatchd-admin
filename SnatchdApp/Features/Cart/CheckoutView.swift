@@ -123,11 +123,8 @@ struct CheckoutView: View {
                     .disabled(isPlacingOrder || cartManager.items.isEmpty)
                 }
                 .padding()
-                .background(
-                    VisualEffectBlur(blurStyle: .systemUltraThinMaterialDark)
-                )
-                .background(Color.black.opacity(0.8))
-                .cornerRadius(30, corners: [.topLeft, .topRight])
+                // Top corners concentric with the device; bottom square against the screen edge
+                .glassEffect(.regular, in: .rect(uniformTopCorners: .concentric(minimum: .fixed(30)), uniformBottomCorners: .fixed(0)))
             }
         }
         .fullScreenCover(isPresented: $showTracking) {

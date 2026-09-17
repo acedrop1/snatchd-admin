@@ -8,7 +8,6 @@ class DatabaseService: ObservableObject {
 
     @Published var products: [Product] = []
     @Published var stores: [Store] = []
-    @Published var zaraSohoProducts: [Product] = []
     @Published var justDroppedProducts: [Product] = []
     @Published var activeOrders: [Order] = []
     @Published var pastOrders: [Order] = []
@@ -23,7 +22,6 @@ class DatabaseService: ObservableObject {
     // Listener handles — kept so we can detach if needed
     private var storesListener: ListenerRegistration?
     private var productsListener: ListenerRegistration?
-    private var zaraSohoListener: ListenerRegistration?
     private var configListener: ListenerRegistration?
     private var justDroppedListener: ListenerRegistration?
     private var storeOrderListener: ListenerRegistration?
@@ -40,7 +38,6 @@ class DatabaseService: ObservableObject {
     func startListening() {
         listenToStores()
         listenToProducts()
-        listenToZaraSohoProducts()
         listenToConfig()
         listenToJustDropped()
         listenToStoreOrder()
@@ -156,6 +153,46 @@ class DatabaseService: ObservableObject {
         }
     }
 
+    // MARK: - Product Parsing (single source of truth for every products listener)
+
+    static func parseProduct(_ doc: DocumentSnapshot) -> Product? {
+        guard let data = doc.data() else { return nil }
+        func strings(_ key: String) -> [String] {
+            if let a = data[key] as? [String] { return a }
+            if let a = data[key] as? [Any] { return a.compactMap { $0 as? String } }
+            return []
+        }
+        // Price can come from Firestore as Int64 or Double — handle both
+        let price: Double
+        if let d = data["price"] as? Double { price = d }
+        else if let i = data["price"] as? Int { price = Double(i) }
+        else if let i = data["price"] as? Int64 { price = Double(i) }
+        else { price = 0.0 }
+        let images = strings("images")
+        let availability = (data["availability"] as? [String: Any])?.compactMapValues { $0 as? String } ?? [:]
+
+        return Product(
+            id: doc.documentID,
+            storeId: data["storeId"] as? String ?? "",
+            title: data["title"] as? String ?? "",
+            brand: data["brand"] as? String ?? "",
+            price: price,
+            imageName: data["imageName"] as? String ?? "photo",
+            imageURL: images.first ?? (data["imageURL"] as? String),
+            images: images,
+            deliveryTime: data["deliveryTime"] as? String ?? "45 Mins",
+            category: data["category"] as? String ?? "",
+            gender: data["gender"] as? String ?? "",
+            sizes: strings("sizes"),
+            styles: strings("styles"),
+            description: data["description"] as? String ?? "",
+            inStock: data["inStock"] as? Bool ?? true,
+            availability: availability,
+            availabilitySource: data["availabilitySource"] as? String ?? "none",
+            availabilityCheckedAt: (data["availabilityCheckedAt"] as? Timestamp)?.dateValue()
+        )
+    }
+
     // MARK: - Real-Time Products Listener
     // Any product added, edited, or deleted in the portal instantly updates the app.
 
@@ -175,115 +212,11 @@ class DatabaseService: ObservableObject {
             print("🔄 Products updated — \(documents.count) products")
 
             DispatchQueue.main.async {
-                self.products = documents.compactMap { doc -> Product? in
-                    let data = doc.data()
-                    let storeId = data["storeId"] as? String ?? ""
-                    let title = data["title"] as? String ?? ""
-                    let brand = data["brand"] as? String ?? ""
-                    // Price can come from Firestore as Int64 or Double — handle both
-                    let price: Double
-                    if let d = data["price"] as? Double { price = d }
-                    else if let i = data["price"] as? Int { price = Double(i) }
-                    else if let i = data["price"] as? Int64 { price = Double(i) }
-                    else { price = 0.0 }
-                    // Images: full array for gallery + single imageURL for legacy
-                    let images: [String]
-                    if let direct = data["images"] as? [String] { images = direct }
-                    else if let raw = data["images"] as? [Any] { images = raw.compactMap { $0 as? String } }
-                    else { images = [] }
-                    let imageURL = images.first ?? (data["imageURL"] as? String)
-                    let imageName = data["imageName"] as? String ?? "photo"
-                    let deliveryTime = data["deliveryTime"] as? String ?? "45 Mins"
-                    let category = data["category"] as? String ?? ""
-                    let gender = data["gender"] as? String ?? ""
-                    let sizes: [String]
-                    if let direct = data["sizes"] as? [String] { sizes = direct }
-                    else if let raw = data["sizes"] as? [Any] { sizes = raw.compactMap { $0 as? String } }
-                    else { sizes = [] }
-                    let styles: [String]
-                    if let direct = data["styles"] as? [String] { styles = direct }
-                    else if let raw = data["styles"] as? [Any] { styles = raw.compactMap { $0 as? String } }
-                    else { styles = [] }
-                    let description = data["description"] as? String ?? ""
-                    let inStock = data["inStock"] as? Bool ?? true
-                    let zaraProductId = data["zaraProductId"] as? String
-
-                    return Product(
-                        storeId: storeId,
-                        title: title,
-                        brand: brand,
-                        price: price,
-                        imageName: imageName,
-                        imageURL: imageURL,
-                        images: images,
-                        deliveryTime: deliveryTime,
-                        category: category,
-                        gender: gender,
-                        sizes: sizes,
-                        styles: styles,
-                        description: description,
-                        inStock: inStock,
-                        zaraProductId: zaraProductId
-                    )
-                }
+                self.products = documents.compactMap(Self.parseProduct)
 
                 print("✅ Products synced: \(self.products.count)")
             }
         }
-    }
-
-    // MARK: - Real-Time Zara SoHo Products Listener
-
-    func listenToZaraSohoProducts() {
-        guard zaraSohoListener == nil else { return }
-
-        zaraSohoListener = db.collection("products")
-            .whereField("brand", isEqualTo: "Zara")
-            .whereField("in_stock_soho", isEqualTo: true)
-            .addSnapshotListener { [weak self] snapshot, error in
-                guard let self = self else { return }
-
-                if let error = error {
-                    print("❌ Zara SoHo listener error: \(error.localizedDescription)")
-                    return
-                }
-
-                guard let documents = snapshot?.documents else { return }
-
-                print("🔄 Zara SoHo products updated — \(documents.count) in stock")
-
-                DispatchQueue.main.async {
-                    self.zaraSohoProducts = documents.compactMap { doc -> Product? in
-                        let data = doc.data()
-                        let storeId = data["storeId"] as? String ?? ""
-                        let title = data["title"] as? String ?? ""
-                        let brand = data["brand"] as? String ?? ""
-                        let price = data["price"] as? Double ?? 0.0
-                        let images = data["images"] as? [String] ?? []
-                        let imageURL = images.first
-                        let imageName = data["imageName"] as? String ?? "photo"
-                        let deliveryTime = data["deliveryTime"] as? String ?? "45 Mins"
-                        let category = data["category"] as? String ?? ""
-                        let inStock = data["in_stock_soho"] as? Bool ?? true
-                        let zaraProductId = data["zaraProductId"] as? String
-
-                        return Product(
-                            storeId: storeId,
-                            title: title,
-                            brand: brand,
-                            price: price,
-                            imageName: imageName,
-                            imageURL: imageURL,
-                            deliveryTime: deliveryTime,
-                            category: category,
-                            inStock: inStock,
-                            zaraProductId: zaraProductId
-                        )
-                    }
-
-                    print("✅ Zara SoHo products synced: \(self.zaraSohoProducts.count)")
-                }
-            }
     }
 
     // MARK: - Just Dropped Products Listener
@@ -305,50 +238,7 @@ class DatabaseService: ObservableObject {
                 print("🔄 Just Dropped updated — \(documents.count) products")
 
                 DispatchQueue.main.async {
-                    self.justDroppedProducts = documents.compactMap { doc -> Product? in
-                        let data = doc.data()
-                        let storeId = data["storeId"] as? String ?? ""
-                        let title = data["title"] as? String ?? ""
-                        let brand = data["brand"] as? String ?? ""
-                        let price: Double
-                        if let d = data["price"] as? Double { price = d }
-                        else if let i = data["price"] as? Int { price = Double(i) }
-                        else if let i = data["price"] as? Int64 { price = Double(i) }
-                        else { price = 0.0 }
-                        let images: [String]
-                        if let direct = data["images"] as? [String] { images = direct }
-                        else if let raw = data["images"] as? [Any] { images = raw.compactMap { $0 as? String } }
-                        else { images = [] }
-                        let imageURL = images.first ?? (data["imageURL"] as? String)
-                        let deliveryTime = data["deliveryTime"] as? String ?? "45 Mins"
-                        let category = data["category"] as? String ?? ""
-                        let gender = data["gender"] as? String ?? ""
-                        let sizes: [String]
-                        if let direct = data["sizes"] as? [String] { sizes = direct }
-                        else if let raw = data["sizes"] as? [Any] { sizes = raw.compactMap { $0 as? String } }
-                        else { sizes = [] }
-                        let styles: [String]
-                        if let direct = data["styles"] as? [String] { styles = direct }
-                        else if let raw = data["styles"] as? [Any] { styles = raw.compactMap { $0 as? String } }
-                        else { styles = [] }
-                        let description = data["description"] as? String ?? ""
-
-                        return Product(
-                            storeId: storeId,
-                            title: title,
-                            brand: brand,
-                            price: price,
-                            imageName: "photo",
-                            imageURL: imageURL,
-                            images: images,
-                            deliveryTime: deliveryTime,
-                            category: category,
-                            gender: gender,
-                            sizes: sizes,
-                            styles: styles,
-                            description: description
-                        )
-                    }
+                    self.justDroppedProducts = documents.compactMap(Self.parseProduct)
                     print("✅ Just Dropped synced: \(self.justDroppedProducts.count)")
                 }
             }
@@ -549,7 +439,7 @@ class DatabaseService: ObservableObject {
             let storeName = stores.first { $0.firestoreId == cartItem.product.storeId }?.name ?? "Snatchd"
             return [
                 "id": cartItem.id.uuidString,
-                "productId": cartItem.product.id.uuidString,
+                "productId": cartItem.product.id,
                 "productTitle": cartItem.product.title,
                 "productBrand": cartItem.product.brand,
                 "productPrice": cartItem.product.price,
@@ -557,7 +447,7 @@ class DatabaseService: ObservableObject {
                 "storeId": cartItem.product.storeId,
                 "storeName": storeName,
                 "quantity": cartItem.quantity,
-                "selectedSize": ""
+                "selectedSize": cartItem.selectedSize
             ]
         }
 
@@ -602,7 +492,6 @@ class DatabaseService: ObservableObject {
     }
 
     func fetchZaraSohoProducts() {
-        listenToZaraSohoProducts()
     }
 
     // MARK: - Stop Listening (call on logout / deinit if needed)
@@ -610,13 +499,11 @@ class DatabaseService: ObservableObject {
     func stopListening() {
         storesListener?.remove()
         productsListener?.remove()
-        zaraSohoListener?.remove()
         justDroppedListener?.remove()
         storeOrderListener?.remove()
         ordersListener?.remove()
         storesListener = nil
         productsListener = nil
-        zaraSohoListener = nil
         justDroppedListener = nil
         storeOrderListener = nil
         ordersListener = nil

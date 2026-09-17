@@ -1,12 +1,12 @@
 import SwiftUI
-import CoreLocation
 
 struct ProductDetailView: View {
     let product: Product
     @Binding var showTabBar: Bool
-    @Binding var selectedTab: Tab
+    @Binding var selectedTab: AppTab
     let onDismiss: () -> Void
     @EnvironmentObject var cartManager: CartManager
+    @Environment(\.dismiss) private var navDismiss   // pops NavigationLink or closes overlay
 
     // Animation State
     @State private var cartScale: CGFloat = 1.0
@@ -20,26 +20,28 @@ struct ProductDetailView: View {
     @State private var selectedSize: String = ""
     @State private var selectedStyle: String = ""
     @State private var currentImageIndex: Int = 0
+    @State private var scrollPositionId: Int? = 0
 
     // Bottom Sheet State
     @State private var dragOffset: CGFloat = 0
     @State private var isSheetExpanded = false
 
-    // Omnidirectional interactive dismiss — follows finger, no re-renders during drag
-    @GestureState private var dismissDrag: CGSize = .zero
-    private var dismissDistance: CGFloat {
-        sqrt(pow(dismissDrag.width, 2) + pow(dismissDrag.height, 2))
-    }
-    private var dismissScale: CGFloat {
-        let screenHeight: CGFloat = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.bounds.height ?? 800
-        return max(0.88, 1.0 - dismissDistance / screenHeight * 0.15)
-    }
-
-    // Real-Time Stock Check State
-    @StateObject private var locationManager = LocationManager()
+    // Availability — per size, from the backend (AvailabilityService). "unknown"
+    // is a real state: the Snatcher confirms in store before the card is captured.
     @State private var isCheckingStock = false
-    @State private var stockAvailability: [StoreAvailability] = []
+    @State private var availability: ProductAvailability?
     @State private var stockError: String?
+
+    private var unavailableSizes: Set<String> { availability?.unavailableSizes ?? product.unavailableSizes }
+    private var selectedSizeUnavailable: Bool { !selectedSize.isEmpty && unavailableSizes.contains(selectedSize) }
+    private var canAddToCart: Bool { product.inStock && !selectedSizeUnavailable }
+
+    // All images for this product — used in both the detail carousel and the full-screen viewer
+    private var allProductImages: [String] {
+        product.images.isEmpty
+            ? (product.imageURL.map { [$0] } ?? [])
+            : product.images
+    }
 
     // Constants
     private let collapsedHeight: CGFloat = 300
@@ -51,45 +53,53 @@ struct ProductDetailView: View {
             // 1. Background Image Area — carousel if multiple images, single if one
             GeometryReader { geometry in
                 let imageHeight = geometry.size.height * 0.65
-                let allImages = product.images.isEmpty
-                    ? (product.imageURL.map { [$0] } ?? [])
-                    : product.images
+                let allImages = allProductImages
 
                 ZStack(alignment: .bottom) {
                     if allImages.count > 1 {
-                        // ── Multi-image carousel ──────────────────────────────
-                        TabView(selection: $currentImageIndex) {
-                            ForEach(Array(allImages.enumerated()), id: \.offset) { idx, urlString in
-                                if let url = URL(string: urlString) {
-                                    CachedAsyncImage(url: url) { image in
-                                        image
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fill)
-                                            .frame(width: geometry.size.width, height: imageHeight)
-                                            .clipped()
-                                    } placeholder: {
-                                        Rectangle()
-                                            .fill(Color.black.opacity(0.3))
-                                            .frame(width: geometry.size.width, height: imageHeight)
-                                            .overlay(ProgressView().tint(.white))
+                        // ── Multi-image vertical scroll carousel (SSENSE style) ──
+                        ScrollView(.vertical, showsIndicators: false) {
+                            LazyVStack(spacing: 0) {
+                                ForEach(Array(allImages.enumerated()), id: \.offset) { idx, urlString in
+                                    if let url = URL(string: urlString) {
+                                        CachedAsyncImage(url: url) { image in
+                                            image
+                                                .resizable()
+                                                .aspectRatio(contentMode: .fill)
+                                                .frame(width: geometry.size.width, height: imageHeight)
+                                                .clipped()
+                                        } placeholder: {
+                                            Rectangle()
+                                                .fill(Color.black.opacity(0.3))
+                                                .frame(width: geometry.size.width, height: imageHeight)
+                                                .overlay(ProgressView().tint(.white))
+                                        }
+                                        .id(idx)
                                     }
-                                    .tag(idx)
                                 }
                             }
+                            .scrollTargetLayout()
                         }
-                        .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
+                        .scrollTargetBehavior(.paging)
                         .frame(width: geometry.size.width, height: imageHeight)
-
-                        // Dot indicators
-                        HStack(spacing: 6) {
-                            ForEach(0..<allImages.count, id: \.self) { idx in
-                                Circle()
-                                    .fill(idx == currentImageIndex ? Color.white : Color.white.opacity(0.4))
-                                    .frame(width: idx == currentImageIndex ? 7 : 5, height: idx == currentImageIndex ? 7 : 5)
-                                    .animation(.spring(response: 0.3), value: currentImageIndex)
-                            }
+                        .scrollPosition(id: $scrollPositionId)
+                        .onChange(of: scrollPositionId) { _, newId in
+                            currentImageIndex = newId ?? 0
                         }
-                        .padding(.bottom, 16)
+                        .overlay(alignment: .trailing) {
+                            // Vertical bar indicators — right edge, SSENSE style
+                            // Dark fill + white shadow so bars are visible on both light and dark product images
+                            VStack(spacing: 5) {
+                                ForEach(0..<allImages.count, id: \.self) { idx in
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(idx == currentImageIndex ? Color(white: 0.1) : Color(white: 0.35).opacity(0.85))
+                                        .frame(width: 3, height: idx == currentImageIndex ? 22 : 14)
+                                        .shadow(color: .white.opacity(0.6), radius: 2, x: 0, y: 0)
+                                        .animation(.spring(response: 0.25), value: currentImageIndex)
+                                }
+                            }
+                            .padding(.trailing, 12)
+                        }
 
                     } else if let urlString = allImages.first, let url = URL(string: urlString) {
                         // ── Single remote image ───────────────────────────────
@@ -133,40 +143,25 @@ struct ProductDetailView: View {
                         withAnimation { showFullImage = true }
                     }
             )
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 10, coordinateSpace: .global)
-                    .updating($dismissDrag) { value, state, _ in
-                        state = value.translation
-                    }
-                    .onEnded { value in
-                        let dist = sqrt(pow(value.translation.width, 2) + pow(value.translation.height, 2))
-                        let predicted = sqrt(pow(value.predictedEndTranslation.width, 2) + pow(value.predictedEndTranslation.height, 2))
-                        if dist > 90 || predicted > 180 {
-                            onDismiss()
-                        }
-                    }
-            )
+            // Note: no full-screen drag gesture here — vertical scroll owns vertical swipes.
+            // Dismiss is handled by the left-edge swipe gesture on the ZStack below.
 
-            // 2. Back Button (Top Left) — matches StoreProductsView
-            Button(action: { onDismiss() }) {
+            // 2. Back Button (Top Left) — navDismiss() pops navigation; onDismiss() covers overlay fallback
+            Button(action: { navDismiss(); onDismiss() }) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
-                    .background(
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                            .overlay(Circle().fill(Color.black.opacity(0.4)))
-                    )
+                    .glassEffect(.regular.interactive(), in: .circle)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 20)
             .padding(.leading, 16)
             .zIndex(1)
 
-            // 3. Cart Button (Top Right) — matches StoreProductsView
+            // 3. Cart Button (Top Right)
             Button(action: {
-                onDismiss()
+                navDismiss(); onDismiss()
                 selectedTab = .cart
                 showTabBar = true
             }) {
@@ -176,11 +171,7 @@ struct ProductDetailView: View {
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 22, height: 22)
                         .frame(width: 44, height: 44)
-                        .background(
-                            Circle()
-                                .fill(.ultraThinMaterial)
-                                .overlay(Circle().fill(Color.black.opacity(0.4)))
-                        )
+                        .glassEffect(.regular.interactive(), in: .circle)
 
                     if cartManager.items.reduce(0, { $0 + $1.quantity }) > 0 {
                         Text("\(cartManager.items.reduce(0) { $0 + $1.quantity })")
@@ -202,12 +193,13 @@ struct ProductDetailView: View {
             // 4. Draggable Glassmorphic Bottom Sheet
             GeometryReader { geometry in
                 VStack(spacing: 0) {
-                    // Draggable Handle Area (Larger touch target)
+                    // Draggable Handle Area — gesture lives HERE only, not on the whole sheet.
+                    // This lets native NavigationStack swipe-back work anywhere on the card.
                     VStack(spacing: 8) {
                         Capsule()
                             .fill(Color.white.opacity(0.5))
                             .frame(width: 50, height: 5)
-                        
+
                         Text("Swipe up for details")
                             .font(.custom("Montserrat-Regular", size: 11))
                             .foregroundColor(.white.opacity(0.5))
@@ -216,7 +208,42 @@ struct ProductDetailView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 15)
                     .padding(.bottom, 20)
-                    .contentShape(Rectangle()) // Make entire area tappable
+                    .contentShape(Rectangle())
+                    .highPriorityGesture(
+                        DragGesture(minimumDistance: 10)
+                            .onChanged { value in
+                                let horizontalAmount = abs(value.translation.width)
+                                let verticalAmount = abs(value.translation.height)
+                                guard verticalAmount > horizontalAmount else { return }
+                                let newOffset = value.translation.height
+                                if isSheetExpanded && newOffset < 0 {
+                                    dragOffset = newOffset / 3
+                                } else {
+                                    dragOffset = newOffset
+                                }
+                            }
+                            .onEnded { value in
+                                let horizontalAmount = abs(value.translation.width)
+                                let verticalAmount = abs(value.translation.height)
+                                guard verticalAmount > horizontalAmount else {
+                                    dragOffset = 0; return
+                                }
+                                let threshold = geometry.size.height * 0.15
+                                if isSheetExpanded {
+                                    if value.translation.height > threshold {
+                                        withAnimation(.spring()) { isSheetExpanded = false; dragOffset = 0 }
+                                    } else {
+                                        withAnimation(.spring()) { dragOffset = 0 }
+                                    }
+                                } else {
+                                    if value.translation.height < -threshold {
+                                        withAnimation(.spring()) { isSheetExpanded = true; dragOffset = 0 }
+                                    } else {
+                                        withAnimation(.spring()) { dragOffset = 0 }
+                                    }
+                                }
+                            }
+                    )
                     
                     ScrollView(showsIndicators: false) {
                         VStack(alignment: .leading, spacing: 20) {
@@ -238,7 +265,7 @@ struct ProductDetailView: View {
                             
                             // Size Selector — only shown when the product has known sizes
                             if !product.sizes.isEmpty {
-                                SelectorMenu(title: "Size", selection: $selectedSize, options: product.sizes)
+                                SelectorMenu(title: "Size", selection: $selectedSize, options: product.sizes, unavailable: unavailableSizes)
                                     .frame(maxWidth: .infinity)
                             }
 
@@ -283,69 +310,13 @@ struct ProductDetailView: View {
                                 }
                             }
 
-                            // REAL-TIME STOCK CHECK UI
-                            if isCheckingStock {
-                                HStack {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                    Text("Checking store availability...")
-                                        .font(.custom("Montserrat-Regular", size: 14))
-                                        .foregroundColor(.white.opacity(0.8))
-                                }
-                                .padding(.vertical, 5)
-                            } else if !stockAvailability.isEmpty {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("NEARBY AVAILABILITY")
-                                        .font(.custom("Montserrat-Bold", size: 12))
-                                        .foregroundColor(.gray)
-                                    
-                                    ForEach(stockAvailability.prefix(3)) { store in
-                                        HStack {
-                                            VStack(alignment: .leading) {
-                                                Text(store.storeName)
-                                                    .font(.custom("Montserrat-SemiBold", size: 14))
-                                                    .foregroundColor(.white)
-                                                if let dist = store.distance {
-                                                    Text(String(format: "%.1f miles away", dist))
-                                                        .font(.custom("Montserrat-Regular", size: 12))
-                                                        .foregroundColor(.gray)
-                                                }
-                                            }
-                                            Spacer()
-                                            
-                                            if store.inStock {
-                                                Text("IN STOCK")
-                                                    .font(.custom("Montserrat-Bold", size: 12))
-                                                    .foregroundColor(.black)
-                                                    .padding(.horizontal, 8)
-                                                    .padding(.vertical, 4)
-                                                    .background(Color.green)
-                                                    .cornerRadius(4)
-                                            } else {
-                                                Text("SOLD OUT")
-                                                    .font(.custom("Montserrat-Bold", size: 12))
-                                                    .foregroundColor(.white.opacity(0.5))
-                                                    .padding(.horizontal, 8)
-                                                    .padding(.vertical, 4)
-                                                    .background(Color.white.opacity(0.1))
-                                                    .cornerRadius(4)
-                                            }
-                                        }
-                                        .padding()
-                                        .background(Color.white.opacity(0.05))
-                                        .cornerRadius(10)
-                                    }
-                                }
-                            } else if let error = stockError {
-                                Text("Stock Check Unavailable: \(error)")
-                                    .font(.custom("Montserrat-Regular", size: 12))
-                                    .foregroundColor(.red)
-                            }
-                            
+                            // AVAILABILITY — what the backend knows, and what the Snatcher confirms
+                            AvailabilityRow(isChecking: isCheckingStock, availability: availability, error: stockError, size: selectedSize)
+
                             // Add to Cart Button
                             Button(action: {
-                                if product.inStock {
-                                    cartManager.addToCart(product: product)
+                                if canAddToCart {
+                                    cartManager.addToCart(product: product, size: selectedSize)
                                     let generator = UIImpactFeedbackGenerator(style: .medium)
                                     generator.impactOccurred()
                                     
@@ -360,31 +331,31 @@ struct ProductDetailView: View {
                                     }
                                 }
                             }) {
-                                let buttonText: String = product.inStock ? "Add to Cart" : "SOLD OUT"
-                                let backgroundColor: Color = product.inStock ? Color.clear : Color.black.opacity(0.6)
-                                let grayscaleAmount: Double = product.inStock ? 0 : 1.0
-                                let topShadowColor: Color = product.inStock ? Color.white.opacity(0.2) : Color.clear
-                                let bottomShadowColor: Color = product.inStock ? Color.black.opacity(0.3) : Color.clear
+                                let buttonText: String = canAddToCart ? "Add to Cart" : "SOLD OUT"
+                                let backgroundColor: Color = canAddToCart ? Color.clear : Color.black.opacity(0.6)
+                                let grayscaleAmount: Double = canAddToCart ? 0 : 1.0
+                                let topShadowColor: Color = canAddToCart ? Color.white.opacity(0.2) : Color.clear
+                                let bottomShadowColor: Color = canAddToCart ? Color.black.opacity(0.3) : Color.clear
 
                                 Text(buttonText)
                                     .font(.custom("Montserrat-SemiBold", size: 18))
                                     .foregroundColor(.white)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 18)
-                                    .glassEffect(in: RoundedRectangle(cornerRadius: 30))
+                                    .glassEffect(.regular.interactive(), in: .rect(corners: .concentric(minimum: .fixed(20))))
                                     .overlay(
-                                        RoundedRectangle(cornerRadius: 30)
+                                        ConcentricRectangle(corners: .concentric(minimum: .fixed(20)), isUniform: true)
                                             .stroke(Color.white.opacity(0.4), lineWidth: 1.5)
                                     )
                                     .background(
-                                        RoundedRectangle(cornerRadius: 30)
+                                        ConcentricRectangle(corners: .concentric(minimum: .fixed(20)), isUniform: true)
                                             .fill(backgroundColor)
                                     )
                                     .grayscale(grayscaleAmount)
                                     .shadow(color: topShadowColor, radius: 20, x: 0, y: 8)
                                     .shadow(color: bottomShadowColor, radius: 15, x: 0, y: 5)
                             }
-                            .disabled(!product.inStock)
+                            .disabled(!canAddToCart)
                             .padding(.vertical, 10)
                             
                             Divider().background(Color.white.opacity(0.2))
@@ -400,6 +371,7 @@ struct ProductDetailView: View {
                         .padding(25)
                     }
                 }
+                .containerShape(.rect(cornerRadius: 30))
                 .background(
                     RoundedRectangle(cornerRadius: 30)
                         .fill(Color.black.opacity(0.72))
@@ -414,75 +386,45 @@ struct ProductDetailView: View {
                 .highPriorityGesture(
                     DragGesture(minimumDistance: 10)
                         .onChanged { value in
-                            // Only respond to vertical drags (not horizontal swipes)
-                            let horizontalAmount = abs(value.translation.width)
-                            let verticalAmount = abs(value.translation.height)
-                            
-                            // If drag is more horizontal than vertical, ignore it (allow swipe back)
-                            guard verticalAmount > horizontalAmount else { return }
-                            
-                            let newOffset = value.translation.height
-                            // Resistance when dragging up past expansion
-                            if isSheetExpanded && newOffset < 0 {
-                                dragOffset = newOffset / 3
-                            } else {
-                                dragOffset = newOffset
-                            }
+                            let h = abs(value.translation.width)
+                            let v = abs(value.translation.height)
+                            guard v > h else { return }
+                            dragOffset = (isSheetExpanded && value.translation.height < 0)
+                                ? value.translation.height / 3
+                                : value.translation.height
                         }
                         .onEnded { value in
-                            // Only respond to vertical drags
-                            let horizontalAmount = abs(value.translation.width)
-                            let verticalAmount = abs(value.translation.height)
-                            
-                            guard verticalAmount > horizontalAmount else {
-                                dragOffset = 0
-                                return
-                            }
-                            
+                            let h = abs(value.translation.width)
+                            let v = abs(value.translation.height)
+                            guard v > h else { dragOffset = 0; return }
                             let threshold = geometry.size.height * 0.15
-                            
                             if isSheetExpanded {
-                                // If expanded, drag down to collapse
                                 if value.translation.height > threshold {
-                                    withAnimation(.spring()) {
-                                        isSheetExpanded = false
-                                        dragOffset = 0
-                                    }
+                                    withAnimation(.spring()) { isSheetExpanded = false; dragOffset = 0 }
                                 } else {
-                                    withAnimation(.spring()) {
-                                        dragOffset = 0
-                                    }
+                                    withAnimation(.spring()) { dragOffset = 0 }
                                 }
                             } else {
-                                // If collapsed, drag up to expand
                                 if value.translation.height < -threshold {
-                                    withAnimation(.spring()) {
-                                        isSheetExpanded = true
-                                        dragOffset = 0
-                                    }
+                                    withAnimation(.spring()) { isSheetExpanded = true; dragOffset = 0 }
                                 } else {
-                                    withAnimation(.spring()) {
-                                        dragOffset = 0
-                                    }
+                                    withAnimation(.spring()) { dragOffset = 0 }
                                 }
                             }
                         }
                 )
             }
             .edgesIgnoringSafeArea(.bottom)
-            
+
         }
-        .offset(x: dismissDrag.width, y: dismissDrag.height)
-        .scaleEffect(dismissScale)
+        .fullScreenSwipeBack()
         .navigationBarHidden(true)
+        .toolbar(.hidden, for: .tabBar)
         .onAppear {
-            DispatchQueue.main.async {
-                showTabBar = false
-                locationManager.requestLocationPermission()
-            }
-            // Pre-select first available size
-            if selectedSize.isEmpty, let firstSize = product.sizes.first {
-                selectedSize = firstSize
+            DispatchQueue.main.async { showTabBar = false }
+            // Pre-select the first size the backend hasn't already ruled out
+            if selectedSize.isEmpty {
+                selectedSize = product.sizes.first { !unavailableSizes.contains($0) } ?? product.sizes.first ?? ""
             }
             // Trigger Stock Check
             checkInventory()
@@ -497,7 +439,8 @@ struct ProductDetailView: View {
             Group {
                 if showFullImage {
                     ZoomableImageViewer(
-                        product: product,
+                        allImages: allProductImages,
+                        initialIndex: currentImageIndex,
                         isPresented: $showFullImage
                     )
                     .transition(.opacity)
@@ -508,36 +451,24 @@ struct ProductDetailView: View {
     }
     
     private func checkInventory() {
-        guard let zaraId = product.zaraProductId else { return }
-        
-        // Wait for location or use default NYC logic if unavailable for demo
-        // Ideally checking locationManager.currentLocation
-        
+        guard !product.id.isEmpty else { return }
         isCheckingStock = true
         stockError = nil
-        
-        // Use user location OR default to NYC Times Square for demo
-        let lat = locationManager.currentLocation?.coordinate.latitude ?? AppConfig.defaultLatitude
-        let lng = locationManager.currentLocation?.coordinate.longitude ?? AppConfig.defaultLongitude
-        
         Task {
             do {
-                let stores = try await StockCheckService.shared.checkStock(
-                    productId: product.id.uuidString,
-                    zaraProductId: zaraId,
-                    latitude: lat,
-                    longitude: lng
-                )
-                
+                let result = try await AvailabilityService.shared.check(productId: product.id)
                 await MainActor.run {
-                    self.stockAvailability = stores
-                    self.isCheckingStock = false
+                    availability = result
+                    isCheckingStock = false
+                    // The pre-selected size may have just turned out to be gone
+                    if result.unavailableSizes.contains(selectedSize) {
+                        selectedSize = product.sizes.first { !result.unavailableSizes.contains($0) } ?? selectedSize
+                    }
                 }
             } catch {
-                print("Stock check failed: \(error)")
                 await MainActor.run {
-                    self.stockError = "Could not verify stock"
-                    self.isCheckingStock = false
+                    stockError = "Couldn't reach inventory"
+                    isCheckingStock = false
                 }
             }
         }
@@ -550,18 +481,20 @@ struct SelectorMenu: View {
     let title: String
     @Binding var selection: String
     let options: [String]
+    var unavailable: Set<String> = []
 
     var body: some View {
         Menu {
             ForEach(options, id: \.self) { option in
                 Button(action: { selection = option }) {
                     HStack {
-                        Text(option)
+                        Text(unavailable.contains(option) ? "\(option) — Sold out" : option)
                         if selection == option {
                             Image(systemName: "checkmark")
                         }
                     }
                 }
+                .disabled(unavailable.contains(option))
             }
         } label: {
             HStack {
@@ -577,15 +510,79 @@ struct SelectorMenu: View {
             .padding(.vertical, 14)
             // Manual styling — avoids the black flash that glassEffect causes on Menu labels
             .background(
-                RoundedRectangle(cornerRadius: 20)
+                ConcentricRectangle(corners: .concentric(minimum: .fixed(14)), isUniform: true)
                     .fill(Color.white.opacity(0.08))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 20)
+                ConcentricRectangle(corners: .concentric(minimum: .fixed(14)), isUniform: true)
                     .stroke(Color.white.opacity(0.25), lineWidth: 1)
             )
         }
         .menuOrder(.fixed)
+    }
+}
+
+/// One honest line about stock. Green = the source says this size is there;
+/// grey = nobody has checked yet. Either way the Snatcher confirms before capture.
+struct AvailabilityRow: View {
+    let isChecking: Bool
+    let availability: ProductAvailability?
+    let error: String?
+    let size: String
+
+    private var state: String {
+        guard let a = availability else { return "unknown" }
+        if !size.isEmpty, let s = a.sizes[size] { return s }
+        return a.state
+    }
+    private var storeName: String { availability?.store?.name ?? "the store" }
+    private var checkedAgo: String {
+        guard let d = availability?.checkedDate else { return "" }
+        let m = Int(Date().timeIntervalSince(d) / 60)
+        return m < 1 ? "just now" : m < 60 ? "\(m)m ago" : "\(m / 60)h ago"
+    }
+    private var title: String {
+        switch state {
+        case "in_stock":     return size.isEmpty ? "In stock at \(storeName)" : "Size \(size) in stock at \(storeName)"
+        case "out_of_stock": return size.isEmpty ? "Sold out at \(storeName)" : "Size \(size) sold out at \(storeName)"
+        default:             return "Availability unconfirmed"
+        }
+    }
+    private var subtitle: String {
+        switch state {
+        case "in_stock", "out_of_stock":
+            let via = availability?.source == "skims_online" ? "skims.com" : "store"
+            return "Checked \(checkedAgo) via \(via) · Snatcher confirms before you're charged"
+        default:
+            return "A Snatcher checks the rack before you're charged"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if isChecking {
+                ProgressView().progressViewStyle(CircularProgressViewStyle(tint: .white))
+                Text("Checking \(storeName)…")
+                    .font(.custom("Montserrat-SemiBold", size: 13))
+                    .foregroundColor(.white.opacity(0.8))
+            } else {
+                Circle()
+                    .fill(state == "in_stock" ? Color.green : state == "out_of_stock" ? Color.red.opacity(0.8) : Color.gray)
+                    .frame(width: 8, height: 8)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.custom("Montserrat-SemiBold", size: 13))
+                        .foregroundColor(.white)
+                    Text(subtitle)
+                        .font(.custom("Montserrat-Regular", size: 12))
+                        .foregroundColor(.gray)
+                }
+            }
+            Spacer()
+        }
+        .padding(14)
+        .background(Color.white.opacity(0.05))
+        .clipShape(ConcentricRectangle(corners: .concentric(minimum: .fixed(12)), isUniform: true))
     }
 }
 
@@ -639,139 +636,192 @@ struct RoundedCorner: Shape {
     }
 }
 
-// MARK: - Zoomable Image Viewer
+// MARK: - Full-Screen Gallery Viewer
+// Vertical-paging gallery identical in feel to the product detail image area.
+// Each image is independently pinch-zoomable. Left-edge drag closes.
 struct ZoomableImageViewer: View {
-    let product: Product
+    let allImages: [String]
+    let initialIndex: Int
     @Binding var isPresented: Bool
-    
-    @State private var scale: CGFloat = 1.0
-    @State private var lastScale: CGFloat = 1.0
-    @State private var offset: CGSize = .zero
-    @State private var lastOffset: CGSize = .zero
-    @State private var dismissDragOffset: CGSize = .zero
-    
+
+    @State private var scrollPositionId: Int?
+    @State private var currentIndex: Int = 0
+    @State private var isAnyImageZoomed: Bool = false
+
+    // Nike-style swipe-to-close — @State so we can fly off-screen before dismissing
+    @State private var closeOffset: CGFloat = 0
+
+    init(allImages: [String], initialIndex: Int, isPresented: Binding<Bool>) {
+        self.allImages = allImages
+        self.initialIndex = initialIndex
+        self._isPresented = isPresented
+        self._scrollPositionId = State(initialValue: initialIndex)
+        self._currentIndex = State(initialValue: initialIndex)
+    }
+
     var body: some View {
         ZStack {
-            Color.black.edgesIgnoringSafeArea(.all)
-                .opacity(Double(1.0 - min(sqrt(pow(dismissDragOffset.width / 500.0, 2) + pow(dismissDragOffset.height / 500.0, 2)), 1.0)))
-            
-            // Image
-            Group {
-                // Remote or Local Image
-                if product.isRemoteImage, let urlString = product.imageURL, let url = URL(string: urlString) {
-                    CachedAsyncImage(url: url) { image in
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                    } placeholder: {
-                        ProgressView()
-                    }
-                } else if product.imageName.contains(".fill") || product.imageName == "tshirt" || product.imageName == "bag" {
-                    Image(systemName: product.imageName)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .foregroundColor(.white)
-                } else {
-                    Image(product.imageName)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                }
-            }
-            .scaleEffect(scale)
-            .offset(x: offset.width + dismissDragOffset.width, y: offset.height + dismissDragOffset.height)
-            .gesture(
-                MagnificationGesture()
-                    .onChanged { value in
-                        let delta = value / lastScale
-                        lastScale = value
-                        let newScale = scale * delta
-                        // Clamp between 1x and 4x
-                        scale = min(max(newScale, 1.0), 4.0)
-                    }
-                    .onEnded { _ in
-                        lastScale = 1.0
-                        // Snap back to 1x if user tried to zoom out below 1x
-                        if scale <= 1.0 {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                scale = 1.0
-                                offset = .zero
-                                lastOffset = .zero
-                            }
-                        }
-                    }
-            )
-            .simultaneousGesture(
-                DragGesture()
-                    .onChanged { value in
-                        if scale > 1.0 {
-                            // Pan when zoomed in
-                            offset = CGSize(
-                                width: lastOffset.width + value.translation.width,
-                                height: lastOffset.height + value.translation.height
-                            )
-                        } else {
-                            // Swipe to dismiss in any direction when not zoomed
-                            dismissDragOffset = value.translation
-                        }
-                    }
-                    .onEnded { value in
-                        if scale > 1.0 {
-                            lastOffset = offset
-                        } else {
-                            // Dismiss if swiped in any direction enough
-                            let horizontalDrag = abs(value.translation.width)
-                            let verticalDrag = abs(value.translation.height)
-                            let totalDrag = sqrt(pow(horizontalDrag, 2) + pow(verticalDrag, 2))
-                            
-                            if totalDrag > 150 {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                    isPresented = false
-                                }
-                            } else {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                    dismissDragOffset = .zero
-                                }
-                            }
-                        }
-                    }
-            )
-            .onTapGesture(count: 2) {
-                // Double tap to zoom
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    if scale > 1.0 {
-                        scale = 1.0
-                        offset = .zero
-                        lastOffset = .zero
-                    } else {
-                        scale = 2.0
+            Color.black.ignoresSafeArea()
+
+            // ── Vertical paging scroll through all images ──────────────────
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(allImages.enumerated()), id: \.offset) { idx, urlString in
+                        ZoomableImagePage(
+                            urlString: urlString,
+                            isAnyImageZoomed: $isAnyImageZoomed
+                        )
+                        .frame(
+                            width: UIScreen.main.bounds.width,
+                            height: UIScreen.main.bounds.height
+                        )
+                        .id(idx)
                     }
                 }
+                .scrollTargetLayout()
             }
-            
-            // Close button
+            .scrollTargetBehavior(.paging)
+            .scrollDisabled(isAnyImageZoomed)            // lock scroll while zoomed
+            .scrollPosition(id: $scrollPositionId)
+            .onChange(of: scrollPositionId) { _, newId in
+                currentIndex = newId ?? 0
+            }
+            .ignoresSafeArea()
+
+            // ── Right-side bar indicators (same style as detail view) ──────
+            if allImages.count > 1 {
+                VStack(spacing: 5) {
+                    ForEach(0..<allImages.count, id: \.self) { idx in
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(idx == currentIndex ? Color(white: 0.1) : Color(white: 0.35).opacity(0.85))
+                            .frame(width: 3, height: idx == currentIndex ? 22 : 14)
+                            .shadow(color: .white.opacity(0.6), radius: 2, x: 0, y: 0)
+                            .animation(.spring(response: 0.25), value: currentIndex)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                .padding(.trailing, 12)
+                .allowsHitTesting(false)
+            }
+
+            // ── Close button top-right ─────────────────────────────────────
             VStack {
                 HStack {
                     Spacer()
-                    Button(action: {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            isPresented = false
-                        }
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.largeTitle)
+                    Button(action: { isPresented = false }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundColor(.white)
-                            .padding()
+                            .frame(width: 36, height: 36)
+                            .background(Circle().fill(Color.black.opacity(0.55)))
+                            .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 1))
                     }
+                    .padding(.top, 56)
+                    .padding(.trailing, 20)
                 }
                 Spacer()
             }
-            .opacity(scale == 1.0 ? 1.0 : 0.3)
+
+            // ── Swipe-to-close hotzone (Nike-style, 120pt) ────────────────
+            HStack {
+                Color.clear
+                    .frame(width: 120)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 8)
+                            .onChanged { value in
+                                guard !isAnyImageZoomed else { return }
+                                guard value.translation.width > 0 else { return }
+                                guard abs(value.translation.width) > abs(value.translation.height) * 0.6 else { return }
+                                closeOffset = value.translation.width
+                            }
+                            .onEnded { value in
+                                guard !isAnyImageZoomed else { return }
+                                guard value.translation.width > 0 else { return }
+                                guard abs(value.translation.width) > abs(value.translation.height) * 0.6 else { return }
+                                let screenWidth = UIScreen.main.bounds.width
+                                let fast = value.predictedEndTranslation.width > 140
+                                let far  = value.translation.width > 55
+                                if fast || far {
+                                    withAnimation(.easeOut(duration: 0.22)) {
+                                        closeOffset = screenWidth
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                                        isPresented = false
+                                    }
+                                } else {
+                                    withAnimation(.interactiveSpring(response: 0.32, dampingFraction: 0.78)) {
+                                        closeOffset = 0
+                                    }
+                                }
+                            }
+                    )
+                Spacer()
+            }
+            .frame(maxHeight: .infinity)
+            .zIndex(10)
         }
-        .onAppear {
-            scale = 1.0
-            offset = .zero
-            lastOffset = .zero
-            dismissDragOffset = .zero
+        .offset(x: closeOffset, y: 0)
+    }
+}
+
+// MARK: - Single Zoomable Page (used inside ZoomableImageViewer)
+struct ZoomableImagePage: View {
+    let urlString: String
+    @Binding var isAnyImageZoomed: Bool
+
+    @State private var scale: CGFloat = 1.0
+    @State private var lastScale: CGFloat = 1.0
+
+    var body: some View {
+        GeometryReader { geo in
+            if let url = URL(string: urlString) {
+                CachedAsyncImage(url: url) { image in
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                } placeholder: {
+                    Rectangle()
+                        .fill(Color.black)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .overlay(ProgressView().tint(.white))
+                }
+            } else {
+                Color.black.frame(width: geo.size.width, height: geo.size.height)
+            }
+        }
+        .scaleEffect(scale)
+        // Pinch to zoom — NO DragGesture here so the parent ScrollView can scroll freely
+        .gesture(
+            MagnificationGesture()
+                .onChanged { value in
+                    let delta = value / lastScale
+                    lastScale = value
+                    scale = min(max(scale * delta, 1.0), 5.0)
+                    isAnyImageZoomed = scale > 1.02
+                }
+                .onEnded { _ in
+                    lastScale = 1.0
+                    if scale < 1.02 {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            scale = 1.0
+                        }
+                    }
+                    isAnyImageZoomed = scale > 1.02
+                }
+        )
+        // Double-tap toggles 2.5× zoom
+        .onTapGesture(count: 2) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                if scale > 1.02 {
+                    scale = 1.0
+                    isAnyImageZoomed = false
+                } else {
+                    scale = 2.5
+                    isAnyImageZoomed = true
+                }
+            }
         }
     }
 }

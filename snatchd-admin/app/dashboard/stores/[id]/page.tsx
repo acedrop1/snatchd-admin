@@ -144,6 +144,8 @@ export default function EditStorePage() {
     const [deletingProducts, setDeletingProducts] = useState(false);
     const [enrichingImages, setEnrichingImages] = useState(false);
     const [enrichProgress, setEnrichProgress] = useState({ done: 0, total: 0, found: 0 });
+    const [enrichingDescriptions, setEnrichingDescriptions] = useState(false);
+    const [descProgress, setDescProgress] = useState({ done: 0, total: 0, found: 0 });
 
     // Load store + existing inventory
     useEffect(() => {
@@ -536,6 +538,57 @@ export default function EditStorePage() {
         setEnrichProgress(prev => ({ ...prev, done: missing.length, found }));
     };
 
+    // ── Enrich product descriptions from their product URLs ──────────────────
+    // Goes through `/api/og-image` (Microlink) — gets back real PDP descriptions
+    // for sites that block server-side scraping (e.g. Aritzia / Cloudflare).
+    // Also opportunistically fills in any missing images.
+    const handleEnrichDescriptions = async () => {
+        const targets = fetchedProducts.filter(p => p.productUrl && (!p.description || p.description.length < 20));
+        if (targets.length === 0) { alert("All products already have descriptions."); return; }
+
+        setEnrichingDescriptions(true);
+        setDescProgress({ done: 0, total: targets.length, found: 0 });
+
+        let found = 0;
+        const updated = [...fetchedProducts];
+
+        // Batch 4 at a time to stay under Microlink's free-tier rate limit
+        const BATCH = 4;
+        for (let i = 0; i < targets.length; i += BATCH) {
+            const batch = targets.slice(i, i + BATCH);
+            const results = await Promise.all(batch.map(async (product) => {
+                try {
+                    const res = await fetch(`/api/og-image?url=${encodeURIComponent(product.productUrl)}`);
+                    if (!res.ok) return null;
+                    const data = await res.json();
+                    return { externalId: product.externalId, ...data };
+                } catch { return null; }
+            }));
+
+            for (const r of results) {
+                if (!r || !r.externalId) continue;
+                const idx = updated.findIndex(p => p.externalId === r.externalId);
+                if (idx < 0) continue;
+                const existingImages: string[] = updated[idx].images ?? [];
+                const newImages: string[] = Array.isArray(r.images) ? r.images : [];
+                // Merge images, preserving order and removing dups
+                const mergedImages = Array.from(new Set([...existingImages, ...newImages])).filter(Boolean);
+                updated[idx] = {
+                    ...updated[idx],
+                    description: r.description || updated[idx].description || "",
+                    imageURL: updated[idx].imageURL || r.imageUrl || mergedImages[0] || "",
+                    images: mergedImages.length > 0 ? mergedImages : existingImages,
+                };
+                if (r.description && r.description.length >= 20) found++;
+            }
+            setDescProgress({ done: Math.min(i + BATCH, targets.length), total: targets.length, found });
+        }
+
+        setFetchedProducts(updated);
+        setEnrichingDescriptions(false);
+        setDescProgress({ done: targets.length, total: targets.length, found });
+    };
+
     const handleDownloadTemplate = () => {
         const header = "Product Name,Price (USD),Category,Product Image,Product URL,Product Description,Available Styles,Select a Size";
         const example = `"The Effortless Pant",148,Pants,https://assets.aritzia.com/image/upload/q_auto/example.jpg,https://www.aritzia.com/us/en/product/example/77775.html,"A universally flattering pant with a relaxed straight leg.","Black|White|Navy","XS|S|M|L|XL"`;
@@ -553,7 +606,7 @@ export default function EditStorePage() {
     // Shopify brands have a live /products.json endpoint — their seed route fetches it directly.
     // SFCC brands (Jacquemus etc.) go through the scraper with the catalog URL.
     const LIVE_FETCH_ENDPOINTS: Record<string, string> = {
-        "Skims": "/api/skims-seed",
+        "Skims": "/api/skims-live",
         "Kith": "/api/kith-seed",
         "Aritzia": "/api/aritzia-seed",
         // SFCC brands below use the jacquemus-live scraper with their catalog URL
@@ -596,6 +649,7 @@ export default function EditStorePage() {
         const STATIC_SEED_ENDPOINTS: Record<string, string> = {
             "Jacquemus": "/api/jacquemus-seed",
             "Skims": "/api/skims-seed",
+            "Aritzia": "/api/aritzia-seed",
         };
         const endpoint = STATIC_SEED_ENDPOINTS[brand] ?? null;
 
@@ -1110,9 +1164,13 @@ export default function EditStorePage() {
                                     <p className="text-xs text-neutral-400 mt-0.5">
                                         {enrichingImages
                                             ? `Fetching images… ${enrichProgress.done}/${enrichProgress.total} (${enrichProgress.found} found)`
-                                            : enrichProgress.found > 0
-                                                ? `${enrichProgress.found} images fetched from product pages`
-                                                : "Review before saving to this store"
+                                            : enrichingDescriptions
+                                                ? `Fetching descriptions… ${descProgress.done}/${descProgress.total} (${descProgress.found} found)`
+                                                : descProgress.found > 0
+                                                    ? `${descProgress.found} descriptions fetched from product pages`
+                                                    : enrichProgress.found > 0
+                                                        ? `${enrichProgress.found} images fetched from product pages`
+                                                        : "Review before saving to this store"
                                         }
                                     </p>
                                 </div>
@@ -1130,6 +1188,19 @@ export default function EditStorePage() {
                                             }
                                         </button>
                                     )}
+                                    {/* Fetch Descriptions — visible when some products lack a description */}
+                                    {fetchedProducts.some(p => p.productUrl && (!p.description || p.description.length < 20)) && (
+                                        <button
+                                            onClick={handleEnrichDescriptions}
+                                            disabled={enrichingDescriptions || enrichingImages || saveStatus === "saving"}
+                                            className="flex items-center gap-2 px-3 py-1.5 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-md text-xs font-bold hover:bg-cyan-500/30 transition disabled:opacity-50"
+                                        >
+                                            {enrichingDescriptions
+                                                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {descProgress.done}/{descProgress.total}…</>
+                                                : <>Fetch Descriptions</>
+                                            }
+                                        </button>
+                                    )}
                                     {saveStatus === "done" && (
                                         <span className="flex items-center gap-1 text-xs text-green-400">
                                             <CheckCircle className="h-3.5 w-3.5" /> Saved
@@ -1137,7 +1208,7 @@ export default function EditStorePage() {
                                     )}
                                     <button
                                         onClick={handleSaveProducts}
-                                        disabled={saveStatus === "saving" || enrichingImages}
+                                        disabled={saveStatus === "saving" || enrichingImages || enrichingDescriptions}
                                         className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md text-sm font-bold hover:bg-green-700 transition disabled:opacity-50"
                                     >
                                         {saveStatus === "saving" ? (

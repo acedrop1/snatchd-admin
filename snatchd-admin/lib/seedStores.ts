@@ -163,9 +163,9 @@ export const SEED_STORES = [
         category: "Modern Basics",
         categories: ["Clothing", "Accessories"],
         deliveryTime: "40 Mins",
-        address: "494 Broadway, New York, NY 10012",
-        latitude: 40.7221,
-        longitude: -73.9986,
+        address: "647 Fifth Ave, New York, NY 10022",   // SKIMS NYC Flagship (Stockist id via syncSkimsCatalog)
+        latitude: 40.7595,
+        longitude: -73.9763,
         deliveryRadius: 8,
         externalId: "",
         logo: "",
