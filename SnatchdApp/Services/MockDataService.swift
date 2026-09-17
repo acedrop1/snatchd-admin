@@ -23,8 +23,9 @@ struct Product: Identifiable {
     var availability: [String: String] = [:]
     var availabilitySource: String = "none"
     var availabilityCheckedAt: Date? = nil
+    var createdAt: Date? = nil
 
-    init(id: String = UUID().uuidString, storeId: String = "", title: String, brand: String, price: Double, imageName: String, imageURL: String? = nil, images: [String] = [], deliveryTime: String, category: String, gender: String = "", sizes: [String] = [], styles: [String] = [], description: String = "", inStock: Bool = true, availability: [String: String] = [:], availabilitySource: String = "none", availabilityCheckedAt: Date? = nil) {
+    init(id: String = UUID().uuidString, storeId: String = "", title: String, brand: String, price: Double, imageName: String, imageURL: String? = nil, images: [String] = [], deliveryTime: String, category: String, gender: String = "", sizes: [String] = [], styles: [String] = [], description: String = "", inStock: Bool = true, availability: [String: String] = [:], availabilitySource: String = "none", availabilityCheckedAt: Date? = nil, createdAt: Date? = nil) {
         self.id = id
         self.storeId = storeId
         self.title = title
@@ -45,6 +46,7 @@ struct Product: Identifiable {
         self.availability = availability
         self.availabilitySource = availabilitySource
         self.availabilityCheckedAt = availabilityCheckedAt
+        self.createdAt = createdAt
     }
 
     // Computed property to determine which image to use (for single-image contexts)

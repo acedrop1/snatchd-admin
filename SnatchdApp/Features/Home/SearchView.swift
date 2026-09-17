@@ -144,16 +144,35 @@ struct SearchView: View {
                 }
             }
 
-            if !suggestedProducts.isEmpty {
-                section("Just dropped") {
-                    LazyVGrid(columns: grid, spacing: 20) {
-                        ForEach(suggestedProducts) { product in
-                            Button(action: { selectedProduct = product }) {
-                                SearchResultItem(product: product)
+            if !topCategories.isEmpty {
+                section("Shop by category") {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(topCategories, id: \.self) { category in
+                                Button(action: { searchText = category; remember("q:" + category) }) {
+                                    Text(category)
+                                        .font(.custom("Montserrat-SemiBold", size: 13))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 16)
+                                        .frame(height: 38)
+                                        .glassEffect(.regular.interactive(), in: .capsule)
+                                }
                             }
                         }
+                        .padding(.horizontal, 16)
                     }
-                    .padding(.horizontal, 16)
+                }
+            }
+
+            if !suggestedProducts.isEmpty {
+                section("Just dropped") {
+                    productGrid(suggestedProducts)
+                }
+            }
+
+            if !newArrivals.isEmpty {
+                section("New arrivals") {
+                    productGrid(newArrivals)
                 }
             }
         }
@@ -204,6 +223,17 @@ struct SearchView: View {
         }
         .padding(.top, 4)
         .padding(.bottom, 120)
+    }
+
+    private func productGrid(_ products: [Product]) -> some View {
+        LazyVGrid(columns: grid, spacing: 20) {
+            ForEach(products) { product in
+                Button(action: { selectedProduct = product }) {
+                    SearchResultItem(product: product)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
     }
 
     @ViewBuilder
@@ -257,14 +287,35 @@ struct SearchView: View {
         recents.filter { $0.hasPrefix("q:") }.map { String($0.dropFirst(2)) }
     }
 
-    /// Portal-tagged trending stores, falling back to everything we have
+    /// Stores that actually have products, portal-tagged trending first.
+    /// A store with nothing to sell is a dead end, not a suggestion.
     var suggestedStores: [Store] {
-        let trending = databaseService.stores.filter { $0.tags.contains("trending") }
-        return trending.isEmpty ? Array(databaseService.stores.prefix(10)) : trending
+        let stocked = Set(databaseService.products.map { $0.storeId })
+        let stores = databaseService.stores.filter { stocked.contains($0.firestoreId) }
+        return stores.sorted { a, b in
+            let ta = a.tags.contains("trending"), tb = b.tags.contains("trending")
+            return ta != tb ? ta : a.name < b.name
+        }
     }
 
     var suggestedProducts: [Product] {
         Array(databaseService.justDroppedProducts.prefix(6))
+    }
+
+    /// Most-stocked categories, excluding the generic bucket.
+    var topCategories: [String] {
+        var counts: [String: Int] = [:]
+        for p in databaseService.products where !p.category.isEmpty && p.category != "Clothing" {
+            counts[p.category, default: 0] += 1
+        }
+        return counts.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(8).map { $0.key }
+    }
+
+    var newArrivals: [Product] {
+        Array(databaseService.products
+            .filter { $0.createdAt != nil && $0.isRemoteImage }
+            .sorted { $0.createdAt! > $1.createdAt! }
+            .prefix(6))
     }
 
     var filteredStores: [Store] {

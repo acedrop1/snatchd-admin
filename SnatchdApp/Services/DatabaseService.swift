@@ -122,7 +122,8 @@ class DatabaseService: ObservableObject {
                         imageURL = first
                     }
 
-                    let logoURL = data["logo"] as? String
+                    // Seeds write logo: "" — an empty string is "no logo", not a URL
+                    let logoURL = (data["logo"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                     let imageName = data["imageName"] as? String ?? "storefront"
                     let address = data["address"] as? String
                     let latitude = data["latitude"] as? Double
@@ -190,7 +191,8 @@ class DatabaseService: ObservableObject {
             inStock: data["inStock"] as? Bool ?? true,
             availability: availability,
             availabilitySource: data["availabilitySource"] as? String ?? "none",
-            availabilityCheckedAt: (data["availabilityCheckedAt"] as? Timestamp)?.dateValue()
+            availabilityCheckedAt: (data["availabilityCheckedAt"] as? Timestamp)?.dateValue(),
+            createdAt: (data["createdAt"] as? Timestamp)?.dateValue()
         )
     }
 
