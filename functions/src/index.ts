@@ -502,7 +502,9 @@ async function refreshAllStock(kinds?: SourceKind[]): Promise<Record<string, { u
 }
 
 export const refreshStock = onRequest({ cors: true, timeoutSeconds: 540, memory: '512MiB' }, async (req, res) => {
-    if (!(await requireAdmin(req, res))) return;
+    // Admin (portal) or the runner — same trust as syncStoreCatalog.
+    const viaRunner = !!process.env.RUNNER_TOKEN && req.get('x-runner-token') === process.env.RUNNER_TOKEN;
+    if (!viaRunner && !(await requireAdmin(req, res))) return;
     try { res.json({ success: true, stores: await refreshAllStock(['shopify', 'skims', 'zara']) }); }
     catch (error: any) { res.status(500).json({ error: error.message }); }
 });
