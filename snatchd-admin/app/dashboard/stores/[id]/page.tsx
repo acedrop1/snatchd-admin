@@ -124,6 +124,7 @@ export default function EditStorePage() {
     const [inventorySource, setInventorySource] = useState<"manual" | "shopify" | "skims" | "bergdorf">("manual");
     const [sourceDomain, setSourceDomain] = useState("");
     const [savingSource, setSavingSource] = useState(false);
+    const [sourceSaved, setSourceSaved] = useState(false);
     const [syncing, setSyncing] = useState(false);
     const [syncResult, setSyncResult] = useState<string | null>(null);
     const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "done" | "error">("idle");
@@ -168,12 +169,9 @@ export default function EditStorePage() {
                     return;
                 }
 
-                // Load existing products for this store
-                const productsSnap = await getDocs(collection(db, "products"));
-                const storeProducts = productsSnap.docs
-                    .map(d => ({ id: d.id, ...d.data() }))
-                    .filter((p: any) => p.storeId === storeId);
-                setSavedProducts(storeProducts);
+                // Only this store's products — not the whole catalog
+                const productsSnap = await getDocs(query(collection(db, "products"), where("storeId", "==", storeId)));
+                setSavedProducts(productsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
             } catch (error) {
                 console.error("Error fetching data:", error);
@@ -278,18 +276,24 @@ export default function EditStorePage() {
         setSavedProducts(prev => prev.map(x => x.id === p.id ? { ...x, isActive: next } : x));
     };
 
+    const [reloading, setReloading] = useState(false);
     const reloadProducts = async () => {
-        const snap = await getDocs(query(collection(db, "products"), where("storeId", "==", storeId)));
-        setSavedProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setReloading(true);
+        try {
+            const snap = await getDocs(query(collection(db, "products"), where("storeId", "==", storeId)));
+            setSavedProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        } finally { setReloading(false); }
     };
 
     // ── Inventory source ──────────────────────────────────────────────────────
     const saveSource = async () => {
-        setSavingSource(true);
+        setSavingSource(true); setSourceSaved(false);
         try {
             await updateDoc(doc(db, "stores", storeId), {
                 inventorySource, sourceDomain: sourceDomain.trim() || null, brand: brand.trim() || name.split(" ")[0],
             });
+            setSourceSaved(true);
+            setTimeout(() => setSourceSaved(false), 4000);
         } catch (e: any) { alert("Could not save source: " + e.message); }
         finally { setSavingSource(false); }
     };
@@ -701,7 +705,7 @@ export default function EditStorePage() {
 
     // ── Delete all products for this store ────────────────────────────────────
     const handleDeleteAllProducts = async () => {
-        if (!confirm(`Delete all ${savedProducts.length} products from this store? This cannot be undone.`)) return;
+        if (!confirm(`Delete all ${savedProducts.length} products from ${name}?\n\nThis removes them from the database. It does not just hide them — use Show/Shown for that.`)) return;
         setDeletingProducts(true);
         try {
             for (const product of savedProducts) {
@@ -1012,24 +1016,11 @@ export default function EditStorePage() {
                                 <h3 className="text-lg font-bold text-white">Inventory source</h3>
                                 <p className="text-sm text-neutral-400 mt-1">Where this location's products, prices, sizes and availability come from.</p>
                             </div>
-                            {savedProducts.length > 0 && (
-                                <div className="flex items-center gap-2">
-                                    {inventorySource === "manual" && savedProducts.some(p => p.productUrl) && (
-                                        <button onClick={handleFixSavedImages} disabled={enrichingImages}
-                                            className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 text-amber-400 rounded text-xs font-medium hover:bg-amber-500/20 transition disabled:opacity-50">
-                                            {enrichingImages
-                                                ? <><Loader2 className="h-3 w-3 animate-spin" /> {enrichProgress.done}/{enrichProgress.total} images…</>
-                                                : <><ImageIcon className="h-3 w-3" /> Refresh Images</>
-                                            }
-                                        </button>
-                                    )}
-                                    <button onClick={handleDeleteAllProducts} disabled={deletingProducts}
-                                        className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 text-red-500 rounded text-xs font-medium hover:bg-red-500/20 transition">
-                                        <Trash2 className="h-3 w-3" />
-                                        {deletingProducts ? "Clearing..." : `Clear ${savedProducts.length} Products`}
-                                    </button>
-                                </div>
-                            )}
+                            <button onClick={reloadProducts} disabled={reloading}
+                                className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 text-neutral-300 rounded text-xs font-medium hover:bg-white/10 transition disabled:opacity-50">
+                                {reloading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                                Reload
+                            </button>
                         </div>
 
                         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1097,6 +1088,7 @@ export default function EditStorePage() {
                                     </button>
                                 </>
                             )}
+                            {sourceSaved && <span className="flex items-center gap-1 text-sm text-green-400"><CheckCircle className="h-4 w-4" /> Saved — source is {inventorySource}</span>}
                             {syncResult && <span className={`text-sm ${syncResult.includes("failed") ? "text-red-400" : "text-green-400"}`}>{syncResult}</span>}
                         </div>
                     </div>
@@ -1327,6 +1319,29 @@ export default function EditStorePage() {
                                 </table>
                             </div>
                         </div>
+                    )}
+
+                    {savedProducts.length > 0 && (
+                        <details className="rounded-xl border border-red-500/20 bg-red-500/[0.03] p-4">
+                            <summary className="cursor-pointer text-sm text-red-400/80 hover:text-red-400">Danger zone</summary>
+                            <div className="mt-4 flex flex-wrap items-center gap-3">
+                                {inventorySource === "manual" && savedProducts.some(p => p.productUrl) && (
+                                    <button onClick={handleFixSavedImages} disabled={enrichingImages}
+                                        className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 text-amber-400 rounded text-xs font-medium hover:bg-amber-500/20 transition disabled:opacity-50">
+                                        {enrichingImages
+                                            ? <><Loader2 className="h-3 w-3 animate-spin" /> {enrichProgress.done}/{enrichProgress.total} images…</>
+                                            : <><ImageIcon className="h-3 w-3" /> Refresh Images</>
+                                        }
+                                    </button>
+                                )}
+                                <button onClick={handleDeleteAllProducts} disabled={deletingProducts}
+                                    className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 text-red-500 rounded text-xs font-medium hover:bg-red-500/20 transition">
+                                    <Trash2 className="h-3 w-3" />
+                                    {deletingProducts ? "Deleting…" : `Delete all ${savedProducts.length} products`}
+                                </button>
+                                <span className="text-xs text-neutral-500">Deletes them from the database. A synced source will bring them back on the next sync.</span>
+                            </div>
+                        </details>
                     )}
 
                     {/* Empty State */}
