@@ -79,6 +79,7 @@ struct Store: Identifiable {
     var tags: [String] = []       // e.g. ["foryou", "trending", "60min"]
     var isSystemImage: Bool = true
     var logoURL: String? = nil    // Square logo for avatars/circles; imageURL is the banner
+    var categories: [String] = [] // All categories from the portal; `category` is the first
 
     // Computed property to determine which image to use
     var displayImageName: String {

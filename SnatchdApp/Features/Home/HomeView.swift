@@ -9,10 +9,18 @@ struct HomeView: View {
     var navID: UUID
     @Binding var manualCoordinate: CLLocation?
     @Binding var selectedAddressId: String?
+    @Binding var expandTabBar: Bool
+    @State private var lastScrollY: CGFloat = 0
     @StateObject private var databaseService = DatabaseService.shared
     @StateObject private var locationManager = LocationManager()
     @EnvironmentObject var cartManager: CartManager
     @State private var selectedCategory = "All"
+    // Filters (sheet) — category is shared with the strip at the top of the feed
+    @State private var under60Only = false
+    @State private var sortByName = false
+    @State private var showFilters = false
+    @State private var scrolledDown = false
+    var filtersActive: Bool { selectedCategory != "All" || under60Only || sortByName }
     @State private var showLocationSheet = false
     @State private var selectedLocation = AppConfig.defaultLocationName
 
@@ -57,21 +65,30 @@ struct HomeView: View {
         return databaseService.justDroppedProducts.filter { inRangeIds.contains($0.storeId) }
     }
 
+    private func matchesFilters(_ store: Store) -> Bool {
+        if under60Only && !store.tags.contains("60min") { return false }
+        if selectedCategory == "All" { return true }
+        return store.categories.contains(selectedCategory) || store.category == selectedCategory
+    }
+
     // Nearby Firestore stores sorted by distance; empty when location is known but no stores are in range
     var displayStores: [Store] {
         let allStores = databaseService.stores.isEmpty ? MockDataService.shared.stores : databaseService.stores
 
         guard let location = activeLocation else {
             // Location not yet determined — show everything while waiting
-            return allStores
+            return allStores.filter { matchesFilters($0) }
         }
 
         let userLat = location.coordinate.latitude
         let userLon = location.coordinate.longitude
 
         // No fallback: return empty so the UI shows "No stores in your area"
-        return allStores
+        let inRange = allStores
             .filter { $0.isWithinDeliveryRange(of: userLat, userLongitude: userLon) }
+            .filter { matchesFilters($0) }
+        if sortByName { return inRange.sorted { $0.name < $1.name } }
+        return inRange
             .sorted { a, b in
                 guard let latA = a.latitude, let lonA = a.longitude,
                       let latB = b.latitude, let lonB = b.longitude else { return false }
@@ -204,11 +221,11 @@ struct HomeView: View {
                                         .foregroundColor(.white.opacity(0.25))
 
                                     VStack(spacing: 8) {
-                                        Text("No stores in your area")
+                                        Text(filtersActive ? "Nothing matches these filters" : "No stores in your area")
                                             .font(.custom("Montserrat-Bold", size: 20))
                                             .foregroundColor(.white)
 
-                                        Text("We don't have any Snatchd stores near \(selectedLocation) yet.\nTry a different location.")
+                                        Text(filtersActive ? "No \(selectedCategory == "All" ? "" : selectedCategory.lowercased() + " ")stores near \(selectedLocation) match.\nClear the filters to see everything." : "We don't have any Snatchd stores near \(selectedLocation) yet.\nTry a different location.")
                                             .font(.custom("Montserrat-Regular", size: 14))
                                             .foregroundColor(.gray)
                                             .multilineTextAlignment(.center)
@@ -216,10 +233,11 @@ struct HomeView: View {
 
                                     Button(action: {
                                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                            showLocationSheet = true
+                                            if filtersActive { selectedCategory = "All"; under60Only = false; sortByName = false }
+                                            else { showLocationSheet = true }
                                         }
                                     }) {
-                                        Text("Change Location")
+                                        Text(filtersActive ? "Clear Filters" : "Change Location")
                                             .font(.custom("Montserrat-SemiBold", size: 15))
                                             .foregroundColor(.black)
                                             .padding(.horizontal, 28)
@@ -347,6 +365,46 @@ struct HomeView: View {
                             Spacer(minLength: 100)
                         }
                     }
+                    .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, y in
+                        // Floating filter button once the strip has scrolled away
+                        let down = y > 140
+                        if down != scrolledDown {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { scrolledDown = down }
+                        }
+                        // Bring the tab bar back on any upward scroll, not just at the top.
+                        // Only write on a real change — re-applying the modifier resets the bar.
+                        let wantExpand: Bool
+                        if y <= 0 { wantExpand = false }
+                        else if y < lastScrollY - 8 { wantExpand = true }
+                        else if y > lastScrollY + 8 { wantExpand = false }
+                        else { wantExpand = expandTabBar }
+                        if wantExpand != expandTabBar { expandTabBar = wantExpand }
+                        if abs(y - lastScrollY) > 8 { lastScrollY = y }
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        if scrolledDown {
+                            Button(action: { showFilters = true }) {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(systemName: "line.3.horizontal.decrease")
+                                        .font(.system(size: 17, weight: .semibold))
+                                        .foregroundColor(.white)
+                                        .frame(width: 50, height: 50)
+                                        .glassEffect(.regular.interactive(), in: .circle)
+                                    if filtersActive {
+                                        Circle().fill(Color.white).frame(width: 8, height: 8).offset(x: -4, y: 4)
+                                    }
+                                }
+                            }
+                            .padding(.trailing, 24)
+                            .padding(.bottom, 96) // clears the tab bar + search button
+                            .transition(.scale(scale: 0.6).combined(with: .opacity))
+                        }
+                    }
+                    .sheet(isPresented: $showFilters) {
+                        HomeFiltersSheet(categories: categories, selectedCategory: $selectedCategory, under60Only: $under60Only, sortByName: $sortByName)
+                            .presentationDetents([.medium])
+                            .presentationDragIndicator(.visible)
+                    }
                     .onChange(of: scrollToTop) { oldValue, shouldScroll in
                         if shouldScroll {
                             withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
@@ -407,6 +465,80 @@ struct HomeView: View {
             }
     }
 }
+}
+
+// MARK: - Filters
+
+struct HomeFiltersSheet: View {
+    let categories: [String]
+    @Binding var selectedCategory: String
+    @Binding var under60Only: Bool
+    @Binding var sortByName: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 26) {
+            HStack {
+                Text("Filters")
+                    .font(.custom("Montserrat-Bold", size: 20))
+                    .foregroundColor(.white)
+                Spacer()
+                Button("Reset") { selectedCategory = "All"; under60Only = false; sortByName = false }
+                    .font(.custom("Montserrat-Medium", size: 14))
+                    .foregroundColor(.gray)
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("CATEGORY")
+                    .font(.custom("Montserrat-Bold", size: 11)).foregroundColor(.gray).tracking(1.2)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(categories, id: \.self) { category in
+                            let on = selectedCategory == category
+                            Button(action: { selectedCategory = category }) {
+                                Text(category)
+                                    .font(.custom("Montserrat-SemiBold", size: 13))
+                                    .foregroundColor(on ? .black : .white)
+                                    .padding(.horizontal, 14).frame(height: 36)
+                                    .background(on ? Color.white : Color.white.opacity(0.1))
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+                }
+            }
+
+            Toggle(isOn: $under60Only) {
+                Text("Under 60 minutes only")
+                    .font(.custom("Montserrat-Medium", size: 15)).foregroundColor(.white)
+            }
+            .tint(.white)
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("SORT")
+                    .font(.custom("Montserrat-Bold", size: 11)).foregroundColor(.gray).tracking(1.2)
+                Picker("Sort", selection: $sortByName) {
+                    Text("Nearest").tag(false)
+                    Text("A–Z").tag(true)
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Spacer()
+
+            Button(action: { dismiss() }) {
+                Text("Show stores")
+                    .font(.custom("Montserrat-Bold", size: 16))
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(Color.white)
+                    .clipShape(Capsule())
+            }
+        }
+        .padding(24)
+        .background(Color.black)
+    }
 }
 
 // MARK: - Card Components
@@ -687,6 +819,6 @@ struct JustDroppedProductCard: View {
 }
 
 #Preview {
-    HomeView(showTabBar: .constant(true), selectedTab: .constant(.stores), scrollToTop: .constant(false), isAtRoot: .constant(true), navID: UUID(), manualCoordinate: .constant(nil), selectedAddressId: .constant(nil))
+    HomeView(showTabBar: .constant(true), selectedTab: .constant(.stores), scrollToTop: .constant(false), isAtRoot: .constant(true), navID: UUID(), manualCoordinate: .constant(nil), selectedAddressId: .constant(nil), expandTabBar: .constant(false))
         .preferredColorScheme(.dark)
 }

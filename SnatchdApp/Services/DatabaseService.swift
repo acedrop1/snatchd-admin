@@ -110,7 +110,8 @@ class DatabaseService: ObservableObject {
 
                     let firestoreId = doc.documentID
                     let name = data["name"] as? String ?? ""
-                    let category = (data["categories"] as? [String])?.first ?? data["category"] as? String ?? ""
+                    let categories = (data["categories"] as? [String]) ?? (data["categories"] as? [Any])?.compactMap { $0 as? String } ?? []
+                    let category = categories.first ?? data["category"] as? String ?? ""
 
                     // Image URL priority: banner image > logo > images array
                     var imageURL: String? = nil
@@ -146,7 +147,8 @@ class DatabaseService: ObservableObject {
                         deliveryTime: deliveryTime,
                         tags: tags,
                         isSystemImage: isSystemImage,
-                        logoURL: logoURL
+                        logoURL: logoURL,
+                        categories: categories
                     )
                 }
 

@@ -12,6 +12,8 @@ struct ContentView: View {
     @State private var showTabBar = true
     @State private var searchText = ""
     @State private var tabBeforeSearch: AppTab = .stores
+    // Home sets this on upward scroll: native .onScrollDown only re-expands at the top
+    @State private var expandTabBar = false
     @State private var scrollToTop = false
     @State private var isHomeAtRoot = true
     @State private var homeNavID = UUID()
@@ -50,7 +52,8 @@ struct ContentView: View {
                 HomeView(
                     showTabBar: $showTabBar, selectedTab: $selectedTab,
                     scrollToTop: $scrollToTop, isAtRoot: $isHomeAtRoot, navID: homeNavID,
-                    manualCoordinate: $manualCoordinate, selectedAddressId: $selectedAddressId
+                    manualCoordinate: $manualCoordinate, selectedAddressId: $selectedAddressId,
+                    expandTabBar: $expandTabBar
                 )
             }
             Tab("Cart", image: "cart", value: .cart) {
@@ -69,7 +72,7 @@ struct ContentView: View {
                 SearchView(searchText: $searchText, selectedTab: $selectedTab, returnTo: tabBeforeSearch)
             }
         }
-        .tabBarMinimizeBehavior(.onScrollDown)
+        .tabBarMinimizeBehavior(expandTabBar ? .never : .onScrollDown)
         .onReceive(NotificationCenter.default.publisher(for: .switchToOrdersTab)) { _ in
             selectedTab = .orders
         }
