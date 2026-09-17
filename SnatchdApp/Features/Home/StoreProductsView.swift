@@ -27,7 +27,8 @@ struct StoreProductsView: View {
     @State private var filterMaxPrice: Double = 2000
 
     // Applied filters (committed when user taps Apply)
-    @State private var appliedGender = "All"
+    // Gender is remembered across stores: pick Men once and every store opens on Men.
+    @AppStorage("preferredGender") private var appliedGender = "Women"
     @State private var appliedSortBy = "New"
     @State private var appliedMinPrice: Double = 0
     @State private var appliedMaxPrice: Double = 2000
@@ -52,8 +53,17 @@ struct StoreProductsView: View {
         return ["All"] + sorted
     }
 
+    /// Genders this store actually carries, in display order. The switch only
+    /// appears when there are at least two — Skims never shows it, Zara always does.
+    var storeGenders: [String] {
+        let present = Set(databaseService.products.filter { $0.storeId == store.firestoreId }.map { $0.gender })
+        return ["Women", "Men", "Kids"].filter { present.contains($0) }
+    }
+
     func genderMatch(product: Product, gender: String) -> Bool {
         if gender == "All" { return true }
+        // Single-gender store: the remembered choice doesn't apply here
+        if storeGenders.count < 2 { return true }
         if product.gender == "Unisex" || product.gender.isEmpty { return true }
         return product.gender == gender
     }
@@ -205,6 +215,29 @@ struct StoreProductsView: View {
                             .padding(.vertical, 12)
 
                         } else {
+                            // Women | Men — only when the store has both
+                            if storeGenders.count >= 2 {
+                                HStack(spacing: 8) {
+                                    ForEach(storeGenders, id: \.self) { g in
+                                        Button {
+                                            withAnimation(.snappy) { appliedGender = g; selectedCategory = "All" }
+                                        } label: {
+                                            Text(g.uppercased())
+                                                .font(.custom(appliedGender == g ? "Montserrat-Bold" : "Montserrat-SemiBold", size: 12))
+                                                .foregroundColor(appliedGender == g ? .black : .white.opacity(0.7))
+                                                .padding(.horizontal, 16)
+                                                .padding(.vertical, 8)
+                                                .background(appliedGender == g ? Color.white : Color.white.opacity(0.08), in: Capsule())
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.top, 10)
+                                .padding(.bottom, 2)
+                            }
+
                             // Normal mode: categories + search icon + filters
                             HStack(alignment: .center, spacing: 0) {
                                 // Horizontal scrolling category text tabs
