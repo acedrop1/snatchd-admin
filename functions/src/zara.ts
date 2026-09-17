@@ -9,22 +9,45 @@ import { SourceProduct, SizeState, sleep } from './types';
 
 const BASE = 'https://api.parse.bot/scraper/7b6ae3c4-c891-4e4b-84e6-b2f8a6a86c7f';
 
+// parse.bot allows a burst of 30 calls, then refills at 5 a minute. Pace
+// ourselves so we never trip it — a 429 still counts against the daily cap.
+const recent: number[] = [];
+async function pace() {
+    const now = Date.now();
+    while (recent.length && now - recent[0] > 60000) recent.shift();
+    if (recent.length >= 25) {
+        const wait = 60000 - (now - recent[0]) + 250;
+        await sleep(wait);
+        return pace();
+    }
+    recent.push(Date.now());
+}
+
 async function zaraGet(endpoint: string, params: Record<string, string>): Promise<any> {
     const key = process.env.PARSE_API_KEY;
     if (!key) throw new Error('PARSE_API_KEY is not set (functions/.env)');
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 6; attempt++) {
+        await pace();
         const res = await axios.get(`${BASE}/${endpoint}`, { params, headers: { 'X-API-Key': key }, timeout: 180000, validateStatus: () => true });
         if (res.status === 200 && res.data?.status === 'success') return res.data.data;
         const err = res.data?.error || {};
+        const msg = String(err.message || err.error || '');
+        if (res.status === 429) {
+            const m = /retry in (\d+)s/i.exec(msg);
+            const wait = (m ? Number(m[1]) : Number(res.headers['retry-after']) || 15) * 1000 + 500;
+            console.log(`  zara ${endpoint}: rate limited, waiting ${Math.round(wait / 1000)}s`);
+            await sleep(wait);
+            continue;
+        }
         if (res.status === 503 && err.status === 'blocked') {
             const wait = Math.min(Number(err.retry_after) || 60, 90) * 1000;
             console.log(`  zara ${endpoint}: akamai blocking, retry in ${wait / 1000}s`);
             await sleep(wait);
             continue;
         }
-        throw new Error(`zara ${endpoint}: HTTP ${res.status} ${err.message || ''}`.trim());
+        throw new Error(`zara ${endpoint}: HTTP ${res.status} ${msg}`.trim());
     }
-    throw new Error(`zara ${endpoint}: still blocked after 3 attempts`);
+    throw new Error(`zara ${endpoint}: gave up after 6 attempts`);
 }
 
 // A Zara "product" has colours, each with its own productId, sizes and stock.

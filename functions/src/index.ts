@@ -349,7 +349,9 @@ function patchFor(p: SourceProduct, source: SourceKind) {
         description: p.description, images: p.images, sizes: p.sizes, styles: p.styles,
         category: p.category, gender: p.gender, productType: p.productType, tags: p.tags,
         variants: p.variants,
-        availability, availabilitySource: unchecked ? 'none' : source,
+        // A Zara row that has no store count yet carries zara.com's online availability;
+        // label it so nothing downstream mistakes it for the floor.
+        availability, availabilitySource: unchecked ? 'none' : (source === 'zara' && !p.storeAvailability ? 'zara_online' : source),
         availabilityCheckedAt: now(), inStock, fingerprint: fingerprint(p, availability),
         updatedAt: now(),
     };
@@ -361,12 +363,17 @@ const unknownPatch = (sizes: string[]) => ({
     availabilityCheckedAt: now(),
 });
 
-async function commitChunked(writes: Array<{ ref: FirebaseFirestore.DocumentReference; data: any; merge: boolean }>) {
+async function commitChunked(writes: { ref: FirebaseFirestore.DocumentReference; data: any; merge?: boolean }[]) {
+    // Batches of 400 (Firestore caps at 500), committed 5 at a time — a 10,000
+    // product store is 25 batches, which sequentially risks the function timeout.
+    const batches: Promise<any>[] = [];
     for (let i = 0; i < writes.length; i += BATCH) {
         const batch = db.batch();
-        for (const w of writes.slice(i, i + BATCH)) batch.set(w.ref, w.data, { merge: w.merge });
-        await batch.commit();
+        for (const w of writes.slice(i, i + BATCH)) batch.set(w.ref, w.data, { merge: w.merge !== false });
+        batches.push(batch.commit());
+        if (batches.length >= 5) { await Promise.all(batches.splice(0)); }
     }
+    await Promise.all(batches);
 }
 
 // Slack/Discord webhook from functions/.env → ALERT_WEBHOOK_URL. Kept out of
@@ -434,9 +441,15 @@ export const syncStoreCatalog = onRequest({ cors: true, timeoutSeconds: 540, mem
             const handleOf = (d: FirebaseFirestore.QueryDocumentSnapshot) =>
                 d.get('handle') || (d.get('productUrl') || '').split('/products/')[1] || '';
             const legacy = existing.docs.filter(d => !d.id.startsWith(`${source}_`) && synced.has(handleOf(d)));
-            for (let i = 0; i < legacy.length; i += BATCH) {
+            const byHandle = new Map(products.map(p => [p.handle, `${source}_${p.externalId}_${storeId}`]));
+            for (let i = 0; i < legacy.length; i += 200) {
                 const batch = db.batch();
-                for (const d of legacy.slice(i, i + BATCH)) batch.delete(d.ref);
+                for (const d of legacy.slice(i, i + 200)) {
+                    // Keep what the customer could already see: a shown legacy row
+                    // makes its replacement shown too.
+                    if (d.get('isActive') !== false) batch.set(db.doc(`products/${byHandle.get(handleOf(d))}`), { isActive: true }, { merge: true });
+                    batch.delete(d.ref);
+                }
                 await batch.commit();
             }
             removed = legacy.length;
