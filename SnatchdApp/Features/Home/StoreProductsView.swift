@@ -228,12 +228,14 @@ struct StoreProductsView: View {
                                             } label: {
                                                 Text(g.uppercased())
                                                     .font(.custom(on ? "Montserrat-Bold" : "Montserrat-SemiBold", size: 12))
-                                                    .foregroundStyle(on ? .black : .white.opacity(0.85))
+                                                    .foregroundStyle(on ? .white : .white.opacity(0.6))
                                                     .padding(.horizontal, 22)
                                                     .padding(.vertical, 10)
                                                     .background {
+                                                        // The selection is a clear glass lens, like the tab bar's
                                                         if on {
-                                                            Capsule().fill(.white)
+                                                            Color.clear
+                                                                .glassEffect(.regular.tint(.white.opacity(0.22)), in: .capsule)
                                                                 .matchedGeometryEffect(id: "gender-highlight", in: genderGlass)
                                                         }
                                                     }
