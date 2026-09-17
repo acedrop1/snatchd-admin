@@ -9,6 +9,7 @@ struct StoreProductsView: View {
     @EnvironmentObject var cartManager: CartManager
     @ObservedObject private var databaseService = DatabaseService.shared
 
+    @Namespace private var genderGlass
     @State private var selectedGender = "All"
     @State private var selectedCategory = "All"
     @State private var selectedProduct: Product?
@@ -215,27 +216,31 @@ struct StoreProductsView: View {
                             .padding(.vertical, 12)
 
                         } else {
-                            // Women | Men — only when the store has both
+                            // Women | Men — only when the store has both. Native Liquid
+                            // Glass: the container lets the selected capsule morph between them.
                             if storeGenders.count >= 2 {
-                                HStack(spacing: 8) {
-                                    ForEach(storeGenders, id: \.self) { g in
-                                        Button {
-                                            withAnimation(.snappy) { appliedGender = g; selectedCategory = "All" }
-                                        } label: {
-                                            Text(g.uppercased())
-                                                .font(.custom(appliedGender == g ? "Montserrat-Bold" : "Montserrat-SemiBold", size: 12))
-                                                .foregroundColor(appliedGender == g ? .black : .white.opacity(0.7))
-                                                .padding(.horizontal, 16)
-                                                .padding(.vertical, 8)
-                                                .background(appliedGender == g ? Color.white : Color.white.opacity(0.08), in: Capsule())
+                                GlassEffectContainer(spacing: 8) {
+                                    HStack(spacing: 8) {
+                                        ForEach(storeGenders, id: \.self) { g in
+                                            let on = appliedGender == g
+                                            Button {
+                                                withAnimation(.snappy(duration: 0.3)) { appliedGender = g; selectedCategory = "All" }
+                                            } label: {
+                                                Text(g.uppercased())
+                                                    .font(.custom(on ? "Montserrat-Bold" : "Montserrat-SemiBold", size: 12))
+                                                    .foregroundStyle(on ? .black : .white)
+                                                    .padding(.horizontal, 20)
+                                                    .padding(.vertical, 10)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .glassEffect(on ? .regular.tint(.white).interactive() : .regular.interactive(), in: .capsule)
+                                            .glassEffectID(g, in: genderGlass)
                                         }
-                                        .buttonStyle(.plain)
                                     }
-                                    Spacer()
                                 }
-                                .padding(.horizontal, 16)
+                                .frame(maxWidth: .infinity)
                                 .padding(.top, 10)
-                                .padding(.bottom, 2)
+                                .padding(.bottom, 4)
                             }
 
                             // Normal mode: categories + search icon + filters
