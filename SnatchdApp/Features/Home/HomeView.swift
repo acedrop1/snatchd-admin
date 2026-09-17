@@ -388,15 +388,16 @@ struct HomeView: View {
                                     Image(systemName: "line.3.horizontal.decrease")
                                         .font(.system(size: 17, weight: .semibold))
                                         .foregroundColor(.white)
-                                        .frame(width: 50, height: 50)
+                                        .frame(width: 56, height: 56)
                                         .glassEffect(.regular.interactive(), in: .circle)
                                     if filtersActive {
-                                        Circle().fill(Color.white).frame(width: 8, height: 8).offset(x: -4, y: 4)
+                                        Circle().fill(Color.white).frame(width: 8, height: 8).offset(x: -5, y: 5)
                                     }
                                 }
                             }
-                            .padding(.trailing, 24)
-                            .padding(.bottom, 96) // clears the tab bar + search button
+                            // The scroll view already ends above the tab bar; just a gap, centred on the search circle
+                            .padding(.trailing, 22)
+                            .padding(.bottom, 10)
                             .transition(.scale(scale: 0.6).combined(with: .opacity))
                         }
                     }
