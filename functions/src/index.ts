@@ -396,7 +396,14 @@ export const syncStoreCatalog = onRequest({ cors: true, timeoutSeconds: 540, mem
     const viaRunner = !!expected && req.get('x-runner-token') === expected;
     if (!viaRunner && !(await requireAdmin(req, res))) return;
     try {
-        const { storeId, limit, replaceLegacy = false } = req.body || {};
+        const { storeId, limit, replaceLegacy = false, source: sourceSpec } = req.body || {};
+        // A sync may carry the source it should use and persist it — lets a
+        // script bootstrap a store without a portal round-trip.
+        if (sourceSpec && ['shopify', 'skims', 'bergdorf', 'zara', 'manual'].includes(sourceSpec.inventorySource)) {
+            const patch: any = { inventorySource: sourceSpec.inventorySource };
+            for (const k of ['sourceDomain', 'sourceStoreId', 'sourceQuery', 'sourceCollection', 'brand']) if (sourceSpec[k] != null) patch[k] = String(sourceSpec[k]);
+            await db.doc(`stores/${storeId}`).set(patch, { merge: true });
+        }
         if (!storeId) { res.status(400).json({ error: 'Missing storeId' }); return; }
         const store = await loadStore(storeId);
         const { products, failed } = await fetchCatalog(store, limit ? Number(limit) : Infinity);

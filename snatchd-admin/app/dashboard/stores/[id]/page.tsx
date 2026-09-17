@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, Loader2, Package, RefreshCw, CheckCircle, XCircle, ExternalLink, Trash2, AlertTriangle, Layers, Eye, EyeOff, Upload, Download, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, Loader2, Package, RefreshCw, CheckCircle, XCircle, ExternalLink, Trash2, AlertTriangle, Layers, Eye, EyeOff, Image as ImageIcon } from "lucide-react";
 import { db, storage } from "@/lib/firebase";
 import { adminPost } from "@/lib/adminApi";
 import { doc, getDoc, updateDoc, deleteDoc, collection, getDocs, setDoc, serverTimestamp, query, where, writeBatch } from "firebase/firestore";
@@ -35,25 +35,6 @@ function inferCategory(title: string, description: string = ""): string {
     return "Clothing";
 }
 
-// Normalise a raw category string from the CSV to a standard app category
-function normaliseCategory(raw: string, title: string, description: string): string {
-    if (!raw || raw.toLowerCase() === "clothing") return inferCategory(title, description);
-    const lower = raw.toLowerCase();
-    // Map common variations → standard names
-    if (/(dress|gown)/.test(lower))                         return "Dresses";
-    if (/(jumpsuit|romper|overall)/.test(lower))            return "Jumpsuits";
-    if (/jean|denim/.test(lower))                           return "Jeans";
-    if (/(pant|trouser|short|skirt|legging|bottom)/.test(lower)) return "Bottoms";
-    if (/(top|tee|tank|blouse|shirt|bralette|bodysuit|cami)/.test(lower)) return "Tops";
-    if (/(sweater|knit|cardigan|hoodie|sweatshirt|fleece)/.test(lower)) return "Sweaters";
-    if (/(jacket|coat|blazer|parka|puffer|vest|outerwear)/.test(lower)) return "Outerwear";
-    if (/(swim|bikini)/.test(lower))                        return "Swimwear";
-    if (/(bag|purse|belt|hat|scarf|jewelry|glasses|wallet|accessory|accessories)/.test(lower)) return "Accessories";
-    if (/(shoe|boot|sandal|sneaker|heel|loafer|footwear)/.test(lower)) return "Shoes";
-    if (/(active|athletic|sport|gym|yoga)/.test(lower))     return "Activewear";
-    // Fall back to inferring from the product name/description
-    return inferCategory(title, description);
-}
 
 export default function EditStorePage() {
     const router = useRouter();
@@ -119,9 +100,8 @@ export default function EditStorePage() {
 
     // Inventory state
     const [savedProducts, setSavedProducts] = useState<any[]>([]);
-    const [fetchedProducts, setFetchedProducts] = useState<any[]>([]);
     // Where this store's inventory comes from — set explicitly, never guessed from the name
-    const [inventorySource, setInventorySource] = useState<"manual" | "shopify" | "skims" | "bergdorf" | "zara">("manual");
+    const [inventorySource, setInventorySource] = useState<"manual" | "shopify" | "bergdorf" | "zara">("manual");
     const [sourceDomain, setSourceDomain] = useState("");
     const [sourceStoreId, setSourceStoreId] = useState("3862");   // Zara SoHo, 503 Broadway
     const [sourceQuery, setSourceQuery] = useState("");
@@ -131,11 +111,8 @@ export default function EditStorePage() {
     const [syncResult, setSyncResult] = useState<string | null>(null);
     const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "done" | "error">("idle");
     const [saveProgress, setSaveProgress] = useState(0);
-    const [saveCount, setSaveCount] = useState(0);
     const [deletingProducts, setDeletingProducts] = useState(false);
-    const [enrichingImages, setEnrichingImages] = useState(false);
     const [enrichProgress, setEnrichProgress] = useState({ done: 0, total: 0, found: 0 });
-    const [enrichingDescriptions, setEnrichingDescriptions] = useState(false);
     const [descProgress, setDescProgress] = useState({ done: 0, total: 0, found: 0 });
 
     // Load store + existing inventory
@@ -344,389 +321,6 @@ export default function EditStorePage() {
         finally { setSyncing(false); }
     };
 
-    // ── CSV upload ────────────────────────────────────────────────────────────
-    const csvInputRef = useRef<HTMLInputElement>(null);
-
-    const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            const text = ev.target?.result as string;
-
-            // ── Full CSV parser: handles multiline quoted fields ───────────────
-            // (Aritzia exports sizes/styles as newline-separated values inside quotes)
-            const parseCSV = (raw: string): string[][] => {
-                const rows: string[][] = [];
-                let row: string[] = [];
-                let cur = "";
-                let inQ = false;
-                for (let i = 0; i < raw.length; i++) {
-                    const ch = raw[i];
-                    if (ch === '"') {
-                        if (inQ && raw[i + 1] === '"') { cur += '"'; i++; } // escaped ""
-                        else { inQ = !inQ; }
-                    } else if (ch === ',' && !inQ) {
-                        row.push(cur); cur = "";
-                    } else if (ch === '\r' && !inQ) {
-                        // skip bare \r
-                    } else if (ch === '\n' && !inQ) {
-                        row.push(cur); cur = "";
-                        if (row.some(c => c.trim())) rows.push(row);
-                        row = [];
-                    } else {
-                        cur += ch;
-                    }
-                }
-                // flush last row
-                row.push(cur);
-                if (row.some(c => c.trim())) rows.push(row);
-                return rows;
-            };
-
-            const allRows = parseCSV(text);
-            if (allRows.length < 2) { alert("CSV must have a header row + at least one product."); return; }
-
-            // ── Smart column detector ─────────────────────────────────────────
-            // Strategy: 1) name-based matching, 2) content-based fallback
-            // Looks at actual cell values to figure out what each column holds.
-
-            const rawHeaders = allRows[0].map(h => h.trim().replace(/^"|"$/g, ""));
-            const headers    = rawHeaders.map(h => h.toLowerCase().replace(/[\s()™®]/g, ""));
-
-            // Sample up to 10 data rows for content analysis
-            const sample = allRows.slice(1, Math.min(11, allRows.length));
-            const colValues = (idx: number) => sample.map(r => (r[idx] || "").trim()).filter(Boolean);
-
-            // Name-based match (tries multiple aliases)
-            const colByName = (...names: string[]): number => {
-                for (const n of names) {
-                    const idx = headers.indexOf(n.toLowerCase().replace(/[\s()™®]/g, ""));
-                    if (idx >= 0) return idx;
-                }
-                // Partial/fuzzy: header contains any alias keyword
-                for (const n of names) {
-                    const idx = headers.findIndex(h => h.includes(n.toLowerCase().replace(/[\s()™®]/g, "")));
-                    if (idx >= 0) return idx;
-                }
-                return -1;
-            };
-
-            // Content-based detection helpers
-            const looksLikeImageUrl = (vals: string[]) =>
-                vals.length > 0 && vals.filter(v =>
-                    v.startsWith("http") && (
-                        /\.(jpg|jpeg|png|webp|avif|gif)(\?|$)/i.test(v) ||
-                        /(cloudinary|aritzia|assets\.|cdn\.|images\.|img\.|media\.|static\.)/.test(v)
-                    )
-                ).length >= vals.length * 0.5;
-
-            const looksLikeProductUrl = (vals: string[]) =>
-                vals.length > 0 && vals.filter(v =>
-                    v.startsWith("http") && !looksLikeImageUrl([v])
-                ).length >= vals.length * 0.6;
-
-            const looksLikePrice = (vals: string[]) =>
-                vals.length > 0 && vals.filter(v =>
-                    /^[$£€¥]?\s*\d{1,4}(\.\d{1,2})?$/.test(v.trim())
-                ).length >= vals.length * 0.6;
-
-            const looksLikeSizes = (vals: string[]) => {
-                const sizeWords = /^(xs|s|m|l|xl|xxl|xxxl|0{1,2}|[0-9]{1,2}|os|onesize|petite|regular|tall|short|plus)$/i;
-                // Check if multiline values contain size-like tokens
-                const flat = vals.flatMap(v => v.split(/[\n,|;]/).map(x => x.trim()));
-                return flat.length > 0 && flat.filter(v => sizeWords.test(v)).length >= flat.length * 0.5;
-            };
-
-            const looksLikeStyles = (vals: string[]) => {
-                // Short values (likely color/style names), not sizes, not URLs, not long sentences
-                const flat = vals.flatMap(v => v.split(/[\n,|;]/).map(x => x.trim())).filter(Boolean);
-                const isShortNonSize = (v: string) =>
-                    v.length > 1 && v.length < 30 && !v.startsWith("http") &&
-                    !/^(xs|s|m|l|xl|xxl|\d{1,2}|os)$/i.test(v) && !/\s{2,}/.test(v);
-                return flat.length > 0 && flat.filter(isShortNonSize).length >= flat.length * 0.6;
-            };
-
-            const looksLikeDescription = (vals: string[]) =>
-                vals.filter(v => v.length > 40 && !v.startsWith("http")).length >= vals.length * 0.4;
-
-            const looksLikeName = (vals: string[]) =>
-                vals.filter(v => v.length > 2 && v.length < 120 && !v.startsWith("http") &&
-                    !/^[$£€\d]/.test(v)).length >= vals.length * 0.7;
-
-            // Step 1: name-based detection
-            let nameIdx     = colByName("productname", "name", "title", "product");
-            let priceIdx    = colByName("priceusd", "price", "cost", "msrp", "retail");
-            let categoryIdx = colByName("category", "type", "dept", "department");
-            let imageIdx    = colByName("productimage", "imageurl", "image", "photo", "img", "picture");
-            let urlIdx      = colByName("producturl", "url", "link", "href");
-            let sizesIdx    = colByName("selectasize", "sizes", "size", "availablesizes");
-            let descIdx     = colByName("productdescription", "description", "desc", "details", "about");
-            let stylesIdx   = colByName("availablestyles", "styles", "style", "color", "colour", "colors");
-
-            // Step 2: content-based fallback for unresolved columns
-            const assigned = new Set([nameIdx, priceIdx, categoryIdx, imageIdx, urlIdx, sizesIdx, descIdx, stylesIdx].filter(i => i >= 0));
-
-            for (let ci = 0; ci < headers.length; ci++) {
-                if (assigned.has(ci)) continue;
-                const vals = colValues(ci);
-                if (vals.length === 0) continue;
-
-                if (imageIdx < 0 && looksLikeImageUrl(vals))         { imageIdx = ci; assigned.add(ci); continue; }
-                if (urlIdx   < 0 && looksLikeProductUrl(vals))       { urlIdx   = ci; assigned.add(ci); continue; }
-                if (priceIdx < 0 && looksLikePrice(vals))            { priceIdx = ci; assigned.add(ci); continue; }
-                if (sizesIdx < 0 && looksLikeSizes(vals))            { sizesIdx = ci; assigned.add(ci); continue; }
-                if (descIdx  < 0 && looksLikeDescription(vals))      { descIdx  = ci; assigned.add(ci); continue; }
-                if (stylesIdx < 0 && looksLikeStyles(vals))          { stylesIdx = ci; assigned.add(ci); continue; }
-                if (nameIdx  < 0 && looksLikeName(vals))             { nameIdx  = ci; assigned.add(ci); continue; }
-            }
-
-            if (nameIdx < 0) {
-                // Last resort: longest text column is probably the name
-                let best = -1, bestLen = 0;
-                for (let ci = 0; ci < headers.length; ci++) {
-                    if (assigned.has(ci)) continue;
-                    const avg = colValues(ci).reduce((s, v) => s + v.length, 0) / (colValues(ci).length || 1);
-                    if (avg > bestLen) { bestLen = avg; best = ci; }
-                }
-                if (best >= 0) nameIdx = best;
-            }
-
-            if (nameIdx < 0) {
-                alert("Could not detect a product name column. Please check your CSV.");
-                return;
-            }
-
-            const parsed: any[] = [];
-            for (let i = 1; i < allRows.length; i++) {
-                const cols = allRows[i];
-
-                const rawName  = cols[nameIdx]?.trim() || "";
-                const rawPrice = cols[priceIdx]?.replace(/[^0-9.]/g, "") || "0";
-                if (!rawName) continue;
-
-                // Sizes and styles: Aritzia uses newlines as separators inside the quoted field
-                const rawSizes = sizesIdx >= 0 ? cols[sizesIdx]?.trim() : "";
-                const sizes = rawSizes
-                    ? rawSizes.split(/[\n|,;]/).map(s => s.trim()).filter(Boolean)
-                    : [];
-
-                const rawStyles = stylesIdx >= 0 ? cols[stylesIdx]?.trim() : "";
-                const styles = rawStyles
-                    ? rawStyles.split(/[\n|,;]/).map(s => s.trim()).filter(Boolean)
-                    : [];
-
-                const rawDesc = descIdx >= 0 ? cols[descIdx]?.trim() || "" : "";
-
-                // ── Images: collect from all image-like columns ───────────────
-                // 1. Primary image column (pipe/newline/comma-separated URLs inside one cell)
-                const primaryImgRaw = imageIdx >= 0 ? cols[imageIdx]?.trim() || "" : "";
-                const primaryImgs = primaryImgRaw
-                    ? primaryImgRaw.split(/[\n|]/).map(s => s.trim()).filter(s => s.startsWith("http"))
-                    : [];
-
-                // 2. Additional numbered columns: Image 1, Image 2, Image 3... or Photo 1, Photo 2...
-                const extraImgs: string[] = [];
-                headers.forEach((h, idx) => {
-                    if (idx === imageIdx) return;
-                    if (/^(image|photo|img)\d+$/.test(h) || /^(productimage)\d+$/.test(h)) {
-                        const v = cols[idx]?.trim();
-                        if (v && v.startsWith("http")) extraImgs.push(v);
-                    }
-                });
-
-                const allProductImages = [...new Set([...primaryImgs, ...extraImgs])].filter(Boolean);
-                const rawImageUrl = allProductImages[0] || "";
-
-                parsed.push({
-                    externalId:  `csv_${i}_${Date.now()}`,
-                    title:       rawName,
-                    price:       parseFloat(rawPrice) || 0,
-                    category:    normaliseCategory(categoryIdx >= 0 ? cols[categoryIdx]?.trim() || "" : "", rawName, rawDesc),
-                    brand:       brand.trim() || name.split(" ")[0],
-                    gender:      "Women",
-                    description: rawDesc,
-                    imageURL:    rawImageUrl,
-                    images:      allProductImages,
-                    productUrl:  urlIdx >= 0 ? cols[urlIdx]?.trim() || "" : "",
-                    sizes,
-                    styles,
-                    inStock:     true,
-                    isRemoteImage: !!rawImageUrl,
-                });
-            }
-
-            if (parsed.length === 0) { alert("No valid products found in CSV."); return; }
-            setFetchedProducts(parsed);
-        };
-        reader.readAsText(file);
-        // Reset so same file can be re-uploaded
-        e.target.value = "";
-    };
-
-    // ── Enrich product images from their product URLs ─────────────────────────
-    const handleEnrichImages = async () => {
-        const missing = fetchedProducts.filter(p => !p.imageURL && p.productUrl);
-        if (missing.length === 0) { alert("All products already have images."); return; }
-
-        setEnrichingImages(true);
-        setEnrichProgress({ done: 0, total: missing.length, found: 0 });
-
-        let found = 0;
-        const updated = [...fetchedProducts];
-
-        for (const product of missing) {
-            try {
-                const res = await fetch(`/api/og-image?url=${encodeURIComponent(product.productUrl)}`);
-                if (res.ok) {
-                    const { imageUrl, images: fetchedImgs } = await res.json();
-                    if (imageUrl) {
-                        const idx = updated.findIndex(p => p.externalId === product.externalId);
-                        if (idx >= 0) {
-                            updated[idx] = { ...updated[idx], imageURL: imageUrl, images: fetchedImgs?.length ? fetchedImgs : [imageUrl], isRemoteImage: true };
-                            found++;
-                        }
-                    }
-                }
-            } catch { /* skip failed */ }
-
-            setEnrichProgress(prev => ({ ...prev, done: prev.done + 1, found }));
-        }
-
-        setFetchedProducts(updated);
-        setEnrichingImages(false);
-        setEnrichProgress(prev => ({ ...prev, done: missing.length, found }));
-    };
-
-    // ── Enrich product descriptions from their product URLs ──────────────────
-    // Goes through `/api/og-image` (Microlink) — gets back real PDP descriptions
-    // for sites that block server-side scraping (e.g. Aritzia / Cloudflare).
-    // Also opportunistically fills in any missing images.
-    const handleEnrichDescriptions = async () => {
-        const targets = fetchedProducts.filter(p => p.productUrl && (!p.description || p.description.length < 20));
-        if (targets.length === 0) { alert("All products already have descriptions."); return; }
-
-        setEnrichingDescriptions(true);
-        setDescProgress({ done: 0, total: targets.length, found: 0 });
-
-        let found = 0;
-        const updated = [...fetchedProducts];
-
-        // Batch 4 at a time to stay under Microlink's free-tier rate limit
-        const BATCH = 4;
-        for (let i = 0; i < targets.length; i += BATCH) {
-            const batch = targets.slice(i, i + BATCH);
-            const results = await Promise.all(batch.map(async (product) => {
-                try {
-                    const res = await fetch(`/api/og-image?url=${encodeURIComponent(product.productUrl)}`);
-                    if (!res.ok) return null;
-                    const data = await res.json();
-                    return { externalId: product.externalId, ...data };
-                } catch { return null; }
-            }));
-
-            for (const r of results) {
-                if (!r || !r.externalId) continue;
-                const idx = updated.findIndex(p => p.externalId === r.externalId);
-                if (idx < 0) continue;
-                const existingImages: string[] = updated[idx].images ?? [];
-                const newImages: string[] = Array.isArray(r.images) ? r.images : [];
-                // Merge images, preserving order and removing dups
-                const mergedImages = Array.from(new Set([...existingImages, ...newImages])).filter(Boolean);
-                updated[idx] = {
-                    ...updated[idx],
-                    description: r.description || updated[idx].description || "",
-                    imageURL: updated[idx].imageURL || r.imageUrl || mergedImages[0] || "",
-                    images: mergedImages.length > 0 ? mergedImages : existingImages,
-                };
-                if (r.description && r.description.length >= 20) found++;
-            }
-            setDescProgress({ done: Math.min(i + BATCH, targets.length), total: targets.length, found });
-        }
-
-        setFetchedProducts(updated);
-        setEnrichingDescriptions(false);
-        setDescProgress({ done: targets.length, total: targets.length, found });
-    };
-
-    const handleDownloadTemplate = () => {
-        const header = "Product Name,Price (USD),Category,Product Image,Product URL,Product Description,Available Styles,Select a Size";
-        const example = `"The Effortless Pant",148,Pants,https://assets.aritzia.com/image/upload/q_auto/example.jpg,https://www.aritzia.com/us/en/product/example/77775.html,"A universally flattering pant with a relaxed straight leg.","Black|White|Navy","XS|S|M|L|XL"`;
-        const csv = `${header}\n${example}\n`;
-        const blob = new Blob([csv], { type: "text/csv" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${(brand || "store").toLowerCase()}-products-template.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
-    };
-
-    // ── Save fetched products to Firestore ────────────────────────────────────
-    const handleSaveProducts = async () => {
-        if (fetchedProducts.length === 0) return;
-        setSaveStatus("saving");
-        setSaveProgress(0);
-        setSaveCount(0);
-
-        let written = 0;
-
-        for (const product of fetchedProducts) {
-            const docId = `${brand.toLowerCase()}_${product.externalId}_${storeId}`;
-            await setDoc(doc(db, "products", docId), {
-                ...product,
-                storeId,
-                brand: brand.trim() || name.split(" ")[0],
-                updatedAt: serverTimestamp(),
-                createdAt: serverTimestamp(),
-            });
-            written++;
-            setSaveCount(written);
-            setSaveProgress(Math.round((written / fetchedProducts.length) * 100));
-        }
-
-        setSaveStatus("done");
-        // Refresh saved products list
-        const snap = await getDocs(collection(db, "products"));
-        setSavedProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter((p: any) => p.storeId === storeId));
-    };
-
-    // ── Fetch/refresh images for all saved products that have a productUrl ───────
-    // Runs on ALL products (not just ones missing images) so single-image products
-    // get upgraded to a full gallery.
-    const handleFixSavedImages = async () => {
-        const targets = savedProducts.filter(p => p.productUrl);
-        if (targets.length === 0) { alert("No products have a product URL to fetch images from."); return; }
-
-        setEnrichingImages(true);
-        setEnrichProgress({ done: 0, total: targets.length, found: 0 });
-
-        let found = 0;
-        for (const product of targets) {
-            try {
-                const res = await fetch(`/api/og-image?url=${encodeURIComponent(product.productUrl)}`);
-                if (res.ok) {
-                    const { imageUrl, images: fetchedImgs } = await res.json();
-                    if (imageUrl) {
-                        const allImgs = fetchedImgs?.length > 1 ? fetchedImgs : (fetchedImgs ?? [imageUrl]);
-                        await updateDoc(doc(db, "products", product.id), {
-                            imageURL: imageUrl,
-                            images: allImgs,
-                        });
-                        found++;
-                    }
-                }
-            } catch { /* skip */ }
-            setEnrichProgress(prev => ({ ...prev, done: prev.done + 1, found }));
-        }
-
-        const snap = await getDocs(collection(db, "products"));
-        setSavedProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter((p: any) => p.storeId === storeId));
-        setEnrichingImages(false);
-        alert(`Done — refreshed images for ${found} of ${targets.length} products.`);
-    };
-
     // ── Delete all products for this store ────────────────────────────────────
     const handleDeleteAllProducts = async () => {
         if (!confirm(`Delete all ${savedProducts.length} products from ${name}?\n\nThis removes them from the database. It does not just hide them — use Show/Shown for that.`)) return;
@@ -736,7 +330,6 @@ export default function EditStorePage() {
                 await deleteDoc(doc(db, "products", product.id));
             }
             setSavedProducts([]);
-            setFetchedProducts([]);
             setSaveStatus("idle");
         } catch (err) {
             alert("Error deleting products.");
@@ -1064,11 +657,10 @@ export default function EditStorePage() {
 
                         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                             {([
-                                { v: "skims",   t: "Skims live feed",  d: "skims.com — prices, sizes, availability every 30 min" },
                                 { v: "shopify", t: "Shopify catalog",  d: "Any brand on a standard Shopify store — paste the domain" },
                                 { v: "bergdorf", t: "Bergdorf runner", d: "Their own per-store count, read by the Mac runner. Nightly catalog, 10:30 & 15:00, live on open." },
                                 { v: "zara",     t: "Zara store stock", d: "Zara's own per-size count at one store, via parse.bot. 10:30 & 15:00, live on open. Metered." },
-                                { v: "manual",  t: "Manual / CSV",     d: "You maintain it. A Snatcher confirms stock in store." },
+                                { v: "manual",  t: "No live source",   d: "Products stay as they are. A Snatcher confirms stock in store." },
                             ] as const).map(o => (
                                 <button key={o.v} type="button" onClick={() => setInventorySource(o.v)}
                                     className={`text-left rounded-lg border p-4 transition ${inventorySource === o.v ? "border-white bg-white/5" : "border-neutral-800 hover:border-neutral-600"}`}>
@@ -1143,15 +735,6 @@ export default function EditStorePage() {
                                         className="flex items-center gap-2 px-4 py-2 bg-white text-black rounded-md text-sm font-bold hover:bg-neutral-200 transition disabled:opacity-50">
                                         {savingSource ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save source"}
                                     </button>
-                                    <input ref={csvInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleCSVUpload} />
-                                    <button onClick={() => csvInputRef.current?.click()}
-                                        className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-md text-sm font-bold hover:bg-blue-500/30 transition">
-                                        <Upload className="h-4 w-4" /> Upload CSV
-                                    </button>
-                                    <button onClick={handleDownloadTemplate}
-                                        className="flex items-center gap-2 px-4 py-2 bg-neutral-800 text-neutral-300 rounded-md text-sm font-medium hover:bg-neutral-700 transition">
-                                        <Download className="h-4 w-4" /> CSV Template
-                                    </button>
                                 </>
                             )}
                             {sourceSaved && <span className="flex items-center gap-1 text-sm text-green-400"><CheckCircle className="h-4 w-4" /> Saved — source is {inventorySource}</span>}
@@ -1159,146 +742,7 @@ export default function EditStorePage() {
                         </div>
                     </div>
 
-                    {/* Fetched Products Preview */}
-                    {fetchedProducts.length > 0 && (
-                        <div className="rounded-xl border border-white/10 bg-neutral-900/50 overflow-hidden">
-                            <div className="flex items-center justify-between p-4 border-b border-white/5">
-                                <div>
-                                    <h4 className="font-semibold text-white">{fetchedProducts.length} Products Ready</h4>
-                                    <p className="text-xs text-neutral-400 mt-0.5">
-                                        {enrichingImages
-                                            ? `Fetching images… ${enrichProgress.done}/${enrichProgress.total} (${enrichProgress.found} found)`
-                                            : enrichingDescriptions
-                                                ? `Fetching descriptions… ${descProgress.done}/${descProgress.total} (${descProgress.found} found)`
-                                                : descProgress.found > 0
-                                                    ? `${descProgress.found} descriptions fetched from product pages`
-                                                    : enrichProgress.found > 0
-                                                        ? `${enrichProgress.found} images fetched from product pages`
-                                                        : "Review before saving to this store"
-                                        }
-                                    </p>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    {/* Fetch Images button — visible when some products are missing images */}
-                                    {fetchedProducts.some(p => !p.imageURL && p.productUrl) && (
-                                        <button
-                                            onClick={handleEnrichImages}
-                                            disabled={enrichingImages || saveStatus === "saving"}
-                                            className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-md text-xs font-bold hover:bg-amber-500/30 transition disabled:opacity-50"
-                                        >
-                                            {enrichingImages
-                                                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Fetching…</>
-                                                : <><ImageIcon className="h-3.5 w-3.5" /> Fetch Images</>
-                                            }
-                                        </button>
-                                    )}
-                                    {/* Fetch Descriptions — visible when some products lack a description */}
-                                    {fetchedProducts.some(p => p.productUrl && (!p.description || p.description.length < 20)) && (
-                                        <button
-                                            onClick={handleEnrichDescriptions}
-                                            disabled={enrichingDescriptions || enrichingImages || saveStatus === "saving"}
-                                            className="flex items-center gap-2 px-3 py-1.5 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-md text-xs font-bold hover:bg-cyan-500/30 transition disabled:opacity-50"
-                                        >
-                                            {enrichingDescriptions
-                                                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {descProgress.done}/{descProgress.total}…</>
-                                                : <>Fetch Descriptions</>
-                                            }
-                                        </button>
-                                    )}
-                                    {saveStatus === "done" && (
-                                        <span className="flex items-center gap-1 text-xs text-green-400">
-                                            <CheckCircle className="h-3.5 w-3.5" /> Saved
-                                        </span>
-                                    )}
-                                    <button
-                                        onClick={handleSaveProducts}
-                                        disabled={saveStatus === "saving" || enrichingImages || enrichingDescriptions}
-                                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md text-sm font-bold hover:bg-green-700 transition disabled:opacity-50"
-                                    >
-                                        {saveStatus === "saving" ? (
-                                            <><Loader2 className="h-4 w-4 animate-spin" /> Saving {saveCount}/{fetchedProducts.length}...</>
-                                        ) : (
-                                            <>Save {fetchedProducts.length} Products to Store</>
-                                        )}
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Progress Bar */}
-                            {saveStatus === "saving" && (
-                                <div className="h-1 bg-neutral-800">
-                                    <div className="h-1 bg-green-500 transition-all duration-300" style={{ width: `${saveProgress}%` }} />
-                                </div>
-                            )}
-
-                            {/* Product Table */}
-                            <div className="overflow-auto max-h-96">
-                                <table className="w-full text-sm">
-                                    <thead className="sticky top-0 bg-neutral-900">
-                                        <tr className="text-xs text-neutral-500 text-left">
-                                            <th className="px-4 py-2 font-medium w-12">IMG</th>
-                                            <th className="px-4 py-2 font-medium">Title</th>
-                                            <th className="px-4 py-2 font-medium text-right">Price</th>
-                                            <th className="px-4 py-2 font-medium">Sizes</th>
-                                            <th className="px-4 py-2 font-medium">Styles</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {fetchedProducts.map((p, i) => (
-                                            <tr key={p.externalId || i} className="border-t border-white/5 hover:bg-white/5 transition">
-                                                <td className="px-4 py-2">
-                                                    <div className="relative h-10 w-10 rounded bg-neutral-800 overflow-hidden">
-                                                        {p.imageURL ? (
-                                                            <img src={p.imageURL} alt="" className="h-full w-full object-cover" />
-                                                        ) : (
-                                                            <Package className="h-5 w-5 text-neutral-600 m-auto mt-2.5" />
-                                                        )}
-                                                        {(p.images?.length ?? 0) > 1 && (
-                                                            <span className="absolute bottom-0 right-0 bg-blue-600 text-white text-[9px] font-bold px-1 rounded-tl">
-                                                                {p.images.length}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                                <td className="px-4 py-2">
-                                                    <div className="font-medium text-white truncate max-w-48">{p.title}</div>
-                                                    {p.description && (
-                                                        <div className="text-xs text-neutral-500 truncate max-w-48">{p.description}</div>
-                                                    )}
-                                                </td>
-                                                <td className="px-4 py-2 text-right text-white font-medium">
-                                                    ${p.price}
-                                                </td>
-                                                <td className="px-4 py-2">
-                                                    <div className="flex flex-wrap gap-1 max-w-32">
-                                                        {(p.sizes || []).slice(0, 4).map((s: string) => (
-                                                            <span key={s} className="px-1.5 py-0.5 rounded bg-neutral-800 text-xs text-neutral-300">{s}</span>
-                                                        ))}
-                                                        {(p.sizes || []).length > 4 && (
-                                                            <span className="text-xs text-neutral-500">+{(p.sizes || []).length - 4}</span>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                                <td className="px-4 py-2">
-                                                    <div className="flex flex-wrap gap-1 max-w-32">
-                                                        {(p.styles || []).slice(0, 3).map((s: string) => (
-                                                            <span key={s} className="px-1.5 py-0.5 rounded bg-purple-900/40 text-xs text-purple-300">{s}</span>
-                                                        ))}
-                                                        {(p.styles || []).length > 3 && (
-                                                            <span className="text-xs text-neutral-500">+{(p.styles || []).length - 3}</span>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Saved Products Summary */}
-                    {savedProducts.length > 0 && fetchedProducts.length === 0 && (
+                    {savedProducts.length > 0 && (
                         <div className="rounded-xl border border-white/10 bg-neutral-900/50 overflow-hidden">
                             <div className="p-4 border-b border-white/5 flex items-center justify-between">
                                 <div>
@@ -1391,15 +835,6 @@ export default function EditStorePage() {
                         <details className="rounded-xl border border-red-500/20 bg-red-500/[0.03] p-4">
                             <summary className="cursor-pointer text-sm text-red-400/80 hover:text-red-400">Danger zone</summary>
                             <div className="mt-4 flex flex-wrap items-center gap-3">
-                                {inventorySource === "manual" && savedProducts.some(p => p.productUrl) && (
-                                    <button onClick={handleFixSavedImages} disabled={enrichingImages}
-                                        className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 text-amber-400 rounded text-xs font-medium hover:bg-amber-500/20 transition disabled:opacity-50">
-                                        {enrichingImages
-                                            ? <><Loader2 className="h-3 w-3 animate-spin" /> {enrichProgress.done}/{enrichProgress.total} images…</>
-                                            : <><ImageIcon className="h-3 w-3" /> Refresh Images</>
-                                        }
-                                    </button>
-                                )}
                                 <button onClick={handleDeleteAllProducts} disabled={deletingProducts}
                                     className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 text-red-500 rounded text-xs font-medium hover:bg-red-500/20 transition">
                                     <Trash2 className="h-3 w-3" />
@@ -1411,7 +846,7 @@ export default function EditStorePage() {
                     )}
 
                     {/* Empty State */}
-                    {savedProducts.length === 0 && fetchedProducts.length === 0 && (
+                    {savedProducts.length === 0 && (
                         <div className="rounded-xl border border-dashed border-neutral-800 p-12 text-center">
                             <Package className="h-10 w-10 text-neutral-600 mx-auto mb-4" />
                             <h3 className="text-white font-medium mb-2">No products yet</h3>
