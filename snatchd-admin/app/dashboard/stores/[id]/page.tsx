@@ -6,7 +6,7 @@ import { useRouter, useParams } from "next/navigation";
 import { ArrowLeft, Loader2, Package, RefreshCw, CheckCircle, XCircle, ExternalLink, Trash2, AlertTriangle, Layers, Eye, EyeOff, Upload, Download, Image as ImageIcon } from "lucide-react";
 import { db, storage } from "@/lib/firebase";
 import { adminPost } from "@/lib/adminApi";
-import { doc, getDoc, updateDoc, deleteDoc, collection, getDocs, setDoc, serverTimestamp, query, where } from "firebase/firestore";
+import { doc, getDoc, updateDoc, deleteDoc, collection, getDocs, setDoc, serverTimestamp, query, where, writeBatch } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // ── Smart category inference ───────────────────────────────────────────────────
@@ -268,6 +268,24 @@ export default function EditStorePage() {
         } finally {
             setTogglingActive(false);
         }
+    };
+
+    const [bulking, setBulking] = useState(false);
+    const setAllShown = async (next: boolean) => {
+        const targets = savedProducts.filter(p => (p.isActive !== false) !== next);
+        if (!targets.length) return;
+        if (!confirm(`${next ? "Show" : "Hide"} ${targets.length} product${targets.length === 1 ? "" : "s"} in the app?`)) return;
+        setBulking(true);
+        try {
+            // Firestore caps a batch at 500 writes
+            for (let i = 0; i < targets.length; i += 400) {
+                const batch = writeBatch(db);
+                for (const p of targets.slice(i, i + 400)) batch.update(doc(db, "products", p.id), { isActive: next });
+                await batch.commit();
+            }
+            setSavedProducts(prev => prev.map(p => ({ ...p, isActive: next })));
+        } catch (e: any) { alert("Failed: " + e.message); }
+        finally { setBulking(false); }
     };
 
     const toggleShown = async (p: any) => {
@@ -1016,11 +1034,26 @@ export default function EditStorePage() {
                                 <h3 className="text-lg font-bold text-white">Inventory source</h3>
                                 <p className="text-sm text-neutral-400 mt-1">Where this location's products, prices, sizes and availability come from.</p>
                             </div>
-                            <button onClick={reloadProducts} disabled={reloading}
-                                className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 text-neutral-300 rounded text-xs font-medium hover:bg-white/10 transition disabled:opacity-50">
-                                {reloading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                                Reload
-                            </button>
+                            <div className="flex items-center gap-2">
+                                {savedProducts.length > 0 && (
+                                    <>
+                                        <button onClick={() => setAllShown(true)} disabled={bulking}
+                                            className="flex items-center gap-2 px-3 py-1.5 bg-green-500/10 border border-green-500/20 text-green-400 rounded text-xs font-medium hover:bg-green-500/20 transition disabled:opacity-50">
+                                            {bulking ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
+                                            Show all
+                                        </button>
+                                        <button onClick={() => setAllShown(false)} disabled={bulking}
+                                            className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 text-neutral-300 rounded text-xs font-medium hover:bg-white/10 transition disabled:opacity-50">
+                                            <EyeOff className="h-3 w-3" /> Hide all
+                                        </button>
+                                    </>
+                                )}
+                                <button onClick={reloadProducts} disabled={reloading}
+                                    className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 text-neutral-300 rounded text-xs font-medium hover:bg-white/10 transition disabled:opacity-50">
+                                    {reloading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                                    Reload
+                                </button>
+                            </div>
                         </div>
 
                         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
