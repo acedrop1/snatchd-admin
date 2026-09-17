@@ -73,7 +73,7 @@ struct HomeView: View {
 
     // Nearby Firestore stores sorted by distance; empty when location is known but no stores are in range
     var displayStores: [Store] {
-        let allStores = databaseService.stores.isEmpty ? MockDataService.shared.stores : databaseService.stores
+        let allStores = databaseService.stores
 
         guard let location = activeLocation else {
             // Location not yet determined — show everything while waiting

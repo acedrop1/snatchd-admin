@@ -5,20 +5,9 @@ import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { ArrowLeft, Loader2, Package, RefreshCw, CheckCircle, XCircle, ExternalLink, Trash2, AlertTriangle, Layers, Eye, EyeOff, Upload, Download, Image as ImageIcon } from "lucide-react";
 import { db, storage } from "@/lib/firebase";
+import { adminPost } from "@/lib/adminApi";
 import { doc, getDoc, updateDoc, deleteDoc, collection, getDocs, setDoc, serverTimestamp, query, where } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-
-// ── Brand catalog URL mapping ─────────────────────────────────────────────────
-const BRAND_CATALOG_URLS: Record<string, string> = {
-    "Jacquemus": "https://www.jacquemus.com/en_us/women-newness-view-all?start=0&sz=200",
-    "Zara": "https://www.zara.com/us/en/woman-new-in-l1180.html",
-    "Skims": "https://skims.com/collections/best-sellers",
-    "Aritzia": "https://www.aritzia.com/us/en/new",
-};
-
-function getBrandFromStoreName(name: string): string {
-    return name.split(" ")[0].trim();
-}
 
 // ── Smart category inference ───────────────────────────────────────────────────
 // Looks at product name + description and maps to standard app categories.
@@ -66,11 +55,6 @@ function normaliseCategory(raw: string, title: string, description: string): str
     return inferCategory(title, description);
 }
 
-function getCatalogUrl(storeName: string): string {
-    const brand = getBrandFromStoreName(storeName);
-    return BRAND_CATALOG_URLS[brand] || "";
-}
-
 export default function EditStorePage() {
     const router = useRouter();
     const params = useParams();
@@ -86,6 +70,7 @@ export default function EditStorePage() {
     const [description, setDescription] = useState("");
     const [categories, setCategories] = useState("");
     const [externalId, setExternalId] = useState("");
+    const [brand, setBrand] = useState("");
     const [rating, setRating] = useState("5.0");
     const [deliveryTime, setDeliveryTime] = useState("30-45 min");
     const [currentLogo, setCurrentLogo] = useState("");
@@ -135,9 +120,12 @@ export default function EditStorePage() {
     // Inventory state
     const [savedProducts, setSavedProducts] = useState<any[]>([]);
     const [fetchedProducts, setFetchedProducts] = useState<any[]>([]);
-    const [catalogUrl, setCatalogUrl] = useState("");
-    const [fetchStatus, setFetchStatus] = useState<"idle" | "fetching" | "done" | "error">("idle");
-    const [fetchError, setFetchError] = useState<string | null>(null);
+    // Where this store's inventory comes from — set explicitly, never guessed from the name
+    const [inventorySource, setInventorySource] = useState<"manual" | "shopify" | "skims">("manual");
+    const [sourceDomain, setSourceDomain] = useState("");
+    const [savingSource, setSavingSource] = useState(false);
+    const [syncing, setSyncing] = useState(false);
+    const [syncResult, setSyncResult] = useState<string | null>(null);
     const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "done" | "error">("idle");
     const [saveProgress, setSaveProgress] = useState(0);
     const [saveCount, setSaveCount] = useState(0);
@@ -161,13 +149,15 @@ export default function EditStorePage() {
                     setDescription(data.description || "");
                     setCategories(data.categories?.join(", ") || "");
                     setExternalId(data.externalId || "");
+                    setBrand(data.brand || (data.name || "").split(" ")[0]);
+                    setInventorySource(data.inventorySource || "manual");
+                    setSourceDomain(data.sourceDomain || "");
                     setRating(data.rating?.toString() || "5.0");
                     setDeliveryTime(data.deliveryTime || "30-45 min");
                     setCurrentLogo(data.logo || "");
                     setCurrentBanner(data.image || "");
                     setIsActive(data.isActive !== false); // treat missing as active
                     setTags(data.tags || []);
-                    setCatalogUrl(getCatalogUrl(data.name || ""));
                     setAddress(data.address || "");
                     setLatitude(data.latitude?.toString() || "");
                     setLongitude(data.longitude?.toString() || "");
@@ -232,7 +222,8 @@ export default function EditStorePage() {
             }
 
             await updateDoc(doc(db, "stores", storeId), {
-                name, description, externalId,
+                name, description, externalId, brand: brand.trim() || name.split(" ")[0],
+                inventorySource, sourceDomain: sourceDomain.trim() || null,
                 logo: logoUrl, image: bannerUrl,
                 categories: categories.split(",").map(c => c.trim()).filter(c => c.length > 0),
                 rating: parseFloat(rating),
@@ -279,6 +270,44 @@ export default function EditStorePage() {
         } finally {
             setTogglingActive(false);
         }
+    };
+
+    const reloadProducts = async () => {
+        const snap = await getDocs(query(collection(db, "products"), where("storeId", "==", storeId)));
+        setSavedProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    };
+
+    // ── Inventory source ──────────────────────────────────────────────────────
+    const saveSource = async () => {
+        setSavingSource(true);
+        try {
+            await updateDoc(doc(db, "stores", storeId), {
+                inventorySource, sourceDomain: sourceDomain.trim() || null, brand: brand.trim() || name.split(" ")[0],
+            });
+        } catch (e: any) { alert("Could not save source: " + e.message); }
+        finally { setSavingSource(false); }
+    };
+
+    const handleSyncCatalog = async () => {
+        setSyncing(true); setSyncResult(null);
+        try {
+            await saveSource();
+            const r = await adminPost("syncStoreCatalog", { storeId });
+            setSyncResult(`Synced ${r.synced} products from ${r.source}${r.removed ? `, replaced ${r.removed} older entries` : ""}${r.failed?.length ? `, ${r.failed.length} failed` : ""}.`);
+            await reloadProducts();
+        } catch (e: any) { setSyncResult("Sync failed: " + e.message); }
+        finally { setSyncing(false); }
+    };
+
+    const handleRefreshStock = async () => {
+        setSyncing(true); setSyncResult(null);
+        try {
+            const r = await adminPost("refreshStock");
+            const mine = r.stores?.[storeId];
+            setSyncResult(mine ? `Availability refreshed: ${mine.updated} updated, ${mine.unknown} unknown${mine.tripped ? " — source unreachable, breaker tripped" : ""}.` : "Refreshed (this store has no live source).");
+            await reloadProducts();
+        } catch (e: any) { setSyncResult("Refresh failed: " + e.message); }
+        finally { setSyncing(false); }
     };
 
     // ── CSV upload ────────────────────────────────────────────────────────────
@@ -481,7 +510,7 @@ export default function EditStorePage() {
                     title:       rawName,
                     price:       parseFloat(rawPrice) || 0,
                     category:    normaliseCategory(categoryIdx >= 0 ? cols[categoryIdx]?.trim() || "" : "", rawName, rawDesc),
-                    brand:       getBrandFromStoreName(name),
+                    brand:       brand.trim() || name.split(" ")[0],
                     gender:      "Women",
                     description: rawDesc,
                     imageURL:    rawImageUrl,
@@ -496,8 +525,6 @@ export default function EditStorePage() {
 
             if (parsed.length === 0) { alert("No valid products found in CSV."); return; }
             setFetchedProducts(parsed);
-            setFetchStatus("done");
-            setFetchError(null);
         };
         reader.readAsText(file);
         // Reset so same file can be re-uploaded
@@ -597,80 +624,9 @@ export default function EditStorePage() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `${getBrandFromStoreName(name) || "store"}-products-template.csv`;
+        a.download = `${(brand || "store").toLowerCase()}-products-template.csv`;
         a.click();
         URL.revokeObjectURL(url);
-    };
-
-    // ── Fetch products from brand website ─────────────────────────────────────
-    // Shopify brands have a live /products.json endpoint — their seed route fetches it directly.
-    // SFCC brands (Jacquemus etc.) go through the scraper with the catalog URL.
-    const LIVE_FETCH_ENDPOINTS: Record<string, string> = {
-        "Skims": "/api/skims-live",
-        "Kith": "/api/kith-seed",
-        "Aritzia": "/api/aritzia-seed",
-        // SFCC brands below use the jacquemus-live scraper with their catalog URL
-    };
-
-    const handleFetchFromWebsite = async () => {
-        const currentBrand = getBrandFromStoreName(name);
-
-        if (!catalogUrl && !LIVE_FETCH_ENDPOINTS[currentBrand]) {
-            alert("No catalog URL configured for this brand.");
-            return;
-        }
-        setFetchStatus("fetching");
-        setFetchError(null);
-        setFetchedProducts([]);
-
-        try {
-            // Use brand-specific live endpoint if available, otherwise use the SFCC scraper
-            const apiUrl = LIVE_FETCH_ENDPOINTS[currentBrand]
-                ?? `/api/jacquemus-live?url=${encodeURIComponent(catalogUrl)}`;
-
-            const res = await fetch(apiUrl);
-            const data = await res.json();
-
-            if (!res.ok || data.error) {
-                throw new Error(data.error || `HTTP ${res.status}`);
-            }
-
-            setFetchedProducts(data.products || []);
-            setFetchStatus("done");
-        } catch (err: any) {
-            setFetchError(err.message || "Failed to fetch products.");
-            setFetchStatus("error");
-        }
-    };
-
-    // ── Use static seed data as fallback ──────────────────────────────────────
-    const handleUseStaticData = async () => {
-        const brand = getBrandFromStoreName(name);
-        const STATIC_SEED_ENDPOINTS: Record<string, string> = {
-            "Jacquemus": "/api/jacquemus-seed",
-            "Skims": "/api/skims-seed",
-            "Aritzia": "/api/aritzia-seed",
-        };
-        const endpoint = STATIC_SEED_ENDPOINTS[brand] ?? null;
-
-        if (!endpoint) {
-            alert(`No static seed data available for ${brand}.`);
-            return;
-        }
-
-        setFetchStatus("fetching");
-        setFetchError(null);
-
-        try {
-            const res = await fetch(endpoint);
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || "Failed to load static data");
-            setFetchedProducts(data.products || []);
-            setFetchStatus("done");
-        } catch (err: any) {
-            setFetchError(err.message);
-            setFetchStatus("error");
-        }
     };
 
     // ── Save fetched products to Firestore ────────────────────────────────────
@@ -680,7 +636,6 @@ export default function EditStorePage() {
         setSaveProgress(0);
         setSaveCount(0);
 
-        const brand = getBrandFromStoreName(name);
         let written = 0;
 
         for (const product of fetchedProducts) {
@@ -688,7 +643,7 @@ export default function EditStorePage() {
             await setDoc(doc(db, "products", docId), {
                 ...product,
                 storeId,
-                brand,
+                brand: brand.trim() || name.split(" ")[0],
                 updatedAt: serverTimestamp(),
                 createdAt: serverTimestamp(),
             });
@@ -758,8 +713,6 @@ export default function EditStorePage() {
 
     if (loading) return <div className="p-12 text-center text-white">Loading store...</div>;
 
-    const brand = getBrandFromStoreName(name);
-    const hasStaticSeed = ["Jacquemus", "Skims"].includes(brand);
 
     return (
         <div className="space-y-8 max-w-4xl mx-auto pb-12">
@@ -851,7 +804,6 @@ export default function EditStorePage() {
                             }
                         </button>
                     </div>
-
                     {/* Home Feed Tags */}
                     <div className="space-y-4 rounded-xl border border-white/10 bg-neutral-900/50 p-6">
                         <div>
@@ -889,6 +841,12 @@ export default function EditStorePage() {
                             <label className="text-sm font-medium text-neutral-300">Store Name</label>
                             <input type="text" required value={name} onChange={e => setName(e.target.value)}
                                 className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white focus:border-white focus:outline-none transition" />
+                        </div>
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium text-neutral-300">Brand</label>
+                            <input type="text" value={brand} onChange={e => setBrand(e.target.value)} placeholder="Skims"
+                                className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white focus:border-white focus:outline-none transition" />
+                            <p className="text-xs text-neutral-500">Shown on products. Two locations of the same brand share this.</p>
                         </div>
                         <div className="grid gap-2">
                             <label className="text-sm font-medium text-neutral-300">Description</label>
@@ -1041,23 +999,21 @@ export default function EditStorePage() {
                 // ── Live Inventory Tab ─────────────────────────────────────────────────
                 <div className="animate-in fade-in slide-in-from-bottom-2 space-y-6">
 
-                    {/* Sync Source */}
-                    <div className="rounded-xl border border-white/10 bg-neutral-900/50 p-6 space-y-4">
+                    {/* Inventory source */}
+                    <div className="rounded-xl border border-white/10 bg-neutral-900/50 p-6 space-y-5">
                         <div className="flex items-center justify-between">
                             <div>
-                                <h3 className="text-lg font-bold text-white">Sync Products from Website</h3>
-                                <p className="text-sm text-neutral-400 mt-1">
-                                    Fetch live product data from {brand}'s website and save to this store.
-                                </p>
+                                <h3 className="text-lg font-bold text-white">Inventory source</h3>
+                                <p className="text-sm text-neutral-400 mt-1">Where this location's products, prices, sizes and availability come from.</p>
                             </div>
                             {savedProducts.length > 0 && (
                                 <div className="flex items-center gap-2">
-                                    {savedProducts.some(p => p.productUrl) && (
+                                    {inventorySource === "manual" && savedProducts.some(p => p.productUrl) && (
                                         <button onClick={handleFixSavedImages} disabled={enrichingImages}
                                             className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 text-amber-400 rounded text-xs font-medium hover:bg-amber-500/20 transition disabled:opacity-50">
                                             {enrichingImages
                                                 ? <><Loader2 className="h-3 w-3 animate-spin" /> {enrichProgress.done}/{enrichProgress.total} images…</>
-                                                : <><ImageIcon className="h-3 w-3" /> Refresh All Images</>
+                                                : <><ImageIcon className="h-3 w-3" /> Refresh Images</>
                                             }
                                         </button>
                                     )}
@@ -1070,89 +1026,62 @@ export default function EditStorePage() {
                             )}
                         </div>
 
-                        {/* URL Input */}
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium text-neutral-300">Catalog URL</label>
-                            <div className="flex gap-2">
-                                <input
-                                    type="text"
-                                    value={catalogUrl}
-                                    onChange={e => setCatalogUrl(e.target.value)}
-                                    placeholder="https://www.jacquemus.com/en_us/women-newness-view-all?start=0&sz=200"
-                                    className="flex-1 rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white text-sm font-mono focus:border-white focus:outline-none transition"
-                                />
-                                {catalogUrl && (
-                                    <a href={catalogUrl} target="_blank" rel="noopener noreferrer"
-                                        className="px-3 py-2 bg-neutral-800 rounded-lg text-neutral-400 hover:text-white transition flex items-center">
-                                        <ExternalLink className="h-4 w-4" />
-                                    </a>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Action Buttons */}
-                        <div className="flex flex-wrap gap-3">
-                            <button
-                                onClick={handleFetchFromWebsite}
-                                disabled={fetchStatus === "fetching" || !catalogUrl}
-                                className="flex items-center gap-2 px-4 py-2 bg-white text-black rounded-md text-sm font-bold hover:bg-neutral-200 transition disabled:opacity-50"
-                            >
-                                {fetchStatus === "fetching" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                                {fetchStatus === "fetching" ? "Fetching..." : "Fetch from Website"}
-                            </button>
-
-                            {hasStaticSeed && (
-                                <button
-                                    onClick={handleUseStaticData}
-                                    disabled={fetchStatus === "fetching"}
-                                    className="flex items-center gap-2 px-4 py-2 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-md text-sm font-bold hover:bg-purple-500/30 transition disabled:opacity-50"
-                                >
-                                    <Layers className="h-4 w-4" />
-                                    Use Pre-Loaded Data
+                        <div className="grid gap-3 sm:grid-cols-3">
+                            {([
+                                { v: "skims",   t: "Skims live feed",  d: "skims.com — prices, sizes, availability every 30 min" },
+                                { v: "shopify", t: "Shopify catalog",  d: "Any brand on a standard Shopify store — paste the domain" },
+                                { v: "manual",  t: "Manual / CSV",     d: "You maintain it. A Snatcher confirms stock in store." },
+                            ] as const).map(o => (
+                                <button key={o.v} type="button" onClick={() => setInventorySource(o.v)}
+                                    className={`text-left rounded-lg border p-4 transition ${inventorySource === o.v ? "border-white bg-white/5" : "border-neutral-800 hover:border-neutral-600"}`}>
+                                    <p className="font-semibold text-white text-sm">{o.t}</p>
+                                    <p className="text-xs text-neutral-500 mt-1">{o.d}</p>
                                 </button>
-                            )}
-
-                            {/* CSV Upload */}
-                            <input
-                                ref={csvInputRef}
-                                type="file"
-                                accept=".csv,text/csv"
-                                className="hidden"
-                                onChange={handleCSVUpload}
-                            />
-                            <button
-                                onClick={() => csvInputRef.current?.click()}
-                                disabled={fetchStatus === "fetching"}
-                                className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-md text-sm font-bold hover:bg-blue-500/30 transition disabled:opacity-50"
-                            >
-                                <Upload className="h-4 w-4" />
-                                Upload CSV
-                            </button>
-
-                            <button
-                                onClick={handleDownloadTemplate}
-                                className="flex items-center gap-2 px-4 py-2 bg-neutral-800 text-neutral-300 rounded-md text-sm font-medium hover:bg-neutral-700 transition"
-                            >
-                                <Download className="h-4 w-4" />
-                                CSV Template
-                            </button>
+                            ))}
                         </div>
 
-                        {/* Fetch Error */}
-                        {fetchStatus === "error" && fetchError && (
-                            <div className="flex items-start gap-3 p-4 rounded-lg bg-red-500/10 border border-red-500/20">
-                                <AlertTriangle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
-                                <div>
-                                    <p className="text-sm text-red-400 font-medium">Fetch Failed</p>
-                                    <p className="text-xs text-red-400/70 mt-1">{fetchError}</p>
-                                    {hasStaticSeed && (
-                                        <p className="text-xs text-neutral-400 mt-2">
-                                            → Use <strong className="text-purple-400">"Use Pre-Loaded Data"</strong> to load the static product catalog instead.
-                                        </p>
-                                    )}
-                                </div>
+                        {inventorySource === "shopify" && (
+                            <div className="grid gap-2">
+                                <label className="text-sm font-medium text-neutral-300">Store domain</label>
+                                <input type="text" value={sourceDomain} onChange={e => setSourceDomain(e.target.value.replace(/^https?:\/\//, "").replace(/\/.*$/, ""))}
+                                    placeholder="kith.com"
+                                    className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white font-mono text-sm placeholder:text-neutral-600 focus:border-white focus:outline-none transition" />
+                                <p className="text-xs text-neutral-500">Verified working: kith.com, aloyoga.com, aimeleondore.com. Anything that serves /products.json.</p>
                             </div>
                         )}
+
+                        <div className="flex flex-wrap items-center gap-3">
+                            {inventorySource !== "manual" ? (
+                                <>
+                                    <button onClick={handleSyncCatalog} disabled={syncing || (inventorySource === "shopify" && !sourceDomain.trim())}
+                                        className="flex items-center gap-2 px-4 py-2 bg-white text-black rounded-md text-sm font-bold hover:bg-neutral-200 transition disabled:opacity-50">
+                                        {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                                        {syncing ? "Working…" : "Sync catalog now"}
+                                    </button>
+                                    <button onClick={handleRefreshStock} disabled={syncing || savedProducts.length === 0}
+                                        className="flex items-center gap-2 px-4 py-2 bg-neutral-800 text-neutral-200 rounded-md text-sm font-medium hover:bg-neutral-700 transition disabled:opacity-50">
+                                        Refresh availability
+                                    </button>
+                                </>
+                            ) : (
+                                <>
+                                    <button onClick={saveSource} disabled={savingSource}
+                                        className="flex items-center gap-2 px-4 py-2 bg-white text-black rounded-md text-sm font-bold hover:bg-neutral-200 transition disabled:opacity-50">
+                                        {savingSource ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save source"}
+                                    </button>
+                                    <input ref={csvInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleCSVUpload} />
+                                    <button onClick={() => csvInputRef.current?.click()}
+                                        className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-md text-sm font-bold hover:bg-blue-500/30 transition">
+                                        <Upload className="h-4 w-4" /> Upload CSV
+                                    </button>
+                                    <button onClick={handleDownloadTemplate}
+                                        className="flex items-center gap-2 px-4 py-2 bg-neutral-800 text-neutral-300 rounded-md text-sm font-medium hover:bg-neutral-700 transition">
+                                        <Download className="h-4 w-4" /> CSV Template
+                                    </button>
+                                </>
+                            )}
+                            {syncResult && <span className={`text-sm ${syncResult.includes("failed") ? "text-red-400" : "text-green-400"}`}>{syncResult}</span>}
+                        </div>
                     </div>
 
                     {/* Fetched Products Preview */}
@@ -1325,6 +1254,7 @@ export default function EditStorePage() {
                                             <th className="px-4 py-2 font-medium">Category</th>
                                             <th className="px-4 py-2 font-medium text-right">Price</th>
                                             <th className="px-4 py-2 font-medium">Sizes</th>
+                                            <th className="px-4 py-2 font-medium">In stock</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1359,6 +1289,14 @@ export default function EditStorePage() {
                                                         )}
                                                     </div>
                                                 </td>
+                                                <td className="px-4 py-2 text-xs">
+                                                    {(() => {
+                                                        const a = p.availability || {}; const vals = Object.values(a) as string[];
+                                                        const inStock = vals.filter(v => v === "in_stock").length;
+                                                        if (!vals.length || p.availabilitySource === "none") return <span className="text-neutral-500">unconfirmed</span>;
+                                                        return <span className={inStock ? "text-green-400" : "text-red-400"}>{inStock}/{vals.length} sizes</span>;
+                                                    })()}
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -1368,12 +1306,12 @@ export default function EditStorePage() {
                     )}
 
                     {/* Empty State */}
-                    {savedProducts.length === 0 && fetchedProducts.length === 0 && fetchStatus !== "fetching" && (
+                    {savedProducts.length === 0 && fetchedProducts.length === 0 && (
                         <div className="rounded-xl border border-dashed border-neutral-800 p-12 text-center">
                             <Package className="h-10 w-10 text-neutral-600 mx-auto mb-4" />
                             <h3 className="text-white font-medium mb-2">No products yet</h3>
                             <p className="text-sm text-neutral-500">
-                                Fetch products from the {brand} website above, or use the pre-loaded static catalog.
+                                Pick a source above and sync, or upload a CSV for a manual store.
                             </p>
                         </div>
                     )}

@@ -147,9 +147,6 @@ struct ProfileView: View {
                         
                         // Developer Tools (Temporary)
                         VStack(spacing: 0) {
-                            NavigationLink(destination: FirestoreSeederView()) {
-                                SettingsRow(title: "Developer Tools (Seeder)")
-                            }
                         }
                         .background(Color.white.opacity(0.05))
                         .cornerRadius(15)

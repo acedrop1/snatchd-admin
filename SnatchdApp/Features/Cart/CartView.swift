@@ -197,7 +197,7 @@ struct CartItemRow: View {
 
 #Preview {
     let mockManager = CartManager()
-    mockManager.addToCart(product: MockDataService.shared.trendingProducts[0])
+    mockManager.addToCart(product: Product(title: "Cotton Rib Tank", brand: "Skims", price: 48, imageName: "photo", deliveryTime: "45 Mins", category: "Tops", sizes: ["S","M","L"]), size: "M")
     return CartView(selectedTab: .constant(.cart), isPresentedModally: false)
         .environmentObject(mockManager)
         .preferredColorScheme(.dark)

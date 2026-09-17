@@ -18,7 +18,6 @@ export default function NewProductPage() {
     const [description, setDescription] = useState("");
     const [price, setPrice] = useState("");
     const [sku, setSku] = useState(""); // Display reference (e.g., "1234/567")
-    const [zaraProductId, setZaraProductId] = useState(""); // Numeric ID for stock API
     const [category, setCategory] = useState(""); // Subcategory — free text, becomes a filter tab in the store
     const [selectedStoreId, setSelectedStoreId] = useState("");
 
@@ -88,14 +87,12 @@ export default function NewProductPage() {
                 description,
                 price: parseFloat(price),
                 sku,
-                zaraProductId: zaraProductId || null,
                 category,
                 storeId: selectedStoreId,
                 brand: brandName,
                 images: imageUrls,
                 inStock: true,           // Default in stock — update manually if needed
                 deliveryTime: "45 Mins", // Default delivery time
-                in_stock_soho: false,    // Updated by Cloud Function for Zara products
                 createdAt: serverTimestamp(),
                 isActive: true,
             });
@@ -184,18 +181,7 @@ export default function NewProductPage() {
                         </div>
                     </div>
 
-                    {/* Zara Product ID (for stock API) */}
-                    <div className="grid gap-2">
-                        <label className="text-sm font-medium text-blue-400">Zara Product ID (Optional)</label>
-                        <input
-                            type="text"
-                            value={zaraProductId}
-                            onChange={e => setZaraProductId(e.target.value)}
-                            className="w-full rounded-lg bg-black border border-blue-500/50 px-4 py-2 text-white focus:border-blue-500 focus:outline-none transition font-mono"
-                            placeholder="e.g. 504347744"
-                        />
-                        <p className="text-xs text-neutral-500">Numeric ID for real-time stock checks. Leave empty if not Zara.</p>
-                    </div>
+
 
                     <div className="grid gap-2">
                         <label className="text-sm font-medium text-neutral-300">Description</label>

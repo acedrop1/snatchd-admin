@@ -3,10 +3,9 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import * as admin from 'firebase-admin';
 import axios from 'axios';
 import Stripe from 'stripe';
-import {
-    fetchSkimsProduct, fetchSkimsCollectionHandles, fetchSkimsStores,
-    sleep, SizeState, SkimsProduct,
-} from './skims';
+import { fetchSkimsProduct, fetchSkimsCollectionHandles, fetchSkimsStores } from './skims';
+import { fetchShopifyCatalog, fetchShopifyProduct } from './shopify';
+import { SourceProduct, StoreSource, SizeState, SourceKind, sleep } from './types';
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -39,23 +38,84 @@ export const createPaymentIntent = onRequest({
 });
 
 // ── Inventory ──────────────────────────────────────────────────────────────
-// Product docs carry three availability fields. `availability` is per size and
-// is NEVER collapsed to a boolean by a failure: a fetch error writes `unknown`,
-// not `out_of_stock`. `inStock` (legacy bool the app reads) only changes when
-// we actually have data.
+// A store says where its inventory comes from:
+//
+//   inventorySource: 'shopify' | 'skims' | 'manual'   (store doc)
+//   sourceDomain:     'kith.com'                       (shopify)
+//   sourceCollection: 'best-sellers'                   (skims, optional)
+//
+// Products carry per-size availability that is NEVER collapsed to a boolean
+// by a failure: a fetch error writes `unknown`, not `out_of_stock`.
 //
 //   availability:          { S: 'in_stock', M: 'out_of_stock', L: 'unknown' }
-//   availabilitySource:    'skims_online' | 'courier' | 'none'
+//   availabilitySource:    'shopify' | 'skims' | 'courier' | 'none'
 //   availabilityCheckedAt: Timestamp
 //
-// Brands without a live source get `none` and the app tells the customer a
-// Snatcher confirms in store before capture.
+// Every source is ONLINE availability. In-store truth is the Snatcher.
 
-type Source = 'skims_online' | 'courier' | 'none';
+// Portal-only endpoints: the caller must present a Firebase ID token carrying
+// the admin claim (Authorization: Bearer <idToken>). checkAvailability stays public.
+async function requireAdmin(req: any, res: any): Promise<boolean> {
+    const m = /^Bearer (.+)$/.exec(req.get('authorization') || '');
+    try {
+        const token = m ? await admin.auth().verifyIdToken(m[1]) : null;
+        if (token?.admin === true) return true;
+    } catch { /* fall through */ }
+    res.status(403).json({ error: 'admin only' });
+    return false;
+}
+
 const FRESH_MS = 10 * 60 * 1000;
 const BATCH = 400; // Firestore hard limit is 500 writes per batch
 
-function skimsPatch(p: SkimsProduct) {
+async function loadStore(storeId: string): Promise<StoreSource> {
+    const snap = await db.doc(`stores/${storeId}`).get();
+    if (!snap.exists) throw new Error(`store ${storeId} not found`);
+    const d = snap.data()!;
+    return {
+        id: snap.id, name: d.name || '', brand: d.brand || d.name || '',
+        inventorySource: (d.inventorySource || 'manual') as SourceKind,
+        sourceDomain: d.sourceDomain, sourceCollection: d.sourceCollection,
+    };
+}
+
+async function liveStores(): Promise<StoreSource[]> {
+    const snap = await db.collection('stores').where('inventorySource', 'in', ['shopify', 'skims']).get();
+    return Promise.all(snap.docs.map(d => loadStore(d.id)));
+}
+
+// One product from its source — used by checkAvailability and the Skims sweep.
+async function fetchOne(store: StoreSource, handle: string): Promise<SourceProduct> {
+    switch (store.inventorySource) {
+        case 'shopify':
+            if (!store.sourceDomain) throw new Error(`${store.name}: sourceDomain missing`);
+            return fetchShopifyProduct(store.sourceDomain, store.brand, handle);
+        case 'skims':
+            return fetchSkimsProduct(handle);
+        default:
+            throw new Error(`${store.name} has no live source`);
+    }
+}
+
+// The whole catalog — Shopify gives it in bulk; Skims needs a handle list then one call each.
+async function fetchCatalog(store: StoreSource, limit: number): Promise<{ products: SourceProduct[]; failed: string[] }> {
+    if (store.inventorySource === 'shopify') {
+        if (!store.sourceDomain) throw new Error(`${store.name}: sourceDomain missing`);
+        return { products: await fetchShopifyCatalog(store.sourceDomain, store.brand, limit), failed: [] };
+    }
+    if (store.inventorySource === 'skims') {
+        const handles = (await fetchSkimsCollectionHandles(store.sourceCollection || 'best-sellers')).slice(0, limit);
+        const products: SourceProduct[] = []; const failed: string[] = [];
+        for (const h of handles) {
+            try { products.push(await fetchSkimsProduct(h)); } catch { failed.push(h); }
+            await sleep(150);
+        }
+        return { products, failed };
+    }
+    throw new Error(`${store.name} has no live source`);
+}
+
+function patchFor(p: SourceProduct, source: SourceKind) {
     const inStock = Object.values(p.availability).some(s => s === 'in_stock');
     return {
         title: p.title, handle: p.handle, externalId: p.externalId, productUrl: p.productUrl,
@@ -63,7 +123,7 @@ function skimsPatch(p: SkimsProduct) {
         description: p.description, images: p.images, sizes: p.sizes, styles: p.styles,
         category: p.category, gender: p.gender, productType: p.productType, tags: p.tags,
         variants: p.variants,
-        availability: p.availability, availabilitySource: 'skims_online' as Source,
+        availability: p.availability, availabilitySource: source,
         availabilityCheckedAt: now(), inStock,
         updatedAt: now(),
     };
@@ -71,7 +131,7 @@ function skimsPatch(p: SkimsProduct) {
 
 const unknownPatch = (sizes: string[]) => ({
     availability: Object.fromEntries(sizes.map(s => [s, 'unknown' as SizeState])),
-    availabilitySource: 'none' as Source,
+    availabilitySource: 'none',
     availabilityCheckedAt: now(),
 });
 
@@ -93,90 +153,41 @@ async function alert(message: string) {
     catch (e: any) { console.error('alert webhook failed:', e.message); }
 }
 
-async function setSourceHealth(source: string, healthy: boolean, detail: string) {
-    await db.doc('config/inventory').set({ [source]: { healthy, detail, at: now() } }, { merge: true });
-}
-
-// The Skims store doc. Real location from Stockist; matched to an existing
-// store named "Skims" so the portal's manually-created doc keeps its ID.
-async function ensureSkimsStore(preferredStoreId?: string): Promise<string> {
-    if (preferredStoreId) return preferredStoreId;
-    const existing = await db.collection('stores').get();
-    const match = existing.docs.find(d => /skims/i.test(d.get('name') || ''));
-    if (match) return match.id;
-    const flagship = (await fetchSkimsStores()).find(s => s.isOwnStore && /New York, NY/i.test(s.address));
-    if (!flagship) throw new Error('no SKIMS-own NYC store found on Stockist');
-    const ref = await db.collection('stores').add({
-        name: 'Skims', brand: 'Skims', category: 'Modern Basics', categories: ['Clothing', 'Accessories'],
-        address: flagship.address, latitude: flagship.latitude, longitude: flagship.longitude,
-        phone: flagship.phone, externalId: flagship.externalId,
-        deliveryTime: '45 Mins', deliveryRadius: 3, isActive: true, tags: [], logo: '', image: '',
-        createdAt: now(),
-    });
-    return ref.id;
+async function setSourceHealth(storeId: string, healthy: boolean, detail: string) {
+    await db.doc('config/inventory').set({ [storeId]: { healthy, detail, at: now() } }, { merge: true });
 }
 
 /**
- * GET /skimsCatalog?collection=best-sellers&limit=40
- * Normalised products for the portal's preview → save flow. Read-only proxy of
- * public Skims data; capped so it can't be used to hammer them.
+ * POST /syncStoreCatalog  { storeId, limit?, replaceLegacy? }
+ * Pull the store's catalog from its source and upsert products/{source}_{externalId}_{storeId}.
+ * With replaceLegacy, older docs for a product just synced (CSV/seed ids) are removed.
  */
-export const skimsCatalog = onRequest({ cors: true, timeoutSeconds: 300, memory: '512MiB' }, async (req, res) => {
-    try {
-        const collection = String(req.query.collection || 'best-sellers').replace(/[^a-z0-9-]/gi, '');
-        const limit = Math.min(Number(req.query.limit) || 40, 60);
-        const handles = (await fetchSkimsCollectionHandles(collection)).slice(0, limit);
-        const products: SkimsProduct[] = [];
-        const failed: string[] = [];
-        for (const h of handles) {
-            try { products.push(await fetchSkimsProduct(h)); }
-            catch (e: any) { failed.push(h); console.warn(`skims ${h}: ${e.message}`); }
-            await sleep(150);
-        }
-        res.json({ collection, count: products.length, failed, products });
-    } catch (error: any) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
- * POST /syncSkimsCatalog  { storeId?, collection?, limit? }
- * Upserts products/skims_<externalId>_<storeId> and the Skims store doc.
- */
-export const syncSkimsCatalog = onRequest({ cors: true, timeoutSeconds: 540, memory: '512MiB' }, async (req, res) => {
+export const syncStoreCatalog = onRequest({ cors: true, timeoutSeconds: 540, memory: '512MiB' }, async (req, res) => {
     if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
+    if (!(await requireAdmin(req, res))) return;
     try {
-        const { storeId: wanted, collection = 'best-sellers', limit = 40, replaceLegacy = false } = req.body || {};
-        const storeId = await ensureSkimsStore(wanted);
-        const handles = (await fetchSkimsCollectionHandles(String(collection))).slice(0, Math.min(Number(limit), 200));
-        const writes: Parameters<typeof commitChunked>[0] = [];
-        const failed: string[] = [];
-        for (const h of handles) {
-            try {
-                const p = await fetchSkimsProduct(h);
-                writes.push({
-                    ref: db.doc(`products/skims_${p.externalId}_${storeId}`),
-                    data: { ...skimsPatch(p), brand: 'Skims', storeId, deliveryTime: '45 Mins', isActive: true, createdAt: now() },
-                    merge: true,
-                });
-            } catch (e: any) { failed.push(h); }
-            await sleep(150);
-        }
-        // Don't clobber createdAt on existing docs.
-        const existing = new Set((await db.collection('products').where('storeId', '==', storeId).get()).docs.map(d => d.id));
-        for (const w of writes) if (existing.has(w.ref.id)) delete w.data.createdAt;
+        const { storeId, limit = 250, replaceLegacy = true } = req.body || {};
+        if (!storeId) { res.status(400).json({ error: 'Missing storeId' }); return; }
+        const store = await loadStore(storeId);
+        const { products, failed } = await fetchCatalog(store, Math.min(Number(limit), 1000));
+        const source = store.inventorySource;
+
+        const existing = await db.collection('products').where('storeId', '==', storeId).get();
+        const existingIds = new Set(existing.docs.map(d => d.id));
+        const writes: Parameters<typeof commitChunked>[0] = products.map(p => {
+            const id = `${source}_${p.externalId}_${storeId}`;
+            const data: any = { ...patchFor(p, source), brand: store.brand, storeId, deliveryTime: '45 Mins', isActive: true };
+            if (!existingIds.has(id)) data.createdAt = now();
+            return { ref: db.doc(`products/${id}`), data, merge: true };
+        });
         await commitChunked(writes);
-        // Older Skims docs (CSV/static seeds) are keyed by handle or row; live docs by
-        // numeric id. With replaceLegacy, an older doc for a product that was just synced
-        // is removed so the app never shows the same product twice. Older docs for
-        // products NOT in this sync are left alone — they're the operator's curation.
+
         let removed = 0;
         if (replaceLegacy) {
-            const synced = new Set(writes.map(w => w.data.handle as string));
+            const synced = new Set(products.map(p => p.handle));
             const handleOf = (d: FirebaseFirestore.QueryDocumentSnapshot) =>
                 d.get('handle') || (d.get('productUrl') || '').split('/products/')[1] || '';
-            const legacy = (await db.collection('products').where('storeId', '==', storeId).where('brand', '==', 'Skims').get())
-                .docs.filter(d => !/^skims_\d+_/.test(d.id) && synced.has(handleOf(d)));
+            const legacy = existing.docs.filter(d => !d.id.startsWith(`${source}_`) && synced.has(handleOf(d)));
             for (let i = 0; i < legacy.length; i += BATCH) {
                 const batch = db.batch();
                 for (const d of legacy.slice(i, i + BATCH)) batch.delete(d.ref);
@@ -184,65 +195,80 @@ export const syncSkimsCatalog = onRequest({ cors: true, timeoutSeconds: 540, mem
             }
             removed = legacy.length;
         }
-        await setSourceHealth('skims', failed.length < handles.length / 2, `synced ${writes.length}/${handles.length}`);
-        res.json({ storeId, synced: writes.length, failed, removed });
+        await setSourceHealth(storeId, failed.length < Math.max(1, products.length) / 2, `synced ${products.length}`);
+        res.json({ storeId, source, synced: products.length, failed, removed });
     } catch (error: any) {
-        await alert(`syncSkimsCatalog failed: ${error.message}`);
+        await alert(`syncStoreCatalog failed: ${error.message}`);
         res.status(500).json({ error: error.message });
     }
 });
 
-// Refresh availability on every Skims product. Five consecutive failures trips
-// the breaker: remaining products are marked `unknown`, an alert fires, and the
-// source is flagged unhealthy in config/inventory. Nothing is ever marked out
-// of stock because a request failed.
-// ponytail: sequential, ~1.1s/product → ~450 products fit the 540s timeout; run 4-wide if the catalog grows past that.
-async function refreshSkimsAvailability(): Promise<{ updated: number; unknown: number; tripped: boolean }> {
-    const snap = await db.collection('products').where('brand', '==', 'Skims').get();
-    const writes: Parameters<typeof commitChunked>[0] = [];
-    let failures = 0, updated = 0, unknown = 0, tripped = false;
+// Refresh availability for every product of every store with a live source.
+// Shopify: one bulk catalog read per store. Skims: one call per product.
+// Five consecutive failures on a store trips its breaker: the rest of that
+// store is marked `unknown`, an alert fires, and config/inventory flags it.
+// ponytail: stores run one after another, ~1s/product for Skims → keep total
+// under ~450 Skims products or run stores in parallel.
+async function refreshAllStock(): Promise<Record<string, { updated: number; unknown: number; tripped: boolean }>> {
+    const report: Record<string, { updated: number; unknown: number; tripped: boolean }> = {};
+    for (const store of await liveStores()) {
+        const snap = await db.collection('products').where('storeId', '==', store.id).get();
+        const writes: Parameters<typeof commitChunked>[0] = [];
+        let updated = 0, unknown = 0, tripped = false;
 
-    for (const doc of snap.docs) {
-        const handle: string | undefined = doc.get('handle') || (doc.get('productUrl') || '').split('/products/')[1];
-        const sizes: string[] = doc.get('sizes') || [];
-        if (tripped || !handle) {
-            writes.push({ ref: doc.ref, data: unknownPatch(sizes), merge: true }); unknown++;
-            continue;
-        }
-        try {
-            const p = await fetchSkimsProduct(handle);
-            writes.push({ ref: doc.ref, data: skimsPatch(p), merge: true });
-            updated++; failures = 0;
-        } catch (e: any) {
-            failures++; unknown++;
-            writes.push({ ref: doc.ref, data: unknownPatch(sizes), merge: true });
-            if (failures >= 5) {
-                tripped = true;
-                await alert(`Skims availability breaker tripped after 5 consecutive failures (last: ${e.message}). Remaining products marked unknown.`);
+        if (store.inventorySource === 'shopify') {
+            try {
+                const byHandle = new Map((await fetchShopifyCatalog(store.sourceDomain!, store.brand, 1000)).map(p => [p.handle, p]));
+                for (const doc of snap.docs) {
+                    const p = byHandle.get(doc.get('handle'));
+                    if (p) { writes.push({ ref: doc.ref, data: patchFor(p, 'shopify'), merge: true }); updated++; }
+                    else { writes.push({ ref: doc.ref, data: unknownPatch(doc.get('sizes') || []), merge: true }); unknown++; }
+                }
+            } catch (e: any) {
+                tripped = true; unknown = snap.size;
+                for (const doc of snap.docs) writes.push({ ref: doc.ref, data: unknownPatch(doc.get('sizes') || []), merge: true });
+                await alert(`${store.name} (${store.sourceDomain}) catalog unreachable: ${e.message}. Products marked unknown.`);
+            }
+        } else {
+            let failures = 0;
+            for (const doc of snap.docs) {
+                const handle: string | undefined = doc.get('handle') || (doc.get('productUrl') || '').split('/products/')[1];
+                const sizes: string[] = doc.get('sizes') || [];
+                if (tripped || !handle) { writes.push({ ref: doc.ref, data: unknownPatch(sizes), merge: true }); unknown++; continue; }
+                try {
+                    writes.push({ ref: doc.ref, data: patchFor(await fetchOne(store, handle), store.inventorySource), merge: true });
+                    updated++; failures = 0;
+                } catch (e: any) {
+                    failures++; unknown++;
+                    writes.push({ ref: doc.ref, data: unknownPatch(sizes), merge: true });
+                    if (failures >= 5) { tripped = true; await alert(`${store.name} breaker tripped after 5 consecutive failures (last: ${e.message}).`); }
+                }
+                await sleep(150);
             }
         }
-        await sleep(150);
+        await commitChunked(writes);
+        await setSourceHealth(store.id, !tripped, `refreshed ${updated}, unknown ${unknown}`);
+        report[store.id] = { updated, unknown, tripped };
+        console.log(`✅ ${store.name}: updated ${updated}, unknown ${unknown}, tripped ${tripped}`);
     }
-    await commitChunked(writes);
-    await setSourceHealth('skims', !tripped, `refreshed ${updated}, unknown ${unknown}`);
-    console.log(`✅ skims refresh — updated ${updated}, unknown ${unknown}, tripped ${tripped}`);
-    return { updated, unknown, tripped };
+    return report;
 }
 
-export const refreshSkimsStock = onRequest({ cors: true, timeoutSeconds: 540, memory: '512MiB' }, async (_req, res) => {
-    try { res.json({ success: true, ...(await refreshSkimsAvailability()) }); }
+export const refreshStock = onRequest({ cors: true, timeoutSeconds: 540, memory: '512MiB' }, async (req, res) => {
+    if (!(await requireAdmin(req, res))) return;
+    try { res.json({ success: true, stores: await refreshAllStock() }); }
     catch (error: any) { res.status(500).json({ error: error.message }); }
 });
 
-export const scheduledSkimsStock = onSchedule({ schedule: 'every 30 minutes', timeoutSeconds: 540, memory: '512MiB' }, async () => {
-    try { await refreshSkimsAvailability(); }
-    catch (error: any) { await alert(`scheduledSkimsStock crashed: ${error.message}`); }
+export const scheduledStock = onSchedule({ schedule: 'every 30 minutes', timeoutSeconds: 540, memory: '512MiB' }, async () => {
+    try { await refreshAllStock(); }
+    catch (error: any) { await alert(`scheduledStock crashed: ${error.message}`); }
 });
 
 /**
  * POST /checkAvailability { productId }
- * What the app calls on the product page. Returns per-size state plus the
- * store the Snatcher will walk into. Refreshes live if the record is stale.
+ * What the app calls on the product page. Per-size state plus the store the
+ * Snatcher walks into. Refreshes live from the store's source if stale.
  */
 export const checkAvailability = onRequest({ cors: true, timeoutSeconds: 30 }, async (req, res) => {
     if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
@@ -253,13 +279,17 @@ export const checkAvailability = onRequest({ cors: true, timeoutSeconds: 30 }, a
         const snap = await ref.get();
         if (!snap.exists) { res.status(404).json({ error: 'Product not found' }); return; }
         let d = snap.data()!;
+        const storeSnap = d.storeId ? await db.doc(`stores/${d.storeId}`).get() : null;
+        const storeData = storeSnap?.data();
+        const source = (storeData?.inventorySource || 'manual') as SourceKind;
 
         const checkedAt: FirebaseFirestore.Timestamp | undefined = d.availabilityCheckedAt;
         const stale = !checkedAt || Date.now() - checkedAt.toMillis() > FRESH_MS;
         const handle = d.handle || (d.productUrl || '').split('/products/')[1];
-        if (d.brand === 'Skims' && handle && stale) {
+        if (source !== 'manual' && handle && stale && storeSnap) {
             try {
-                const patch = skimsPatch(await fetchSkimsProduct(handle));
+                const store = await loadStore(storeSnap.id);
+                const patch = patchFor(await fetchOne(store, handle), source);
                 await ref.set(patch, { merge: true });
                 d = { ...d, ...patch, availabilityCheckedAt: admin.firestore.Timestamp.now() };
             } catch (e: any) { console.warn(`live refresh failed for ${productId}: ${e.message}`); }
@@ -272,14 +302,27 @@ export const checkAvailability = onRequest({ cors: true, timeoutSeconds: 30 }, a
         const state: SizeState = states.some(s => s === 'in_stock') ? 'in_stock'
             : states.length && states.every(s => s === 'out_of_stock') ? 'out_of_stock' : 'unknown';
 
-        const store = d.storeId ? (await db.doc(`stores/${d.storeId}`).get()).data() : undefined;
         res.json({
             productId, state, sizes: availability,
-            source: (d.availabilitySource || 'none') as Source,
+            source: d.availabilitySource || 'none',
             checkedAt: d.availabilityCheckedAt?.toDate?.().toISOString() ?? null,
-            store: store ? { id: d.storeId, name: store.name, address: store.address ?? null } : null,
+            store: storeData ? { id: d.storeId, name: storeData.name, address: storeData.address ?? null } : null,
         });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
+});
+
+/** POST /syncStoreLocations — refresh the Skims store's address/phone from their locator. */
+export const syncSkimsStoreLocation = onRequest({ cors: true, timeoutSeconds: 60 }, async (req, res) => {
+    if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
+    if (!(await requireAdmin(req, res))) return;
+    try {
+        const { storeId } = req.body || {};
+        if (!storeId) { res.status(400).json({ error: 'Missing storeId' }); return; }
+        const flagship = (await fetchSkimsStores()).find(s => s.isOwnStore && /New York, NY/i.test(s.address));
+        if (!flagship) { res.status(404).json({ error: 'no SKIMS-own NYC store on Stockist' }); return; }
+        await db.doc(`stores/${storeId}`).set({ address: flagship.address, latitude: flagship.latitude, longitude: flagship.longitude, phone: flagship.phone, externalId: flagship.externalId }, { merge: true });
+        res.json({ ok: true, ...flagship });
+    } catch (error: any) { res.status(500).json({ error: error.message }); }
 });

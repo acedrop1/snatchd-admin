@@ -18,6 +18,8 @@ class DatabaseService: ObservableObject {
     @Published var testMode: Bool = false
     @Published var standardDeliveryFee: Double = 6.00
     @Published var priorityDeliveryFee: Double = 6.99
+    @Published var taxRate: Double = 0.08875          // NYC combined, overridable from the portal
+    @Published var platformFeePercent: Double = 0      // % of basket, set in the portal
 
     // Listener handles — kept so we can detach if needed
     private var storesListener: ListenerRegistration?
@@ -70,11 +72,14 @@ class DatabaseService: ObservableObject {
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self = self, error == nil else { return }
                 let data = snapshot?.data() ?? [:]
-                let standard = data["standardFee"] as? Double ?? 6.00
-                let priority = data["priorityFee"] as? Double ?? 6.99
+                func num(_ k: String, _ d: Double) -> Double { (data[k] as? Double) ?? (data[k] as? Int).map(Double.init) ?? d }
+                let standard = num("standardFee", 6.00), priority = num("priorityFee", 6.99)
+                let tax = num("taxRate", 0.08875), platform = num("platformFeePercent", 0)
                 DispatchQueue.main.async {
                     self.standardDeliveryFee = standard
                     self.priorityDeliveryFee = priority
+                    self.taxRate = tax
+                    self.platformFeePercent = platform
                 }
             }
     }

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { SourceProduct, SourceVariant, SizeState, sleep } from './types';
 
 // ── Skims inventory source ─────────────────────────────────────────────────
 // skims.com is a Shopify Hydrogen (React Router) storefront on Oxygen. Its
@@ -17,36 +18,8 @@ const BASE = 'https://skims.com';
 const UA = 'SnatchdInventory/1.0 (+https://snatchd.app)';
 const STOCKIST_TAG = 'u22232'; // from data-stockist-widget-tag on skims.com/pages/store-locator
 
-export type SizeState = 'in_stock' | 'out_of_stock' | 'unknown';
-
-export interface SkimsVariant {
-    id: string;              // gid://shopify/ProductVariant/…
-    sku: string;
-    size: string;
-    availableForSale: boolean;
-    price: number;
-    compareAtPrice: number | null;
-}
-
-export interface SkimsProduct {
-    externalId: string;      // numeric Shopify product id
-    handle: string;
-    title: string;
-    brand: 'Skims';
-    price: number;
-    compareAtPrice: number | null;
-    description: string;
-    productType: string;
-    tags: string[];
-    category: string;
-    gender: string;
-    images: string[];
-    sizes: string[];
-    styles: string[];
-    variants: SkimsVariant[];
-    availability: Record<string, SizeState>;
-    productUrl: string;
-}
+export type SkimsVariant = SourceVariant;
+export type SkimsProduct = SourceProduct;
 
 export interface SkimsStore {
     externalId: string;
@@ -161,7 +134,7 @@ export async function fetchSkimsProduct(handle: string): Promise<SkimsProduct> {
         externalId: gidNum(p.id),
         handle: p.handle || handle,
         title: mp.title?.full || mp.title?.display || p.title || handle,
-        brand: 'Skims',
+        brand: 'Skims' as const,
         price: variants[0]?.price ?? num(mp.priceRange?.minVariantPrice),
         compareAtPrice: variants[0]?.compareAtPrice ?? null,
         description: p.description || '',
@@ -209,4 +182,4 @@ export async function fetchSkimsStores(): Promise<SkimsStore[]> {
     }));
 }
 
-export const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+export { sleep };

@@ -22,7 +22,6 @@ export default function EditProductPage() {
     const [description, setDescription] = useState("");
     const [price, setPrice] = useState("");
     const [sku, setSku] = useState("");
-    const [zaraProductId, setZaraProductId] = useState(""); // NEW
     const [category, setCategory] = useState("Coats");
 
     // Images
@@ -43,7 +42,6 @@ export default function EditProductPage() {
                     setDescription(data.description || "");
                     setPrice(data.price?.toString() || "");
                     setSku(data.sku || "");
-                    setZaraProductId(data.zaraProductId || ""); // NEW
                     setCategory(data.category || "Coats");
                     setExistingImages(data.images || []);
                 } else {
@@ -102,7 +100,6 @@ export default function EditProductPage() {
                 description,
                 price: parseFloat(price),
                 sku,
-                zaraProductId, // NEW
                 category,
                 images: finalImageUrls,
             });
@@ -196,19 +193,6 @@ export default function EditProductPage() {
                                 className="w-full rounded-lg bg-black border border-green-500/50 px-4 py-2 text-white focus:border-green-500 focus:outline-none transition font-mono"
                             />
                         </div>
-                    </div>
-
-                    {/* NEW ZARA ID FIELD */}
-                    <div className="grid gap-2">
-                        <label className="text-sm font-medium text-blue-400">Zara Product ID (Real-Time Stock)</label>
-                        <input
-                            type="text"
-                            value={zaraProductId}
-                            onChange={e => setZaraProductId(e.target.value)}
-                            placeholder="e.g. 504347744"
-                            className="w-full rounded-lg bg-black border border-blue-500/50 px-4 py-2 text-white focus:border-blue-500 focus:outline-none transition font-mono"
-                        />
-                        <p className="text-[10px] text-neutral-500">Required for real-time inventory checks against Zara's API.</p>
                     </div>
 
                     <div className="grid gap-2">

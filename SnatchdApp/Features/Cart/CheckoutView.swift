@@ -34,19 +34,21 @@ struct CheckoutView: View {
     @StateObject private var paymentManager = PaymentManager()
     @State private var selectedPayment: PaymentMethod?
     
-    // Constants
-    let taxRate: Double = 0.08875
-
+    // All rates come from config/fees (portal → Settings)
     var deliveryFee: Double {
         selectedDeliveryOption == "Priority" ? db.priorityDeliveryFee : db.standardDeliveryFee
     }
 
+    var platformFee: Double {
+        (cartManager.total * db.platformFeePercent / 100 * 100).rounded() / 100
+    }
+
     var taxAmount: Double {
-        cartManager.total * taxRate
+        cartManager.total * db.taxRate
     }
 
     var totalAmount: Double {
-        cartManager.total + deliveryFee + taxAmount
+        cartManager.total + deliveryFee + platformFee + taxAmount
     }
     
     var body: some View {
@@ -481,7 +483,10 @@ struct CheckoutView: View {
             VStack(spacing: 10) {
                 SummaryRow(title: "Subtotal", value: String(format: "$%.2f", cartManager.total))
                 SummaryRow(title: "Delivery Fee", value: String(format: "$%.2f", deliveryFee), info: true)
-                SummaryRow(title: "Taxes & Other Fees", value: String(format: "$%.2f", taxAmount), info: true)
+                if platformFee > 0 {
+                    SummaryRow(title: "Service Fee", value: String(format: "$%.2f", platformFee), info: true)
+                }
+                SummaryRow(title: "Tax", value: String(format: "$%.2f", taxAmount), info: true)
                 Divider().background(Color.gray)
                 HStack {
                     Text("Total")

@@ -193,33 +193,3 @@ struct Order: Identifiable {
         status != "delivered" && status != "cancelled"
     }
 }
-
-class MockDataService {
-    static let shared = MockDataService()
-    
-    let trendingProducts: [Product] = [
-        Product(title: "Eleos Hand Balm", brand: "Aesop", price: 120.0, imageName: "product1", imageURL: nil, deliveryTime: "45 Mins", category: "Beauty & Skincare"),
-        Product(title: "Air Force 1 '07", brand: "Nike", price: 110.0, imageName: "product2", imageURL: nil, deliveryTime: "45 Mins", category: "Clothing"),
-        Product(title: "Keepall Bandouliere", brand: "Louis Vuitton", price: 2450.0, imageName: "product3", imageURL: nil, deliveryTime: "35 Mins", category: "Clothing"),
-        Product(title: "Silk Pajamas", brand: "Skims", price: 250.0, imageName: "product4", imageURL: nil, deliveryTime: "40 Mins", category: "Clothing"),
-        Product(title: "Regular Fit T-Shirt", brand: "Cos", price: 45.0, imageName: "product5", imageURL: nil, deliveryTime: "40 Mins", category: "Clothing"),
-        Product(title: "Logo Hoodie", brand: "Aime Leon Dore", price: 185.0, imageName: "product6", imageURL: nil, deliveryTime: "50 Mins", category: "Clothing"),
-        Product(title: "Box Logo Tee", brand: "Kith", price: 65.0, imageName: "product7", imageURL: nil, deliveryTime: "40 Mins", category: "Clothing"),
-        Product(title: "Wander Matelassé", brand: "Miu Miu", price: 2850.0, imageName: "product8", imageURL: nil, deliveryTime: "35 Mins", category: "Clothing")
-    ]
-    
-    let stores: [Store] = [
-        Store(firestoreId: "", name: "Louis Vuitton", category: "Luxury Fashion", imageName: "lvstore", imageURL: nil, address: nil, latitude: nil, longitude: nil, deliveryRadius: nil, deliveryTime: "35 Mins", isSystemImage: false),
-        Store(firestoreId: "", name: "Nike", category: "Sportswear", imageName: "nike", imageURL: nil, address: nil, latitude: nil, longitude: nil, deliveryRadius: nil, deliveryTime: "45 Mins", isSystemImage: false),
-        Store(firestoreId: "", name: "Aime Leon Dore", category: "Streetwear", imageName: "ald", imageURL: nil, address: nil, latitude: nil, longitude: nil, deliveryRadius: nil, deliveryTime: "50 Mins", isSystemImage: false),
-        Store(firestoreId: "", name: "Kith", category: "Streetwear", imageName: "kith", imageURL: nil, address: nil, latitude: nil, longitude: nil, deliveryRadius: nil, deliveryTime: "40 Mins", isSystemImage: false),
-        Store(firestoreId: "", name: "Miu Miu", category: "Luxury Fashion", imageName: "miumiu", imageURL: nil, address: nil, latitude: nil, longitude: nil, deliveryRadius: nil, deliveryTime: "35 Mins", isSystemImage: false),
-        Store(firestoreId: "", name: "Jacquemus", category: "Luxury Fashion", imageName: "jacquemus", imageURL: nil, address: nil, latitude: nil, longitude: nil, deliveryRadius: nil, deliveryTime: "45 Mins", isSystemImage: false),
-        Store(firestoreId: "", name: "Bergdorf Goodman", category: "Luxury Department Store", imageName: "bergdorf", imageURL: nil, address: nil, latitude: nil, longitude: nil, deliveryRadius: nil, deliveryTime: "60 Mins", isSystemImage: false),
-        Store(firestoreId: "", name: "Alo", category: "Activewear", imageName: "alo", imageURL: nil, address: nil, latitude: nil, longitude: nil, deliveryRadius: nil, deliveryTime: "30 Mins", isSystemImage: false),
-        Store(firestoreId: "", name: "Cos", category: "Modern Essentials", imageName: "cos", imageURL: nil, address: nil, latitude: nil, longitude: nil, deliveryRadius: nil, deliveryTime: "40 Mins", isSystemImage: false),
-        Store(firestoreId: "", name: "Aesop", category: "Luxury Boutique", imageName: "leaf.fill", imageURL: nil, address: nil, latitude: nil, longitude: nil, deliveryRadius: nil, deliveryTime: "60 Mins"),
-        Store(firestoreId: "", name: "Chanel", category: "Beauty & Fragrance", imageName: "star.fill", imageURL: nil, address: nil, latitude: nil, longitude: nil, deliveryRadius: nil, deliveryTime: "55 Mins"),
-        Store(firestoreId: "", name: "Skims", category: "Modern Basics", imageName: "heart.fill", imageURL: nil, address: nil, latitude: nil, longitude: nil, deliveryRadius: nil, deliveryTime: "40 Mins")
-    ]
-}

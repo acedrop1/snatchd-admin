@@ -3,6 +3,7 @@
 import { BarChart3, TrendingUp, DollarSign, Package, ShoppingBag, Users } from "lucide-react";
 import { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
+import { adminPost } from "@/lib/adminApi";
 import {
     collection,
     query,
@@ -102,11 +103,7 @@ export default function DashboardPage() {
         setIsChecking(true);
         setCheckResult(null);
         try {
-            const response = await fetch('https://us-central1-snatchd-app26.cloudfunctions.net/refreshSkimsStock', {
-                method: 'POST',
-            });
-            const data = await response.json();
-            setCheckResult(data);
+            setCheckResult(await adminPost("refreshStock"));
         } catch (error: any) {
             setCheckResult({ error: error.message });
         } finally {
@@ -127,7 +124,7 @@ export default function DashboardPage() {
                     disabled={isChecking}
                     className="px-4 py-2 bg-white rounded-md text-sm font-medium text-black hover:bg-neutral-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                    {isChecking ? 'Refreshing Skims…' : 'Refresh Skims Stock'}
+                    {isChecking ? 'Refreshing…' : 'Refresh live stock'}
                 </button>
             </div>
 
@@ -163,22 +160,22 @@ export default function DashboardPage() {
                 />
             </div>
 
-            {/* Availability refresh result — Skims */}
+            {/* Availability refresh result */}
             {checkResult && (
                 <div className="rounded-xl border border-white/10 bg-neutral-900/50 p-6">
-                    <h3 className="font-semibold text-white mb-4">Skims — Availability Refresh</h3>
+                    <h3 className="font-semibold text-white mb-4">Live stock refresh</h3>
                     {checkResult.error ? (
                         <p className="text-red-400">Error: {checkResult.error}</p>
+                    ) : Object.keys(checkResult.stores || {}).length === 0 ? (
+                        <p className="text-neutral-400 text-sm">No store has a live source yet. Set one on a store's Inventory tab.</p>
                     ) : (
-                        <div className="space-y-1 text-sm">
-                            <p className="text-green-400">✅ Refreshed {checkResult.updated} products from skims.com</p>
-                            {checkResult.unknown > 0 && (
-                                <p className="text-neutral-400">{checkResult.unknown} marked <span className="text-white">unknown</span> — a Snatcher confirms those in store; nothing was marked out of stock by a failed request.</p>
-                            )}
-                            {checkResult.tripped && (
-                                <p className="text-amber-400">⚠️ Circuit breaker tripped: skims.com stopped responding mid-run. Check config/inventory and the alert webhook.</p>
-                            )}
-                        </div>
+                        <ul className="space-y-1 text-sm">
+                            {Object.entries(checkResult.stores as Record<string, any>).map(([id, r]) => (
+                                <li key={id} className={r.tripped ? "text-amber-400" : "text-neutral-300"}>
+                                    <span className="font-mono text-neutral-500">{id.slice(0, 8)}</span> — {r.updated} updated, {r.unknown} unknown{r.tripped ? " — source unreachable, breaker tripped" : ""}
+                                </li>
+                            ))}
+                        </ul>
                     )}
                 </div>
             )}
