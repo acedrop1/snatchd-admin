@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
 import { collection, onSnapshot, doc, updateDoc, query, orderBy } from "firebase/firestore";
-import { ShoppingBag, Loader2, ChevronDown, ChevronUp, Clock, CheckCircle, Truck, Package, MapPin, User, Phone } from "lucide-react";
+import { ShoppingBag, Loader2, ChevronDown, ChevronUp, Clock, CheckCircle, Truck, Package, MapPin, User, Phone, CreditCard, XCircle } from "lucide-react";
+import { adminPost } from "@/lib/adminApi";
 
 const STATUS_META: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
     placed:     { label: "Order Placed",  color: "bg-yellow-500/15 text-yellow-300 border-yellow-500/20",  icon: <Package className="h-3 w-3" /> },
@@ -14,6 +15,18 @@ const STATUS_META: Record<string, { label: string; color: string; icon: React.Re
 };
 
 const STATUS_FLOW = ["placed", "confirmed", "in_transit", "delivered"];
+
+// What happened to the customer's money. The card is only HELD at checkout;
+// it is charged by Capture (item in hand) or released by Release (rack empty).
+const PAYMENT_META: Record<string, { label: string; color: string }> = {
+    pending:    { label: "Awaiting card",  color: "text-neutral-400 border-neutral-700" },
+    authorized: { label: "Card held",      color: "text-yellow-300 border-yellow-500/30" },
+    paid:       { label: "Charged",        color: "text-green-400 border-green-500/30" },
+    released:   { label: "Not charged",    color: "text-neutral-400 border-neutral-700" },
+    refunded:   { label: "Refunded",       color: "text-blue-300 border-blue-500/30" },
+    failed:     { label: "Card declined",  color: "text-red-400 border-red-500/30" },
+    abandoned:  { label: "Abandoned",      color: "text-neutral-600 border-neutral-800" },
+};
 
 // The 6-step tracking flow the customer sees in the app
 const TRACKING_STEPS: { value: string; label: string; emoji: string }[] = [
@@ -44,7 +57,8 @@ export default function OrdersPage() {
     useEffect(() => {
         const q = query(collection(db, "orders"), orderBy("createdAt", "desc"));
         const unsub = onSnapshot(q, (snap) => {
-            const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+            const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+                .filter((o: any) => o.paymentStatus !== "abandoned" && o.paymentStatus !== "pending");
             setOrders(docs);
             setLoading(false);
             setError(null);
@@ -67,6 +81,23 @@ export default function OrdersPage() {
         }
     }
 
+    // Money moves only through the functions, never by a direct write.
+    async function captureOrder(orderId: string) {
+        setUpdatingId(orderId);
+        try { await adminPost("captureOrder", { orderId }); }
+        catch (e: any) { alert("Capture failed: " + e.message); }
+        finally { setUpdatingId(null); }
+    }
+
+    async function releaseOrder(orderId: string, paid: boolean) {
+        const reason = prompt(paid ? "Refund this order. Reason?" : "Release the card hold — customer is not charged. Reason?", "Not in stock");
+        if (reason === null) return;
+        setUpdatingId(orderId);
+        try { await adminPost("cancelOrder", { orderId, reason }); }
+        catch (e: any) { alert("Release failed: " + e.message); }
+        finally { setUpdatingId(null); }
+    }
+
     async function updateTracking(orderId: string, fields: Record<string, string>) {
         setUpdatingId(orderId);
         try {
@@ -84,7 +115,7 @@ export default function OrdersPage() {
 
     // KPIs
     const totalRevenue = orders
-        .filter(o => o.status !== "cancelled")
+        .filter(o => o.paymentStatus === "paid")
         .reduce((sum, o) => sum + (o.total ?? 0), 0);
     const activeCount = orders.filter(o => o.status !== "delivered" && o.status !== "cancelled").length;
     const deliveredCount = orders.filter(o => o.status === "delivered").length;
@@ -162,6 +193,8 @@ export default function OrdersPage() {
                             onToggle={() => setExpandedId(expandedId === order.id ? null : order.id)}
                             onStatusChange={(s) => updateStatus(order.id, s)}
                             onTrackingUpdate={(fields) => updateTracking(order.id, fields)}
+                            onCapture={() => captureOrder(order.id)}
+                            onRelease={() => releaseOrder(order.id, order.paymentStatus === "paid")}
                         />
                     ))}
                 </div>
@@ -191,6 +224,8 @@ function OrderRow({
     onToggle,
     onStatusChange,
     onTrackingUpdate,
+    onCapture,
+    onRelease,
 }: {
     order: any;
     isExpanded: boolean;
@@ -198,6 +233,8 @@ function OrderRow({
     onToggle: () => void;
     onStatusChange: (s: string) => void;
     onTrackingUpdate: (fields: Record<string, string>) => void;
+    onCapture: () => void;
+    onRelease: () => void;
 }) {
     const meta = STATUS_META[order.status] ?? STATUS_META["placed"];
     const createdAt = order.createdAt?.toDate?.() ?? new Date();
@@ -266,7 +303,10 @@ function OrderRow({
                     <p className="text-neutral-500 text-xs">{order.orderNumber} · {dateStr} at {timeStr}</p>
                 </div>
 
-                {/* Total */}
+                {/* Payment state + total */}
+                <span className={`hidden sm:inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium border shrink-0 ${(PAYMENT_META[order.paymentStatus] ?? PAYMENT_META.paid).color}`}>
+                    {(PAYMENT_META[order.paymentStatus] ?? PAYMENT_META.paid).label}
+                </span>
                 <span className="text-white font-bold text-sm shrink-0">
                     ${(order.total ?? 0).toFixed(2)}
                 </span>
@@ -318,12 +358,38 @@ function OrderRow({
                     <div className="rounded-lg bg-neutral-800/50 p-4 space-y-2 text-sm">
                         <PriceRow label="Subtotal"     value={order.subtotal} />
                         <PriceRow label="Delivery Fee" value={order.deliveryFee} />
+                        {order.platformFee > 0 && <PriceRow label="Service Fee" value={order.platformFee} />}
                         <PriceRow label="Tax"          value={order.tax} />
                         <div className="border-t border-neutral-700 pt-2 flex justify-between font-semibold text-white">
                             <span>Total</span>
                             <span>${(order.total ?? 0).toFixed(2)}</span>
                         </div>
                     </div>
+
+                    {/* ── Snatcher decision ───────────────────────────── */}
+                    {order.paymentStatus === "authorized" && order.status === "placed" && (
+                        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-4">
+                            <p className="text-sm text-yellow-200 font-medium mb-1">Card held — not yet charged</p>
+                            <p className="text-xs text-neutral-400 mb-3">Charge only once the Snatcher has every item in hand. If the rack is empty, release it and the customer pays nothing.</p>
+                            <div className="flex flex-wrap gap-2">
+                                <button onClick={onCapture} disabled={isUpdating}
+                                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-500 transition disabled:opacity-50">
+                                    {isUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+                                    Item in hand · charge ${(order.total ?? 0).toFixed(2)}
+                                </button>
+                                <button onClick={onRelease} disabled={isUpdating}
+                                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-neutral-800 border border-neutral-700 text-neutral-200 text-sm font-medium hover:border-red-500/50 hover:text-red-300 transition disabled:opacity-50">
+                                    <XCircle className="h-4 w-4" /> Not available · release
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                    {order.paymentStatus === "paid" && order.status !== "delivered" && order.status !== "cancelled" && (
+                        <button onClick={onRelease} disabled={isUpdating} className="text-xs text-neutral-500 hover:text-red-300 transition">
+                            Cancel and refund ${(order.total ?? 0).toFixed(2)}
+                        </button>
+                    )}
+                    {order.cancelReason && <p className="text-xs text-neutral-500">Cancelled: {order.cancelReason}</p>}
 
                     {/* ── Driver Info ─────────────────────────────────── */}
                     <div>
@@ -365,6 +431,7 @@ function OrderRow({
                         </div>
                     </div>
 
+                    {order.paymentStatus === "paid" && order.status !== "cancelled" && (<>
                     {/* ── Tracking Status (6-step) ─────────────────────── */}
                     <div>
                         <p className="text-xs text-neutral-500 uppercase tracking-wider mb-3">
@@ -407,7 +474,7 @@ function OrderRow({
                     <div>
                         <p className="text-xs text-neutral-500 uppercase tracking-wider mb-3">Order Status</p>
                         <div className="flex flex-wrap gap-2">
-                            {STATUS_FLOW.map((s, idx) => {
+                            {STATUS_FLOW.filter(s => s !== "placed").map((s, idx) => {
                                 const m = STATUS_META[s];
                                 const isCurrent = s === order.status;
                                 const isPast = idx < currentIdx;
@@ -434,6 +501,7 @@ function OrderRow({
                             })}
                         </div>
                     </div>
+                    </>)}
                 </div>
             )}
         </div>

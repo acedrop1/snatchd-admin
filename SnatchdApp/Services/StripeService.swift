@@ -1,16 +1,9 @@
 import SwiftUI
 import Combine
+import FirebaseAuth
 import StripePaymentSheet
 
 // MARK: - StripeService
-// To activate Stripe payments:
-// 1. In Xcode → File → Add Package Dependencies
-//    URL: https://github.com/stripe/stripe-ios
-//    Add product: StripePaymentSheet
-// 2. Replace AppConfig.stripePublishableKey with your pk_test_... key
-// 3. Deploy Cloud Functions: cd functions && firebase deploy --only functions
-//    Then set your secret key: firebase secrets:set STRIPE_SECRET_KEY
-// 4. Replace AppConfig.createPaymentIntentURL with the deployed function URL
 
 @MainActor
 class StripeService: ObservableObject {
@@ -25,83 +18,77 @@ class StripeService: ObservableObject {
         StripeAPI.defaultPublishableKey = AppConfig.stripePublishableKey
     }
 
-    /// Call this before presenting PaymentSheet.
-    /// Creates a PaymentIntent on your Cloud Function, then configures PaymentSheet.
-    func preparePaymentSheet(amount: Double, orderId: String) async throws -> PaymentSheet {
-        isLoading = true
-        errorMessage = nil
+    struct PlacedOrder { let orderId: String; let orderNumber: String; let total: Double; let sheet: PaymentSheet }
+    struct OrderLine: Encodable { let productId: String; let size: String; let quantity: Int }
+
+    /// Creates the order on the server (which prices it) and returns a PaymentSheet for
+    /// exactly that amount. The card is only authorised here; it is charged when the
+    /// Snatcher confirms the item in hand.
+    func placeOrder(lines: [OrderLine], deliveryAddress: String, deliveryOption: String) async throws -> PlacedOrder {
+        isLoading = true; errorMessage = nil
         defer { isLoading = false }
-
-        // 1. Call Cloud Function to create a PaymentIntent
-        let clientSecret = try await createPaymentIntent(amount: amount, orderId: orderId)
-
-        // 2. Configure PaymentSheet
+        let json = try await call("createOrder", body: [
+            "items": lines.map { ["productId": $0.productId, "size": $0.size, "quantity": $0.quantity] },
+            "deliveryAddress": deliveryAddress, "deliveryOption": deliveryOption,
+        ])
+        guard let orderId = json["orderId"] as? String, let clientSecret = json["clientSecret"] as? String else {
+            throw StripeServiceError.missingClientSecret
+        }
         var config = PaymentSheet.Configuration()
         config.merchantDisplayName = "Snatchd"
         config.allowsDelayedPaymentMethods = false
         config.returnURL = "snatchd://stripe-redirect"
-
-        // Apply a dark appearance to match app theme
         var appearance = PaymentSheet.Appearance()
         appearance.colors.background = UIColor(white: 0.08, alpha: 1)
         appearance.colors.componentBackground = UIColor(white: 0.15, alpha: 1)
         appearance.colors.componentBorder = UIColor(white: 0.3, alpha: 1)
+        appearance.colors.componentText = .white
+        appearance.colors.text = .white
+        appearance.colors.textSecondary = UIColor(white: 0.7, alpha: 1)
+        appearance.colors.primary = .white
+        appearance.primaryButton.backgroundColor = .white
+        appearance.primaryButton.textColor = .black
         appearance.cornerRadius = 12
         config.appearance = appearance
-
-        let sheet = PaymentSheet(paymentIntentClientSecret: clientSecret, configuration: config)
-        self.paymentSheet = sheet
-        return sheet
+        return PlacedOrder(orderId: orderId, orderNumber: json["orderNumber"] as? String ?? "",
+                           total: json["total"] as? Double ?? 0,
+                           sheet: PaymentSheet(paymentIntentClientSecret: clientSecret, configuration: config))
     }
 
-    /// Calls the Firebase Cloud Function and returns a Stripe client_secret.
-    private func createPaymentIntent(amount: Double, orderId: String) async throws -> String {
-        guard let url = URL(string: AppConfig.createPaymentIntentURL) else {
-            throw StripeServiceError.invalidURL
-        }
+    /// After PaymentSheet completes: the server asks Stripe and records the hold.
+    func paymentAuthorized(orderId: String) async {
+        _ = try? await call("paymentAuthorized", body: ["orderId": orderId])
+    }
 
+    /// Customer dismissed the sheet: drop the pending order and its hold.
+    func abandonOrder(orderId: String) async {
+        _ = try? await call("abandonOrder", body: ["orderId": orderId])
+    }
+
+    /// POST to a Cloud Function with the signed-in user's ID token.
+    private func call(_ fn: String, body: [String: Any]) async throws -> [String: Any] {
+        guard let user = Auth.auth().currentUser else { throw StripeServiceError.serverError("Please sign in to place an order.") }
+        let token = try await user.getIDToken()
+        guard let url = URL(string: "\(AppConfig.functionsBaseURL)/\(fn)") else { throw StripeServiceError.invalidURL }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 30   // fail fast instead of hanging for 60s
-
-        let body: [String: Any] = [
-            "amount": amount,
-            "orderId": orderId,
-            "currency": "usd"
-        ]
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 30
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await URLSession.shared.data(for: request)
-        } catch let urlError as URLError where urlError.code == .timedOut {
+        } catch let e as URLError where e.code == .timedOut {
             throw StripeServiceError.serverError("Payment server timed out. Please try again.")
-        } catch let urlError as URLError where urlError.code == .notConnectedToInternet || urlError.code == .networkConnectionLost {
+        } catch let e as URLError where e.code == .notConnectedToInternet || e.code == .networkConnectionLost {
             throw StripeServiceError.serverError("No internet connection. Please check your network and try again.")
         }
-
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            // Try to extract error message from JSON; fall back to raw string; last resort generic message
-            let rawString = String(data: data, encoding: .utf8) ?? ""
-            let msg: String
-            if let decoded = try? JSONDecoder().decode([String: String].self, from: data),
-               let errMsg = decoded["error"] {
-                msg = errMsg
-            } else if !rawString.isEmpty && rawString.count < 300 {
-                msg = rawString
-            } else {
-                msg = "Payment setup failed (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0))"
-            }
-            throw StripeServiceError.serverError(msg)
+        let json = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw StripeServiceError.serverError(json["error"] as? String ?? "Payment setup failed (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0))")
         }
-
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let clientSecret = json["clientSecret"] as? String else {
-            throw StripeServiceError.missingClientSecret
-        }
-
-        return clientSecret
+        return json
     }
 }
 

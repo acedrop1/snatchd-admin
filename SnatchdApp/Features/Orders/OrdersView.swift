@@ -172,6 +172,12 @@ struct ActiveOrderCard: View {
 
             // Status progress bar
             OrderStatusBar(status: order.status)
+
+            if !order.paymentLabel.isEmpty {
+                Text(order.paymentLabel)
+                    .font(.custom("Montserrat-Regular", size: 12))
+                    .foregroundColor(order.paymentStatus == "failed" ? .red : .white.opacity(0.6))
+            }
         }
         .padding(24)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
@@ -289,7 +295,7 @@ struct OrderProductThumbnail: View {
 struct OrderStatusBar: View {
     let status: String
 
-    private let steps = ["placed", "confirmed", "picked_up", "in_transit", "delivered"]
+    private let steps = ["placed", "confirmed", "in_transit", "delivered"]
 
     private var currentIndex: Int {
         steps.firstIndex(of: status) ?? 0
@@ -297,11 +303,11 @@ struct OrderStatusBar: View {
 
     private func label(for step: String) -> String {
         switch step {
-        case "placed":     return "Placed"
+        case "placed":     return "Placed · Snatcher confirming"
         case "confirmed":  return "Confirmed"
-        case "picked_up":  return "Picked Up"
         case "in_transit": return "En Route"
         case "delivered":  return "Delivered"
+        case "cancelled":  return "Cancelled"
         default:           return step
         }
     }

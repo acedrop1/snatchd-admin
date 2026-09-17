@@ -9,9 +9,9 @@ struct AppConfig {
     // Get yours at https://dashboard.stripe.com/apikeys
     static let stripePublishableKey = "pk_test_51TDoBWIDYhiU4pru0cV3nX24chLZU66MH3uMRFxbJIe9fKqXKn4byxw72SCohHd4KFwNSMs3Rjy9E2bITPJKW9eg00Lfl03714"
 
-    // Cloud Function URL — copy from Firebase Console after deploying
-    // e.g. https://createpaymentintent-jkfmw4mdua-uc.a.run.app
-    static let createPaymentIntentURL = "https://createpaymentintent-jkfmw4mdua-uc.a.run.app"
+    // Orders are priced and created server-side (functions/src/index.ts createOrder);
+    // the app only ever sends product ids, sizes and quantities.
+    static let functionsBaseURL = "https://us-central1-snatchd-app26.cloudfunctions.net"
     // ──────────────────────────────────────────────────────────────────
 
     // Default Location (NYC SoHo) - Used as fallback when location unavailable

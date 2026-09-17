@@ -64,10 +64,16 @@ service cloud.firestore {
     // Users can create orders and read their own orders only.
     // Admins can read and update all orders (assign driver, update status).
     // Nobody can delete orders.
+    // Orders are created only by the createOrder function (Admin SDK), which
+    // prices them server-side. The portal may update fulfilment fields, but
+    // never the money or ownership fields — those belong to the functions.
     match /orders/{orderId} {
-      allow create: if isSignedIn();
+      allow create: if false;
       allow read:   if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow update: if isAdmin();
+      allow update: if isAdmin()
+                    && !request.resource.data.diff(resource.data).affectedKeys()
+                        .hasAny(['userId', 'items', 'subtotal', 'deliveryFee', 'platformFee', 'tax', 'total',
+                                 'paymentIntentId', 'paymentStatus', 'createdAt']);
       allow delete: if false;
     }
   }

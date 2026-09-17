@@ -13,28 +13,221 @@ const now = () => admin.firestore.FieldValue.serverTimestamp();
 
 // ── Stripe Payment Intent (unchanged) ──────────────────────────────────────
 const getStripe = () => {
-    const key = process.env.STRIPE_SECRET_KEY || '';
-    if (!key) console.warn('⚠️ STRIPE_SECRET_KEY is not set — payments will fail');
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) throw new Error('STRIPE_SECRET_KEY secret is not set');
     return new Stripe(key, { apiVersion: '2024-12-18.acacia' as any });
 };
 
-export const createPaymentIntent = onRequest({
-    cors: true, secrets: ['STRIPE_SECRET_KEY'], invoker: 'public', timeoutSeconds: 30,
-}, async (req, res) => {
-    if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
+// ── Orders & payment ───────────────────────────────────────────────────────
+// The trust boundary. The app never names a price: it sends product ids,
+// sizes and quantities, and the server prices the order from Firestore,
+// creates the order document, and opens a Stripe PaymentIntent for that
+// amount with capture_method 'manual'. The card is only AUTHORISED at
+// checkout. It is CAPTURED when the Snatcher has the item in hand (portal →
+// Capture) or RELEASED if the rack was empty (portal → Release), so a
+// customer is never charged for something no one has confirmed exists.
+//
+//   status:        placed → confirmed → in_transit → delivered | cancelled
+//   paymentStatus: pending → authorized → paid | released | refunded | failed | abandoned
+
+type Fees = { standardFee: number; priorityFee: number; platformFeePercent: number; taxRate: number };
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+// Same defaults the app falls back to when config/fees is empty.
+async function loadFees(): Promise<Fees> {
+    const d = (await db.doc('config/fees').get()).data() || {};
+    const num = (k: string, dflt: number) => (typeof d[k] === 'number' ? d[k] : dflt);
+    return { standardFee: num('standardFee', 6.0), priorityFee: num('priorityFee', 6.99), platformFeePercent: num('platformFeePercent', 0), taxRate: num('taxRate', 0.08875) };
+}
+
+async function requireUser(req: any, res: any): Promise<string | null> {
+    const m = /^Bearer (.+)$/.exec(req.get('authorization') || '');
+    try { if (m) return (await admin.auth().verifyIdToken(m[1])).uid; } catch { /* fall through */ }
+    res.status(401).json({ error: 'sign in required' });
+    return null;
+}
+
+async function ownOrder(req: any, res: any, uid: string) {
+    const orderId = String(req.body?.orderId || '');
+    const snap = orderId ? await db.doc(`orders/${orderId}`).get() : null;
+    if (!snap?.exists || snap.get('userId') !== uid) { res.status(404).json({ error: 'order not found' }); return null; }
+    return snap;
+}
+
+/** Map a PaymentIntent status onto our paymentStatus. */
+function paymentStatusFor(pi: Stripe.PaymentIntent): string | null {
+    switch (pi.status) {
+        case 'requires_capture': return 'authorized';
+        case 'succeeded': return 'paid';
+        case 'canceled': return 'released';
+        default: return null; // requires_payment_method / processing: still pending
+    }
+}
+
+export const createOrder = onRequest({ cors: true, secrets: ['STRIPE_SECRET_KEY'], timeoutSeconds: 30 }, async (req, res) => {
+    if (req.method !== 'POST') { res.status(405).json({ error: 'POST only' }); return; }
+    const uid = await requireUser(req, res); if (!uid) return;
     try {
-        const { amount, orderId, currency = 'usd' } = req.body as { amount: number; orderId: string; currency?: string };
-        if (!amount || amount <= 0) { res.status(400).json({ error: 'Invalid amount' }); return; }
-        const paymentIntent = await getStripe().paymentIntents.create({
-            amount: Math.round(amount * 100), currency,
-            automatic_payment_methods: { enabled: true },
-            metadata: { orderId: orderId || 'unknown' },
+        const { items, deliveryAddress, deliveryOption } = req.body as {
+            items: { productId: string; size: string; quantity: number }[]; deliveryAddress: string; deliveryOption: string;
+        };
+        if (!Array.isArray(items) || !items.length || items.length > 20) { res.status(400).json({ error: 'items required' }); return; }
+        if (!deliveryAddress || deliveryAddress.length < 8) { res.status(400).json({ error: 'delivery address required' }); return; }
+        const option = deliveryOption === 'Priority' ? 'Priority' : 'Standard';
+
+        // Price every line from OUR product record, never from the request.
+        const lines: any[] = [];
+        for (const it of items) {
+            const qty = Number.isInteger(it.quantity) && it.quantity > 0 && it.quantity <= 10 ? it.quantity : 0;
+            const p = qty ? (await db.doc(`products/${String(it.productId)}`).get()) : null;
+            if (!p?.exists || p.get('isActive') === false) { res.status(400).json({ error: `${it.productId}: not available` }); return; }
+            const size = String(it.size || '');
+            const sizes: string[] = p.get('sizes') || [];
+            if (sizes.length && !sizes.includes(size)) { res.status(400).json({ error: `${p.get('title')}: size ${size} not offered` }); return; }
+            if ((p.get('availability') || {})[size] === 'out_of_stock') { res.status(409).json({ error: `${p.get('title')} in ${size} is sold out` }); return; }
+            const store = await db.doc(`stores/${p.get('storeId')}`).get();
+            lines.push({
+                id: `${p.id}:${size}`, productId: p.id, productTitle: p.get('title'), productBrand: p.get('brand') || '',
+                productPrice: Number(p.get('price')) || 0, productImageURL: (p.get('images') || [])[0] || p.get('imageURL') || '',
+                storeId: p.get('storeId'), storeName: store.get('name') || 'Snatchd', quantity: qty, selectedSize: size,
+            });
+        }
+
+        const fees = await loadFees();
+        const subtotal = round2(lines.reduce((s, l) => s + l.productPrice * l.quantity, 0));
+        const deliveryFee = option === 'Priority' ? fees.priorityFee : fees.standardFee;
+        const platformFee = round2(subtotal * fees.platformFeePercent / 100);
+        const tax = round2(subtotal * fees.taxRate);
+        const total = round2(subtotal + deliveryFee + platformFee + tax);
+        if (total < 0.5) { res.status(400).json({ error: 'order total too small' }); return; }
+
+        const ref = db.collection('orders').doc();
+        const orderNumber = `SNT-${String(Date.now()).slice(-6)}`;
+        await ref.set({
+            userId: uid, items: lines, subtotal, deliveryFee, platformFee, tax, total,
+            deliveryAddress, deliveryOption: option, orderNumber,
+            status: 'placed', paymentStatus: 'pending', trackingStatus: '', driverName: '', driverPhone: '',
+            createdAt: now(),
         });
-        res.status(200).json({ clientSecret: paymentIntent.client_secret, paymentIntentId: paymentIntent.id });
+
+        const pi = await getStripe().paymentIntents.create({
+            amount: Math.round(total * 100), currency: 'usd',
+            capture_method: 'manual',
+            // No redirect methods (Klarna, Affirm, Cash App): they can't hold an
+            // authorisation, and a hold is the whole point. Cards, Apple Pay, Link stay.
+            automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
+            metadata: { orderId: ref.id, orderNumber, userId: uid },
+            description: `Snatchd ${orderNumber}`,
+        }, { idempotencyKey: `order-${ref.id}` });
+        await ref.update({ paymentIntentId: pi.id });
+
+        res.json({ orderId: ref.id, orderNumber, clientSecret: pi.client_secret, subtotal, deliveryFee, platformFee, tax, total });
     } catch (error: any) {
-        console.error('❌ Stripe error:', error.message);
+        console.error('❌ createOrder:', error.message);
         res.status(500).json({ error: error.message });
     }
+});
+
+/** App calls this after PaymentSheet completes; we ask Stripe, not the app. */
+export const paymentAuthorized = onRequest({ cors: true, secrets: ['STRIPE_SECRET_KEY'], timeoutSeconds: 30 }, async (req, res) => {
+    const uid = await requireUser(req, res); if (!uid) return;
+    const order = await ownOrder(req, res, uid); if (!order) return;
+    try {
+        const pi = await getStripe().paymentIntents.retrieve(order.get('paymentIntentId'));
+        const ps = paymentStatusFor(pi);
+        if (ps && order.get('paymentStatus') === 'pending') await order.ref.update({ paymentStatus: ps, authorizedAt: now() });
+        res.json({ paymentStatus: ps || order.get('paymentStatus') });
+    } catch (error: any) { res.status(500).json({ error: error.message }); }
+});
+
+/** Customer backed out of the payment sheet: drop the pending order. */
+export const abandonOrder = onRequest({ cors: true, secrets: ['STRIPE_SECRET_KEY'], timeoutSeconds: 30 }, async (req, res) => {
+    const uid = await requireUser(req, res); if (!uid) return;
+    const order = await ownOrder(req, res, uid); if (!order) return;
+    try {
+        if (order.get('paymentStatus') !== 'pending') { res.status(409).json({ error: 'order already in progress' }); return; }
+        try { await getStripe().paymentIntents.cancel(order.get('paymentIntentId')); } catch { /* may already be canceled */ }
+        await order.ref.update({ paymentStatus: 'abandoned', status: 'cancelled', cancelledAt: now() });
+        res.json({ ok: true });
+    } catch (error: any) { res.status(500).json({ error: error.message }); }
+});
+
+/** Snatcher has the item in hand → charge the card. Portal only. */
+export const captureOrder = onRequest({ cors: true, secrets: ['STRIPE_SECRET_KEY'], timeoutSeconds: 30 }, async (req, res) => {
+    if (!(await requireAdmin(req, res))) return;
+    try {
+        const ref = db.doc(`orders/${String(req.body?.orderId || '')}`);
+        const order = await ref.get();
+        if (!order.exists) { res.status(404).json({ error: 'order not found' }); return; }
+        if (order.get('paymentStatus') !== 'authorized') { res.status(409).json({ error: `cannot capture: payment is ${order.get('paymentStatus')}` }); return; }
+        const pi = await getStripe().paymentIntents.capture(order.get('paymentIntentId'));
+        await ref.update({ paymentStatus: paymentStatusFor(pi) || 'paid', status: 'confirmed', confirmedAt: now(), trackingStatus: order.get('trackingStatus') || 'shopping' });
+        res.json({ ok: true, paymentStatus: pi.status });
+    } catch (error: any) { res.status(500).json({ error: error.message }); }
+});
+
+/** Rack was empty, or the order can't be fulfilled → release the hold, or refund if already charged. Portal only. */
+export const cancelOrder = onRequest({ cors: true, secrets: ['STRIPE_SECRET_KEY'], timeoutSeconds: 30 }, async (req, res) => {
+    if (!(await requireAdmin(req, res))) return;
+    try {
+        const ref = db.doc(`orders/${String(req.body?.orderId || '')}`);
+        const order = await ref.get();
+        if (!order.exists) { res.status(404).json({ error: 'order not found' }); return; }
+        const reason = String(req.body?.reason || '').slice(0, 200);
+        const ps = order.get('paymentStatus');
+        const stripe = getStripe();
+        let next: string;
+        if (ps === 'paid') { await stripe.refunds.create({ payment_intent: order.get('paymentIntentId') }); next = 'refunded'; }
+        else if (ps === 'authorized' || ps === 'pending') { try { await stripe.paymentIntents.cancel(order.get('paymentIntentId')); } catch { /* already canceled */ } next = 'released'; }
+        else { res.status(409).json({ error: `nothing to release: payment is ${ps}` }); return; }
+        await ref.update({ paymentStatus: next, status: 'cancelled', cancelReason: reason, cancelledAt: now() });
+        res.json({ ok: true, paymentStatus: next });
+    } catch (error: any) { res.status(500).json({ error: error.message }); }
+});
+
+/** Stripe → us. Set STRIPE_WEBHOOK_SECRET (firebase functions:secrets:set) after adding the
+ *  endpoint in the Stripe dashboard. Until then the reconcile sweep below covers the same ground. */
+export const stripeWebhook = onRequest({ secrets: ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'], timeoutSeconds: 30 }, async (req, res) => {
+    const secret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!secret || secret === 'unset') { res.status(503).send('STRIPE_WEBHOOK_SECRET not set'); return; }
+    let event: Stripe.Event;
+    try { event = getStripe().webhooks.constructEvent(req.rawBody, req.get('stripe-signature') || '', secret); }
+    catch (e: any) { res.status(400).send(`bad signature: ${e.message}`); return; }
+    const obj: any = event.data.object;
+    const orderId = obj?.metadata?.orderId;
+    if (orderId) {
+        const patch: Record<string, any> = {};
+        if (event.type === 'payment_intent.amount_capturable_updated') patch.paymentStatus = 'authorized';
+        else if (event.type === 'payment_intent.succeeded') patch.paymentStatus = 'paid';
+        else if (event.type === 'payment_intent.payment_failed') { patch.paymentStatus = 'failed'; patch.status = 'cancelled'; patch.cancelReason = obj?.last_payment_error?.message || 'payment failed'; }
+        else if (event.type === 'payment_intent.canceled') { patch.paymentStatus = 'released'; patch.status = 'cancelled'; }
+        if (Object.keys(patch).length) await db.doc(`orders/${orderId}`).set(patch, { merge: true });
+    }
+    res.json({ received: true });
+});
+
+/** Safety net: an app that died between PaymentSheet and paymentAuthorized, or a hold that never
+ *  completed. Asks Stripe for the truth on anything still 'pending' or 'authorized'-but-stale. */
+export const scheduledPaymentReconcile = onSchedule({ schedule: 'every 10 minutes', secrets: ['STRIPE_SECRET_KEY'], timeoutSeconds: 300 }, async () => {
+    const stripe = getStripe();
+    const cutoff = admin.firestore.Timestamp.fromMillis(Date.now() - 2 * 60 * 1000);
+    const pending = await db.collection('orders').where('paymentStatus', '==', 'pending').where('createdAt', '<', cutoff).get();
+    for (const d of pending.docs) {
+        try {
+            const pi = await stripe.paymentIntents.retrieve(d.get('paymentIntentId'));
+            const ps = paymentStatusFor(pi);
+            if (ps) await d.ref.update({ paymentStatus: ps, authorizedAt: now() });
+            else if (Date.now() - d.get('createdAt').toMillis() > 60 * 60 * 1000) {
+                // An hour with no card: the customer walked away.
+                try { await stripe.paymentIntents.cancel(pi.id); } catch { /* fine */ }
+                await d.ref.update({ paymentStatus: 'abandoned', status: 'cancelled', cancelledAt: now() });
+            }
+        } catch (e: any) { console.error(`reconcile ${d.id}: ${e.message}`); }
+    }
+    // Card holds expire after 7 days. Warn well before that on anything still uncaptured.
+    const stale = admin.firestore.Timestamp.fromMillis(Date.now() - 48 * 60 * 60 * 1000);
+    const held = await db.collection('orders').where('paymentStatus', '==', 'authorized').where('createdAt', '<', stale).get();
+    if (held.size) await alert(`${held.size} order(s) have had a card hold for >48h without capture or release: ${held.docs.map(d => d.get('orderNumber')).join(', ')}`);
 });
 
 // ── Inventory ──────────────────────────────────────────────────────────────

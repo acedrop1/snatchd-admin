@@ -43,8 +43,10 @@ struct CheckoutView: View {
         (cartManager.total * db.platformFeePercent / 100 * 100).rounded() / 100
     }
 
+    // Preview only — the server recomputes every line from its own records and
+    // the PaymentSheet shows that amount. Rounded to cents to match it.
     var taxAmount: Double {
-        cartManager.total * db.taxRate
+        (cartManager.total * db.taxRate * 100).rounded() / 100
     }
 
     var totalAmount: Double {
@@ -177,22 +179,24 @@ struct CheckoutView: View {
 
     func placeOrder() {
         guard !cartManager.items.isEmpty else { return }
+        guard let address = selectedAddress?.address, !address.isEmpty else {
+            stripeError = "Choose a delivery address first."; return
+        }
         isPlacingOrder = true
         stripeError = nil
-
+        let lines = cartManager.items.map {
+            StripeService.OrderLine(productId: $0.product.id, size: $0.selectedSize, quantity: $0.quantity)
+        }
+        let option = selectedDeliveryOption
         Task {
             do {
-                let sheet = try await stripeService.preparePaymentSheet(
-                    amount: totalAmount,
-                    orderId: UUID().uuidString
-                )
+                let placed = try await stripeService.placeOrder(lines: lines, deliveryAddress: address, deliveryOption: option)
                 await MainActor.run {
                     self.isPlacingOrder = false
                     guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                           let rootVC = windowScene.keyWindow?.rootViewController else { return }
-                    let topVC = Self.topmostViewController(rootVC)
-                    sheet.present(from: topVC) { result in
-                        self.handleStripeResult(result)
+                    placed.sheet.present(from: Self.topmostViewController(rootVC)) { result in
+                        self.handleStripeResult(result, orderId: placed.orderId)
                     }
                 }
             } catch {
@@ -204,56 +208,24 @@ struct CheckoutView: View {
         }
     }
 
-    /// Called after Stripe PaymentSheet closes with a result.
-    func handleStripeResult(_ result: PaymentSheetResult) {
+    /// The order already exists server-side; the card is now held (not charged).
+    /// It is charged only when the Snatcher confirms the item in hand.
+    func handleStripeResult(_ result: PaymentSheetResult, orderId: String) {
         switch result {
         case .completed:
-            // Payment succeeded — now write the order to Firestore
-            commitOrder()
+            Task { await stripeService.paymentAuthorized(orderId: orderId) }
+            placedOrderId = orderId
+            if let uid = Auth.auth().currentUser?.uid { db.listenToOrders(userId: uid) }
+            cartManager.clearCart()
+            showTracking = true
         case .canceled:
-            break  // User dismissed, do nothing
+            Task { await stripeService.abandonOrder(orderId: orderId) }
         case .failed(let error):
+            Task { await stripeService.abandonOrder(orderId: orderId) }
             stripeError = error.localizedDescription
         }
     }
 
-    private func commitOrder() {
-        guard !cartManager.items.isEmpty else { return }
-        isPlacingOrder = true
-
-        let userId = Auth.auth().currentUser?.uid ?? "guest"
-        let addressString = selectedAddress?.address ?? deliveryAddress
-        let optionString = selectedDeliveryOption
-
-        db.createOrder(
-            userId: userId,
-            cartItems: cartManager.items,
-            stores: db.stores,
-            subtotal: cartManager.total,
-            deliveryFee: deliveryFee,
-            tax: taxAmount,
-            total: totalAmount,
-            deliveryAddress: addressString,
-            deliveryOption: optionString
-        ) { orderId in
-            DispatchQueue.main.async {
-                self.isPlacingOrder = false
-                if let orderId = orderId {
-                    self.placedOrderId = orderId
-                    if userId != "guest" {
-                        self.db.listenToOrders(userId: userId)
-                    }
-                }
-                self.cartManager.clearCart()
-                self.showTracking = true
-            }
-        }
-    }
-
-    /// Fallback address string when no SavedAddress is selected
-    private var deliveryAddress: String {
-        "Delivery address not set"
-    }
     
     func generateTimeSlots() -> [Date] {
         let calendar = Calendar.current

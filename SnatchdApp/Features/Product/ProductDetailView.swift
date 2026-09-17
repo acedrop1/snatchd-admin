@@ -36,8 +36,12 @@ struct ProductDetailView: View {
     private var selectedSizeUnavailable: Bool { !selectedSize.isEmpty && unavailableSizes.contains(selectedSize) }
     /// Only a known sold-out blocks the order. Unconfirmed is orderable — the
     /// Snatcher checks the rack before the card is captured.
-    private var canAddToCart: Bool { product.inStock && !selectedSizeUnavailable }
-    private var buttonLabel: String { canAddToCart ? "Add to Cart" : "Sold Out" }
+    private var needsSize: Bool { !product.sizes.isEmpty && selectedSize.isEmpty }
+    private var canAddToCart: Bool { product.inStock && !selectedSizeUnavailable && !needsSize }
+    private var buttonLabel: String {
+        if !product.inStock || selectedSizeUnavailable { return "Sold Out" }
+        return needsSize ? "Choose a Size" : "Add to Cart"
+    }
 
     // All images for this product — used in both the detail carousel and the full-screen viewer
     private var allProductImages: [String] {

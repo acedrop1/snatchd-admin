@@ -137,7 +137,9 @@ struct Order: Identifiable {
     let total: Double
     let deliveryAddress: String
     let deliveryOption: String
-    var status: String       // "placed" | "confirmed" | "in_transit" | "delivered"
+    var status: String       // "placed" | "confirmed" | "in_transit" | "delivered" | "cancelled"
+    var paymentStatus: String = "paid"   // authorized (held) | paid | released | refunded | failed
+    var platformFee: Double = 0
     let createdAt: Date
     var orderNumber: String  // e.g. "SNT-0042"
     // Driver & live tracking — set by admin
@@ -167,7 +169,20 @@ struct Order: Identifiable {
         case "confirmed":   return "Confirmed"
         case "in_transit":  return "On the Way"
         case "delivered":   return "Delivered"
+        case "cancelled":   return "Cancelled"
         default:            return status.capitalized
+        }
+    }
+
+    /// What happened to the customer's money — always true, never implied.
+    var paymentLabel: String {
+        switch paymentStatus {
+        case "authorized": return "Card held · charged once your Snatcher confirms the item"
+        case "paid":       return "Charged $\(String(format: "%.2f", total))"
+        case "released":   return "Not charged · hold released"
+        case "refunded":   return "Refunded $\(String(format: "%.2f", total))"
+        case "failed":     return "Payment failed · not charged"
+        default:           return ""
         }
     }
 

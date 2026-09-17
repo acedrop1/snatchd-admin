@@ -317,6 +317,9 @@ class DatabaseService: ObservableObject {
                           let status = data["status"] as? String,
                           let orderNumber = data["orderNumber"] as? String
                     else { return nil }
+                    // Pending never got a card; abandoned was dismissed. Neither is an order.
+                    let paymentStatus = data["paymentStatus"] as? String ?? "paid"
+                    if paymentStatus == "pending" || paymentStatus == "abandoned" { return nil }
 
                     let createdAt: Date
                     if let ts = data["createdAt"] as? Timestamp {
@@ -359,6 +362,8 @@ class DatabaseService: ObservableObject {
                         deliveryAddress: deliveryAddress,
                         deliveryOption: deliveryOption,
                         status: status,
+                        paymentStatus: paymentStatus,
+                        platformFee: data["platformFee"] as? Double ?? 0,
                         createdAt: createdAt,
                         orderNumber: orderNumber,
                         driverName: data["driverName"] as? String,
@@ -437,66 +442,6 @@ class DatabaseService: ObservableObject {
     }
 
     /// Write a new order to Firestore. Returns the new order's document ID via completion.
-    func createOrder(
-        userId: String,
-        cartItems: [CartItem],
-        stores: [Store],
-        subtotal: Double,
-        deliveryFee: Double,
-        tax: Double,
-        total: Double,
-        deliveryAddress: String,
-        deliveryOption: String,
-        completion: @escaping (String?) -> Void
-    ) {
-        // Build a sequential order number from timestamp
-        let orderNumber = "SNT-\(Int(Date().timeIntervalSince1970) % 100000)"
-
-        let itemsData: [[String: Any]] = cartItems.map { cartItem in
-            let storeName = stores.first { $0.firestoreId == cartItem.product.storeId }?.name ?? "Snatchd"
-            return [
-                "id": cartItem.id.uuidString,
-                "productId": cartItem.product.id,
-                "productTitle": cartItem.product.title,
-                "productBrand": cartItem.product.brand,
-                "productPrice": cartItem.product.price,
-                "productImageURL": cartItem.product.imageURL ?? "",
-                "storeId": cartItem.product.storeId,
-                "storeName": storeName,
-                "quantity": cartItem.quantity,
-                "selectedSize": cartItem.selectedSize
-            ]
-        }
-
-        let orderData: [String: Any] = [
-            "userId": userId,
-            "items": itemsData,
-            "subtotal": subtotal,
-            "deliveryFee": deliveryFee,
-            "tax": tax,
-            "total": total,
-            "deliveryAddress": deliveryAddress,
-            "deliveryOption": deliveryOption,
-            "status": "placed",
-            "trackingStatus": "",
-            "driverName": "",
-            "driverPhone": "",
-            "orderNumber": orderNumber,
-            "createdAt": FieldValue.serverTimestamp()
-        ]
-
-        var ref: DocumentReference?
-        ref = db.collection("orders").addDocument(data: orderData) { error in
-            if let error = error {
-                print("❌ Failed to create order: \(error.localizedDescription)")
-                completion(nil)
-            } else {
-                print("✅ Order created: \(ref?.documentID ?? "unknown")")
-                completion(ref?.documentID)
-            }
-        }
-    }
-
     // MARK: - Legacy Fetch Methods (now just ensure listeners are running)
     // These are kept so existing .onAppear { databaseService.fetchStores() } calls still compile.
 
