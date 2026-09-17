@@ -157,19 +157,9 @@ struct SearchView: View {
         } // NavigationStack
         .searchable(text: $searchText, prompt: "Search for anything")
         .searchFocused($searchFocused)
-        .searchSuggestions {
-            // Native suggestions under the field while it's empty
-            if searchText.isEmpty {
-                ForEach(suggestedStores.prefix(5)) { store in
-                    Label(store.name, systemImage: "storefront").searchCompletion(store.name)
-                }
-                ForEach(suggestedProducts.prefix(5)) { product in
-                    Label(product.title, systemImage: "tag").searchCompletion(product.title)
-                }
-            }
-        }
-        .onAppear { searchFocused = true }
-        .onChange(of: selectedTab) { _, tab in if tab == .search { searchFocused = true } }
+        // Focus needs the field to exist first — one runloop turn after the tab appears.
+        .onAppear { focusSoon() }
+        .onChange(of: selectedTab) { _, tab in if tab == .search { focusSoon() } }
         .fullScreenCover(item: $selectedStore) { store in
             StoreProductsView(store: store, showTabBar: .constant(false), selectedTab: .constant(.stores))
         }
@@ -196,6 +186,10 @@ struct SearchView: View {
 
     var suggestedProducts: [Product] {
         Array(databaseService.justDroppedProducts.prefix(6))
+    }
+
+    private func focusSoon() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { searchFocused = true }
     }
 
     var filteredStores: [Store] {

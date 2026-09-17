@@ -26,6 +26,7 @@ struct SnatchdAppApp: App {
         WindowGroup {
             SplashScreenView()
                 .preferredColorScheme(.dark)
+                .tint(.white) // brand is black/white — never let system blue through
                 .environmentObject(cartManager)
                 .environmentObject(authManager)
                 .environmentObject(addressManager)
