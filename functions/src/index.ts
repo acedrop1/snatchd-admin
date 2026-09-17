@@ -730,3 +730,30 @@ export const scheduledZaraStock = onSchedule({ schedule: '30 10,15 * * *', timeZ
     try { await refreshAllStock(['zara']); }
     catch (error: any) { await alert(`scheduledZaraStock crashed: ${error.message}`); }
 });
+
+/**
+ * POST /adminProducts  { storeId, action: 'show' | 'hide' | 'deleteLegacy', ids?: string[], limit?: number }
+ * Runner-token operations on a store's products: show/hide by id (or the first
+ * `limit` catalogued ones), or delete rows that predate the current source.
+ */
+export const adminProducts = onRequest({ cors: true, timeoutSeconds: 120 }, async (req, res) => {
+    if (!requireRunner(req, res)) return;
+    try {
+        const { storeId, action, ids, limit } = req.body || {};
+        const store = await loadStore(storeId);
+        const all = await db.collection('products').where('storeId', '==', storeId).get();
+        let targets = all.docs;
+        if (action === 'deleteLegacy') targets = targets.filter(d => !d.id.startsWith(`${store.inventorySource}_`));
+        else if (Array.isArray(ids) && ids.length) targets = targets.filter(d => ids.includes(d.id));
+        else if (limit) targets = targets.filter(d => (d.get('sizes') || []).length && (d.get('images') || []).length).slice(0, Number(limit));
+        for (let i = 0; i < targets.length; i += 400) {
+            const batch = db.batch();
+            for (const d of targets.slice(i, i + 400)) {
+                if (action === 'deleteLegacy') batch.delete(d.ref);
+                else batch.update(d.ref, { isActive: action === 'show' });
+            }
+            await batch.commit();
+        }
+        res.json({ action, affected: targets.length, sample: targets.slice(0, 5).map(d => d.get('title')) });
+    } catch (error: any) { res.status(500).json({ error: error.message }); }
+});

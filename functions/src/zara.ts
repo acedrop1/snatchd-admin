@@ -66,7 +66,7 @@ function baseProduct(p: any, c: any, brand: string): SourceProduct {
     const seoId = String(p.seo?.seoProductId || String(p.detail?.reference || '').split('-')[0]);
     return {
         externalId: String(c.productId), handle: handleOf(seoId, String(c.id)),
-        title: c.name ? `${p.name} — ${titleCase(c.name)}` : p.name, brand,
+        title: titleCase(String(p.name || '')), brand,   // colour lives in `styles`, like Bergdorf
         price: money(c.price ?? p.price), compareAtPrice: null,
         description: '', productType: p.familyName || '', tags: [], category: p.familyName || 'Clothing',
         gender: /man$/i.test(p.sectionName || '') && !/woman/i.test(p.sectionName || '') ? 'Men' : 'Women',
