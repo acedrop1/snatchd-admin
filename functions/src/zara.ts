@@ -33,7 +33,10 @@ async function zaraGet(endpoint: string, params: Record<string, string>): Promis
 const handleOf = (seoId: string, colorId: string) => `${seoId}:${colorId}`;
 const splitHandle = (h: string) => { const [seoId, colorId] = h.split(':'); return { seoId, colorId }; };
 const money = (cents: any) => Math.round(Number(cents) || 0) / 100;
-const img = (x: any) => x?.path && x?.name ? `https://static.zara.net${x.path}/w/750/${x.name}.jpg` : null;
+// xmedia carries a canonical url with a {width} placeholder; the CDN serves it
+// to real browsers (it 403s curl's default UA, which is fine for the app).
+const img = (x: any) => x?.url ? String(x.url).replace('{width}', '750')
+    : x?.path && x?.name ? `https://static.zara.net${x.path}/w/750/${x.name}.jpg` : null;
 const productUrl = (keyword: string, seoId: string, colorProductId: string) => `https://www.zara.com/us/en/${keyword || 'p'}-p${seoId}.html?v1=${colorProductId}`;
 
 function baseProduct(p: any, c: any, brand: string): SourceProduct {
