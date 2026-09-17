@@ -58,39 +58,71 @@ const titleCase = (s: string) => s.toLowerCase().replace(/\b\w/g, m => m.toUpper
 /** Catalog seed: one listing row per colour, from a few search queries. Sizes
  *  and stock arrive when the product is shown (same two-phase model as Bergdorf). */
 export async function fetchZaraCatalog(queries: string[], brand: string, limit = Infinity): Promise<SourceProduct[]> {
-    const byId = new Map<string, SourceProduct>();
+    // Search finds the products (1 credit a term) but carries one photo and no
+    // sizes. Details has both, and one call covers every colour of a product,
+    // so we take the seoIds from search and resolve each once (1 credit).
+    const seoIds = new Set<string>();
     for (const q of queries) {
         const data = await zaraGet('search_products', { query: q });
         for (const p of data?.products || []) {
-            for (const c of p.detail?.colors || []) {
-                const sp = baseProduct(p, c, brand);
-                if (sp.price > 0) byId.set(sp.externalId, sp);
-                if (byId.size >= limit) return [...byId.values()];
-            }
+            const id = p.seo?.seoProductId || String(p.detail?.reference || '').split('-')[0];
+            if (id && (p.detail?.colors || []).length) seoIds.add(String(id));
         }
-        await sleep(500);
+        await sleep(300);
+    }
+    const byId = new Map<string, SourceProduct>();
+    for (const seoId of seoIds) {
+        if (byId.size >= limit) break;
+        let d: any;
+        try { d = await zaraGet('get_product_details', { product_id: seoId }); }
+        catch (e: any) { console.log(`  zara ${seoId}: ${e.message}`); continue; }
+        for (const c of d?.detail?.colors || []) {
+            const sp = baseProduct(d, c, brand);
+            if (sp.price <= 0) continue;
+            sp.sizes = [...new Set<string>((c.sizes || []).map((z: any) => String(z.name)))];
+            for (const z of c.sizes || []) {
+                const st: SizeState = z.availability === 'in_stock' || z.availability === 'low' ? 'in_stock'
+                    : z.availability === 'out_of_stock' ? 'out_of_stock' : 'unknown';
+                sp.availability[z.name] = st;
+                sp.variants.push({ id: String(z.sku || `${sp.externalId}-${z.name}`), sku: String(z.sku || ''), size: z.name, availableForSale: st === 'in_stock', price: sp.price, compareAtPrice: null });
+            }
+            byId.set(sp.externalId, sp);
+        }
+        await sleep(300);
     }
     return [...byId.values()];
 }
 
 /** One colour, fully resolved: online availability per size (details) and the
  *  retailer's own count at OUR store (check_store_availability). */
-export async function fetchZaraProduct(handle: string, brand: string, storeId: string): Promise<SourceProduct> {
+export async function fetchZaraProduct(handle: string, brand: string, storeId: string, existing?: any): Promise<SourceProduct> {
     const { seoId, colorId } = splitHandle(handle);
-    const d = await zaraGet('get_product_details', { product_id: seoId });
-    const color = (d.detail?.colors || []).find((c: any) => String(c.id) === colorId);
-    if (!color) throw new Error(`zara ${handle}: colour ${colorId} not on product`);
-    const sp = baseProduct(d, color, brand);
-
-    const online: Record<string, SizeState> = {};
-    for (const s of color.sizes || []) {
-        const st: SizeState = s.availability === 'in_stock' || s.availability === 'low' ? 'in_stock'
-            : s.availability === 'out_of_stock' ? 'out_of_stock' : 'unknown';
-        online[s.name] = st;
-        sp.variants.push({ id: String(s.sku || `${sp.externalId}-${s.name}`), sku: String(s.sku || ''), size: s.name, availableForSale: st === 'in_stock', price: sp.price, compareAtPrice: null });
+    let sp: SourceProduct;
+    if (existing?.sizes?.length && existing?.title) {
+        // Already catalogued: only the store count changes day to day, so skip
+        // the details call — halves the cost of every count.
+        sp = {
+            externalId: String(existing.externalId || ''), handle, title: existing.title, brand,
+            price: Number(existing.price) || 0, compareAtPrice: null, description: existing.description || '',
+            productType: existing.productType || '', tags: [], category: existing.category || 'Clothing', gender: existing.gender || 'Women',
+            images: existing.images || [], sizes: existing.sizes, styles: existing.styles || [],
+            variants: existing.variants || [], availability: existing.availability || {}, productUrl: existing.productUrl || '',
+        };
+    } else {
+        const d = await zaraGet('get_product_details', { product_id: seoId });
+        const color = (d.detail?.colors || []).find((c: any) => String(c.id) === colorId);
+        if (!color) throw new Error(`zara ${handle}: colour ${colorId} not on product`);
+        sp = baseProduct(d, color, brand);
+        const online: Record<string, SizeState> = {};
+        for (const s of color.sizes || []) {
+            const st: SizeState = s.availability === 'in_stock' || s.availability === 'low' ? 'in_stock'
+                : s.availability === 'out_of_stock' ? 'out_of_stock' : 'unknown';
+            online[s.name] = st;
+            sp.variants.push({ id: String(s.sku || `${sp.externalId}-${s.name}`), sku: String(s.sku || ''), size: s.name, availableForSale: st === 'in_stock', price: sp.price, compareAtPrice: null });
+        }
+        sp.sizes = [...new Set<string>((color.sizes || []).map((s: any) => String(s.name)))];
+        sp.availability = online;
     }
-    sp.sizes = [...new Set<string>((color.sizes || []).map((s: any) => String(s.name)))];
-    sp.availability = online;
 
     // The store's own count for this colour. Any unit at the store (floor or
     // stockroom) counts: the Snatcher can ask for it.

@@ -292,7 +292,7 @@ async function liveStores(kinds: SourceKind[] = ['shopify', 'skims']): Promise<S
 }
 
 // One product from its source — used by checkAvailability and the Skims sweep.
-async function fetchOne(store: StoreSource, handle: string): Promise<SourceProduct> {
+async function fetchOne(store: StoreSource, handle: string, existing?: FirebaseFirestore.DocumentData): Promise<SourceProduct> {
     switch (store.inventorySource) {
         case 'shopify':
             if (!store.sourceDomain) throw new Error(`${store.name}: sourceDomain missing`);
@@ -301,7 +301,7 @@ async function fetchOne(store: StoreSource, handle: string): Promise<SourceProdu
             return fetchSkimsProduct(handle);
         case 'zara':
             if (!store.sourceStoreId) throw new Error(`${store.name}: sourceStoreId missing (SoHo is 3862)`);
-            return fetchZaraProduct(handle, store.brand, store.sourceStoreId);
+            return fetchZaraProduct(handle, store.brand, store.sourceStoreId, existing);
         default:
             throw new Error(`${store.name} has no live source`);
     }
