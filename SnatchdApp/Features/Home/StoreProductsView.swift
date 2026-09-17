@@ -216,27 +216,33 @@ struct StoreProductsView: View {
                             .padding(.vertical, 12)
 
                         } else {
-                            // Women | Men — only when the store has both. Native Liquid
-                            // Glass: the container lets the selected capsule morph between them.
+                            // Women | Men — only when the store has both. One glass bar,
+                            // like the native tab bar: a highlight slides to the selection.
                             if storeGenders.count >= 2 {
-                                GlassEffectContainer(spacing: 8) {
-                                    HStack(spacing: 8) {
+                                GlassEffectContainer {
+                                    HStack(spacing: 0) {
                                         ForEach(storeGenders, id: \.self) { g in
                                             let on = appliedGender == g
                                             Button {
-                                                withAnimation(.snappy(duration: 0.3)) { appliedGender = g; selectedCategory = "All" }
+                                                withAnimation(.snappy(duration: 0.28)) { appliedGender = g; selectedCategory = "All" }
                                             } label: {
                                                 Text(g.uppercased())
                                                     .font(.custom(on ? "Montserrat-Bold" : "Montserrat-SemiBold", size: 12))
-                                                    .foregroundStyle(on ? .black : .white)
-                                                    .padding(.horizontal, 20)
+                                                    .foregroundStyle(on ? .black : .white.opacity(0.85))
+                                                    .padding(.horizontal, 22)
                                                     .padding(.vertical, 10)
+                                                    .background {
+                                                        if on {
+                                                            Capsule().fill(.white)
+                                                                .matchedGeometryEffect(id: "gender-highlight", in: genderGlass)
+                                                        }
+                                                    }
                                             }
                                             .buttonStyle(.plain)
-                                            .glassEffect(on ? .regular.tint(.white).interactive() : .regular.interactive(), in: .capsule)
-                                            .glassEffectID(g, in: genderGlass)
                                         }
                                     }
+                                    .padding(4)
+                                    .glassEffect(.regular.interactive(), in: .capsule)
                                 }
                                 .frame(maxWidth: .infinity)
                                 .padding(.top, 10)
