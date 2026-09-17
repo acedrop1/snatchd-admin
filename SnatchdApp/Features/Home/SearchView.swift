@@ -3,6 +3,7 @@ import SwiftUI
 struct SearchView: View {
     @Binding var searchText: String
     @Binding var selectedTab: AppTab
+    @FocusState private var searchFocused: Bool
     
     @State private var selectedSearchTab = 0 // 0: Recent, 1: Saved
     @State private var selectedProduct: Product?
@@ -18,26 +19,50 @@ struct SearchView: View {
         VStack(spacing: 0) {
             
             if searchText.isEmpty {
-                // Empty state
+                // Recommendations behind the field — same tap handlers as results
                 ScrollView {
-                    VStack(spacing: 15) {
-                        Spacer().frame(height: 50)
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 50))
-                            .foregroundColor(.gray)
-                            .padding()
-                            .background(Circle().stroke(Color.gray, lineWidth: 1))
-                        
-                        Text("Search Snatchd")
-                            .font(.custom("Montserrat-Bold", size: 20))
-                            .foregroundColor(.white)
-                        
-                        Text("Find your next favorite thing.")
-                            .font(.custom("Montserrat-Regular", size: 14))
-                            .foregroundColor(.gray)
+                    VStack(alignment: .leading, spacing: 25) {
+                        if !suggestedStores.isEmpty {
+                            VStack(alignment: .leading, spacing: 15) {
+                                Text("Trending stores")
+                                    .font(.custom("Montserrat-Bold", size: 18))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal)
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 15) {
+                                        ForEach(suggestedStores) { store in
+                                            Button(action: { selectedStore = store }) {
+                                                Text(store.name)
+                                                    .font(.custom("Montserrat-Bold", size: 14))
+                                                    .foregroundColor(.white)
+                                                    .frame(width: 120, height: 60)
+                                                    .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12))
+                                            }
+                                        }
+                                    }
+                                    .padding(.horizontal)
+                                }
+                            }
+                        }
+                        if !suggestedProducts.isEmpty {
+                            VStack(alignment: .leading, spacing: 15) {
+                                Text("Just dropped")
+                                    .font(.custom("Montserrat-Bold", size: 18))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal)
+                                LazyVGrid(columns: [GridItem(.flexible(), spacing: 15), GridItem(.flexible(), spacing: 15)], spacing: 20) {
+                                    ForEach(suggestedProducts) { product in
+                                        Button(action: { selectedProduct = product }) {
+                                            SearchResultItem(product: product)
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal)
+                            }
+                        }
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 50)
+                    .padding(.top, 10)
+                    .padding(.bottom, 120)
                 }
             } else {
                 // Search Results
@@ -128,10 +153,23 @@ struct SearchView: View {
             Spacer()
         }
         .background(Color.black.edgesIgnoringSafeArea(.all))
-        .navigationTitle("Search")
-        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
         } // NavigationStack
         .searchable(text: $searchText, prompt: "Search for anything")
+        .searchFocused($searchFocused)
+        .searchSuggestions {
+            // Native suggestions under the field while it's empty
+            if searchText.isEmpty {
+                ForEach(suggestedStores.prefix(5)) { store in
+                    Label(store.name, systemImage: "storefront").searchCompletion(store.name)
+                }
+                ForEach(suggestedProducts.prefix(5)) { product in
+                    Label(product.title, systemImage: "tag").searchCompletion(product.title)
+                }
+            }
+        }
+        .onAppear { searchFocused = true }
+        .onChange(of: selectedTab) { _, tab in if tab == .search { searchFocused = true } }
         .fullScreenCover(item: $selectedStore) { store in
             StoreProductsView(store: store, showTabBar: .constant(false), selectedTab: .constant(.stores))
         }
@@ -150,6 +188,16 @@ struct SearchView: View {
         } // end ZStack
     }
     
+    /// Portal-tagged trending stores, falling back to everything we have
+    var suggestedStores: [Store] {
+        let trending = databaseService.stores.filter { $0.tags.contains("trending") }
+        return trending.isEmpty ? Array(databaseService.stores.prefix(8)) : trending
+    }
+
+    var suggestedProducts: [Product] {
+        Array(databaseService.justDroppedProducts.prefix(6))
+    }
+
     var filteredStores: [Store] {
         if searchText.isEmpty { return [] }
         return databaseService.stores.filter { store in
