@@ -525,7 +525,9 @@ export const refreshStock = onRequest({ cors: true, timeoutSeconds: 540, memory:
     // Admin (portal) or the runner — same trust as syncStoreCatalog.
     const viaRunner = !!process.env.RUNNER_TOKEN && req.get('x-runner-token') === process.env.RUNNER_TOKEN;
     if (!viaRunner && !(await requireAdmin(req, res))) return;
-    try { res.json({ success: true, stores: await refreshAllStock(['shopify', 'skims', 'zara']) }); }
+    // Optional { kinds: ['zara'] } to refresh one source alone
+    const kinds = Array.isArray(req.body?.kinds) && req.body.kinds.length ? req.body.kinds : ['shopify', 'skims', 'zara'];
+    try { res.json({ success: true, stores: await refreshAllStock(kinds) }); }
     catch (error: any) { res.status(500).json({ error: error.message }); }
 });
 
