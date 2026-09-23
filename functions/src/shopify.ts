@@ -68,11 +68,25 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
  *  429 is rate limiting — back off and retry rather than lose the catalogue. */
 async function getPage(domain: string, page: number): Promise<any[] | null> {
     for (let attempt = 0; attempt < 5; attempt++) {
-        const res = await axios.get(`https://${domain}/products.json`, {
-            params: { limit: PAGE, page }, headers: { 'User-Agent': UA, Accept: 'application/json' },
-            timeout: 30000, validateStatus: () => true,
-        });
+        let res;
+        try {
+            res = await axios.get(`https://${domain}/products.json`, {
+                params: { limit: PAGE, page }, headers: { 'User-Agent': UA, Accept: 'application/json' },
+                timeout: 30000, validateStatus: () => true,
+            });
+        } catch (e: any) {
+            // Network blip: same treatment as a 5xx
+            if (attempt === 4) throw new Error(`${domain}: ${e.message} on page ${page}`);
+            await sleep(3000 * 2 ** attempt);
+            continue;
+        }
         if (res.status === 200) return res.data?.products || [];
+        // A 5xx is Shopify having a moment, not the end of the catalogue. Retry.
+        if (res.status >= 500) {
+            console.log(`  ${domain}: HTTP ${res.status} on page ${page}, retrying`);
+            await sleep(3000 * 2 ** attempt);
+            continue;
+        }
         // Shopify caps page-based paging at 10,000 items and answers 400 past
         // it (Kith's catalogue is larger). That's the end, not a failure.
         if (res.status === 400 || res.status === 404) return null;
@@ -84,8 +98,11 @@ async function getPage(domain: string, page: number): Promise<any[] | null> {
         }
         throw new Error(`${domain}: HTTP ${res.status} on page ${page}`);
     }
-    throw new Error(`${domain}: still rate limited after 5 attempts`);
+    throw new Error(`${domain}: page ${page} still failing after 5 attempts`);
 }
+
+/** Shopify's page-based feed stops at this many products (40 pages of 250). */
+export const SHOPIFY_FEED_CAP = 10000;
 
 export async function fetchShopifyCatalog(domain: string, brand: string, limit = Infinity): Promise<SourceProduct[]> {
     const byId = new Map<string, SourceProduct>();

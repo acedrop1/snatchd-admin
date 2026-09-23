@@ -820,10 +820,12 @@ export default function EditStorePage() {
                                                     })()}
                                                 </td>
                                                 <td className="px-4 py-2">
+                                                    {p.discontinued ? <span className="text-xs text-neutral-500">No longer sold</span> : (
                                                     <button onClick={() => toggleShown(p)}
                                                         className={`px-2 py-1 rounded text-xs font-medium border transition ${p.isActive === false ? "border-neutral-700 text-neutral-400 hover:text-white" : "border-green-500/30 bg-green-500/10 text-green-400"}`}>
                                                         {p.isActive === false ? "Show" : "Shown"}
                                                     </button>
+                                                    )}
                                                 </td>
                                             </tr>
                                         ))}

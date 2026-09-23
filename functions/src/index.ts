@@ -4,7 +4,7 @@ import * as admin from 'firebase-admin';
 import axios from 'axios';
 import Stripe from 'stripe';
 import { fetchSkimsProduct, fetchSkimsCollectionHandles, fetchSkimsStores } from './skims';
-import { fetchShopifyCatalog, fetchShopifyProduct } from './shopify';
+import { fetchShopifyCatalog, fetchShopifyProduct, SHOPIFY_FEED_CAP } from './shopify';
 import { fetchZaraCatalog, fetchZaraProduct } from './zara';
 import { SourceProduct, StoreSource, SizeState, SourceKind, sleep } from './types';
 
@@ -479,15 +479,32 @@ async function refreshAllStock(kinds?: SourceKind[]): Promise<Record<string, { u
 
         if (store.inventorySource === 'shopify') {
             try {
-                const byHandle = new Map((await fetchShopifyCatalog(store.sourceDomain!, store.brand)).map(p => [p.handle, p]));
+                const catalog = await fetchShopifyCatalog(store.sourceDomain!, store.brand);
+                const byHandle = new Map(catalog.map(p => [p.handle, p]));
+                // Only a complete catalogue proves a product is gone. At the feed cap
+                // (Kith) a missing product may simply be past the 10,000th.
+                const complete = catalog.length < SHOPIFY_FEED_CAP;
                 for (const doc of snap.docs) {
                     const p = byHandle.get(doc.get('handle'));
                     if (p) {
-                        const data = patchFor(p, 'shopify');
-                        if (doc.get('fingerprint') === data.fingerprint) continue; // nothing changed
+                        const data: any = patchFor(p, 'shopify');
+                        if (doc.get('discontinued') === true) {
+                            // It's back: restore what the customer could see before
+                            data.discontinued = false;
+                            if (doc.get('hiddenByDiscontinue') === true) data.isActive = true;
+                            data.hiddenByDiscontinue = false;
+                        } else if (doc.get('fingerprint') === data.fingerprint) continue; // nothing changed
                         writes.push({ ref: doc.ref, data, merge: true }); updated++;
+                    } else if (complete) {
+                        // The brand no longer sells it. Hide it once; don't rewrite it every 30 minutes.
+                        if (doc.get('discontinued') === true) continue;
+                        writes.push({ ref: doc.ref, merge: true, data: {
+                            ...unknownPatch(doc.get('sizes') || []), discontinued: true, discontinuedAt: now(),
+                            hiddenByDiscontinue: doc.get('isActive') !== false, isActive: false,
+                        } });
+                        unknown++;
                     } else {
-                        // Gone from the brand's catalogue — unknown, never "sold out"
+                        // Past the feed cap — unknown, never "sold out", never hidden
                         writes.push({ ref: doc.ref, data: unknownPatch(doc.get('sizes') || []), merge: true }); unknown++;
                     }
                 }
