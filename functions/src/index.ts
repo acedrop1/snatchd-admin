@@ -842,7 +842,9 @@ async function applyAssortment(storeId: string): Promise<Record<string, any>> {
         const atStore = best ? best.status : null;
         // Per-size store answer only when DoorDash listed more than one size
         const atStoreSizes = rowsHere.length > 1 ? Object.fromEntries(rowsHere.map(x => [x.size, x.row.status])) : null;
-        const visible = !!best && best.status !== 'out_of_stock' && doc.get('discontinued') !== true;
+        // The store's listing wins: an item Skims stopped selling online but the store
+        // still lists is on the rack, so it stays visible.
+        const visible = !!best && best.status !== 'out_of_stock';
         visible ? shown++ : hidden++;
         if (best?.status === 'out_of_stock') soldOut++;
         const storeCategory = best ? best.category || null : null;
@@ -862,7 +864,7 @@ async function applyAssortment(storeId: string): Promise<Record<string, any>> {
         writes.push({ ref: doc.ref, merge: true, data });
     }
     await commitChunked(writes);
-    const products = shown + soldOut + snap.docs.filter(d => d.get('discontinued') === true && (d.get('variants') || []).some((v: any) => bySku.has(String(v.sku || '').toUpperCase()))).length;
+    const products = shown + soldOut;
     const report = { rows: rows.length, listed, matched: matchedSkus.size, products, shown, hidden, soldOut, written: writes.length };
     // Items on the store's listing we have no product record for (store-only colours etc.), so the portal can show the whole listing
     const unmatched = rows.filter(r => !matchedSkus.has(r.sku)).slice(0, 300)
