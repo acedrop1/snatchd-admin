@@ -8,7 +8,7 @@
 import axios from 'axios';
 
 export type StoreStatus = 'in_stock' | 'low_stock' | 'out_of_stock';
-export interface AssortmentRow { sku: string; status: StoreStatus; name: string }
+export interface AssortmentRow { sku: string; status: StoreStatus; name: string; category: string; price: number | null; image: string | null }
 export interface Assortment { rows: AssortmentRow[]; listed: number | null }
 
 const ACTOR = 'yugenox~doordash-retail-catalog-scraper';
@@ -27,6 +27,9 @@ export async function fetchDoorDashAssortment(doordashStoreId: string): Promise<
     const rows: AssortmentRow[] = data.filter(r => r.dataType !== 'store' && r.merchantSku).map(r => ({
         sku: String(r.merchantSku).toUpperCase(),
         name: String(r.name || ''),
+        category: String(r.category || ''),
+        price: typeof r.price === 'number' ? r.price : (Number(r.price) || null),
+        image: r.imageUrl || null,
         // No badge means DoorDash will sell it: available.
         status: r.stockStatus === 'OUT_OF_STOCK' ? 'out_of_stock' : r.stockStatus === 'LOW_STOCK' ? 'low_stock' : 'in_stock',
     }));

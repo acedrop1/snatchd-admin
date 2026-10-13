@@ -813,7 +813,7 @@ async function applyAssortment(storeId: string): Promise<Record<string, any>> {
         return { skipped: true, rows: rows.length, prev };
     }
     const bySku = new Map(rows.map(r => [r.sku, r]));
-    const snap = await db.collection('products').where('storeId', '==', storeId).select('variants', 'isActive', 'discontinued', 'atStore', 'availability', 'availabilitySource').get();
+    const snap = await db.collection('products').where('storeId', '==', storeId).select('variants', 'isActive', 'discontinued', 'atStore', 'availability', 'availabilitySource', 'storeCategory').get();
     const writes: Parameters<typeof commitChunked>[0] = [];
     let shown = 0, hidden = 0, soldOut = 0;
     const matchedSkus = new Set<string>();
@@ -824,7 +824,8 @@ async function applyAssortment(storeId: string): Promise<Record<string, any>> {
         visible ? shown++ : hidden++;
         if (hit?.status === 'out_of_stock') soldOut++;
         const atStore = hit ? hit.status : null;
-        const data: any = { isActive: visible, atStore, atStoreCheckedAt: now() };
+        const storeCategory = hit ? hit.category || null : null;
+        const data: any = { isActive: visible, atStore, storeCategory, atStoreCheckedAt: now() };
         if (listedAtStore(atStore)) {
             data.availability = storeOverridesOnline(doc.get('availability') || {});
             data.availabilitySource = 'store_listed';
@@ -835,12 +836,15 @@ async function applyAssortment(storeId: string): Promise<Record<string, any>> {
             data.fingerprint = null;
         }
         const sourceSame = data.availabilitySource === undefined || doc.get('availabilitySource') === data.availabilitySource;
-        if (doc.get('isActive') === visible && doc.get('atStore') === atStore && sourceSame) continue;
+        if (doc.get('isActive') === visible && doc.get('atStore') === atStore && (doc.get('storeCategory') ?? null) === storeCategory && sourceSame) continue;
         writes.push({ ref: doc.ref, merge: true, data });
     }
     await commitChunked(writes);
     const report = { rows: rows.length, listed, matched: matchedSkus.size, shown, hidden, soldOut, written: writes.length };
-    await storeDoc.ref.set({ assortmentRows: rows.length, assortmentCheckedAt: now(), assortmentReport: report }, { merge: true });
+    // Items on the store's listing we have no product record for (store-only colours etc.), so the portal can show the whole listing
+    const unmatched = rows.filter(r => !matchedSkus.has(r.sku)).slice(0, 300)
+        .map(r => ({ sku: r.sku, name: r.name, category: r.category, price: r.price, image: r.image, status: r.status }));
+    await storeDoc.ref.set({ assortmentRows: rows.length, assortmentCheckedAt: now(), assortmentReport: report, assortmentUnmatched: unmatched }, { merge: true });
     console.log(`✅ ${storeDoc.get('name')} assortment:`, JSON.stringify(report));
     return report;
 }

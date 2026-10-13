@@ -105,8 +105,10 @@ export default function EditStorePage() {
     const [sourceDomain, setSourceDomain] = useState("");
     const [sourceStoreId, setSourceStoreId] = useState("3862");   // Zara SoHo, 503 Broadway
     const [sourceQuery, setSourceQuery] = useState("");
+    const [changingSource, setChangingSource] = useState(false);
     // What the physical store carries, read daily from its DoorDash listing
-    const [assortment, setAssortment] = useState<{ ddId: string; report: any; checkedAt: Date | null } | null>(null);
+    const [assortment, setAssortment] = useState<{ ddId: string; report: any; checkedAt: Date | null; unmatched: any[] } | null>(null);
+    const [fullCatalog, setFullCatalog] = useState(false);
     const [savingSource, setSavingSource] = useState(false);
     const [sourceSaved, setSourceSaved] = useState(false);
     const [syncing, setSyncing] = useState(false);
@@ -140,6 +142,7 @@ export default function EditStorePage() {
                         ddId: String(data.doordashStoreId),
                         report: data.assortmentReport || null,
                         checkedAt: data.assortmentCheckedAt?.toDate?.() ?? null,
+                        unmatched: data.assortmentUnmatched || [],
                     } : null);
                     setRating(data.rating?.toString() || "5.0");
                     setDeliveryTime(data.deliveryTime || "30-45 min");
@@ -211,6 +214,7 @@ export default function EditStorePage() {
                 name, description, externalId, brand: brand.trim() || name.split(" ")[0],
                 inventorySource, sourceDomain: sourceDomain.trim() || null,
                 sourceStoreId: inventorySource === "zara" ? sourceStoreId.trim() : null, sourceQuery: sourceQuery.trim() || null,
+                sourceCategories: inventorySource === "zara" ? "2420954:211,2642765:290,2431948:500" : null,
                 logo: logoUrl, image: bannerUrl,
                 categories: categories.split(",").map(c => c.trim()).filter(c => c.length > 0),
                 rating: parseFloat(rating),
@@ -260,6 +264,10 @@ export default function EditStorePage() {
     };
 
     const [bulking, setBulking] = useState(false);
+    // A store with a DoorDash listing: the portal shows what the STORE carries
+    const listed = assortment ? savedProducts.filter(p => p.atStore) : savedProducts;
+    const viewProducts = assortment && !fullCatalog ? listed : savedProducts;
+
     const setAllShown = async (next: boolean) => {
         const targets = savedProducts.filter(p => (p.isActive !== false) !== next);
         if (!targets.length) return;
@@ -299,6 +307,7 @@ export default function EditStorePage() {
             await updateDoc(doc(db, "stores", storeId), {
                 inventorySource, sourceDomain: sourceDomain.trim() || null, brand: brand.trim() || name.split(" ")[0],
                 sourceStoreId: inventorySource === "zara" ? sourceStoreId.trim() : null, sourceQuery: sourceQuery.trim() || null,
+                sourceCategories: inventorySource === "zara" ? "2420954:211,2642765:290,2431948:500" : null,
             });
             setSourceSaved(true);
             setTimeout(() => setSourceSaved(false), 4000);
@@ -388,7 +397,7 @@ export default function EditStorePage() {
                     Live Inventory
                     {savedProducts.length > 0 && (
                         <span className="ml-2 px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 text-xs font-mono">
-                            {savedProducts.length}
+                            {assortment ? (assortment.report?.listed ?? listed.length) : savedProducts.length}
                         </span>
                     )}
                 </button>
@@ -641,7 +650,7 @@ export default function EditStorePage() {
                                 <p className="text-sm text-neutral-400 mt-1">Where this location's products, prices, sizes and availability come from.</p>
                             </div>
                             <div className="flex items-center gap-2">
-                                {savedProducts.length > 0 && (
+                                {savedProducts.length > 0 && !assortment && (
                                     <>
                                         <button onClick={() => setAllShown(true)} disabled={bulking}
                                             className="flex items-center gap-2 px-3 py-1.5 bg-green-500/10 border border-green-500/20 text-green-400 rounded text-xs font-medium hover:bg-green-500/20 transition disabled:opacity-50">
@@ -662,6 +671,28 @@ export default function EditStorePage() {
                             </div>
                         </div>
 
+                        {(() => {
+                            const label: Record<string, string> = {
+                                shopify: `Shopify catalog${sourceDomain ? ` · ${sourceDomain}` : ""}`,
+                                bergdorf: "Bergdorf runner · their own per-store count",
+                                zara: "Zara store stock · via parse.bot",
+                                manual: "No live source · a Snatcher confirms in store",
+                            };
+                            return (
+                                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/40 px-4 py-3">
+                                    <div className="text-sm">
+                                        <p className="text-white font-medium">{label[inventorySource] || inventorySource}</p>
+                                        {assortment && <p className="text-xs text-green-400/90 mt-0.5">+ store listing from DoorDash (#{assortment.ddId}) decides what's shown, every morning</p>}
+                                    </div>
+                                    <button type="button" onClick={() => setChangingSource(v => !v)}
+                                        className="text-xs text-neutral-400 hover:text-white underline-offset-2 hover:underline">
+                                        {changingSource ? "Cancel" : "Change source"}
+                                    </button>
+                                </div>
+                            );
+                        })()}
+
+                        {changingSource && (
                         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                             {([
                                 { v: "shopify", t: "Shopify catalog",  d: "Any brand on a standard Shopify store — paste the domain" },
@@ -676,8 +707,9 @@ export default function EditStorePage() {
                                 </button>
                             ))}
                         </div>
+                        )}
 
-                        {inventorySource === "shopify" && (
+                        {inventorySource === "shopify" && changingSource && (
                             <div className="grid gap-2">
                                 <label className="text-sm font-medium text-neutral-300">Store domain</label>
                                 <input type="text" value={sourceDomain} onChange={e => setSourceDomain(e.target.value.replace(/^https?:\/\//, "").replace(/\/.*$/, ""))}
@@ -704,16 +736,16 @@ export default function EditStorePage() {
                                     <p className="text-xs text-neutral-500">Stock is read for this one store. One Zara store per Snatchd store.</p>
                                 </div>
                                 <div className="grid gap-2">
-                                    <label className="text-sm font-medium text-neutral-300">Catalog searches</label>
-                                    <input type="text" value={sourceQuery} onChange={e => setSourceQuery(e.target.value)}
-                                        placeholder="blazer, jeans, dress, coat, knit, shirt, trousers, skirt"
-                                        className="w-full rounded-lg bg-black border border-neutral-800 px-4 py-2 text-white font-mono text-sm placeholder:text-neutral-600 focus:border-white focus:outline-none transition" />
-                                    <p className="text-xs text-neutral-500">Comma-separated. Each term is one search (~36 products). Sizes and photos arrive with the sync; the SoHo count runs on products you Show.</p>
+                                    <label className="text-sm font-medium text-neutral-300">Products loaded</label>
+                                    <div className="rounded-lg border border-neutral-800 bg-black px-4 py-2 text-sm text-white">
+                                        500 women's · 500 men's
+                                    </div>
+                                    <p className="text-xs text-neutral-500">Women's best sellers plus the newest arrivals, and the top men's best sellers, in Zara's own order. Refreshed with the daily catalog sync.</p>
                                 </div>
                             </div>
                         )}
 
-                        {inventorySource === "bergdorf" && (
+                        {inventorySource === "bergdorf" && changingSource && (
                             <p className="text-xs text-neutral-400 rounded-lg border border-white/10 bg-black/40 p-3">
                                 Products arrive from the runner (<span className="font-mono">tools/bergdorf-runner</span>). New items land hidden — use <strong className="text-white">Show</strong> on the rows below to carry them. Save the source so the app knows to ask the runner for live checks.
                             </p>
@@ -754,7 +786,16 @@ export default function EditStorePage() {
                             <div className="p-4 border-b border-white/5 flex items-center justify-between">
                                 <div>
                                     <h4 className="font-semibold text-white">Current Inventory</h4>
-                                    <p className="text-xs text-neutral-400 mt-0.5">{savedProducts.filter(p => p.isActive !== false).length} shown in app · {savedProducts.length} total</p>
+                                    {assortment ? (
+                                        <p className="text-xs text-neutral-400 mt-0.5">
+                                            {savedProducts.filter(p => p.isActive !== false).length} shown in app · {assortment.report?.listed ?? listed.length} on the store's listing
+                                            <button onClick={() => setFullCatalog(v => !v)} className="ml-2 text-neutral-500 hover:text-white underline-offset-2 hover:underline">
+                                                {fullCatalog ? "Show store listing only" : `Show full online catalog (${savedProducts.length})`}
+                                            </button>
+                                        </p>
+                                    ) : (
+                                        <p className="text-xs text-neutral-400 mt-0.5">{savedProducts.filter(p => p.isActive !== false).length} shown in app · {savedProducts.length} total</p>
+                                    )}
                                     {assortment && (
                                         <p className="text-xs text-green-400/90 mt-1">
                                             Store listing: {assortment.report?.listed ?? "—"} items at this store (DoorDash #{assortment.ddId}) · {assortment.report?.matched ?? "—"} matched · {assortment.report?.soldOut ?? 0} sold out
@@ -766,8 +807,8 @@ export default function EditStorePage() {
                                 <div className="flex flex-wrap gap-2">
                                     {/* Category breakdown */}
                                     {Object.entries(
-                                        savedProducts.reduce((acc: Record<string, number>, p: any) => {
-                                            const cat = p.category || "Other";
+                                        viewProducts.reduce((acc: Record<string, number>, p: any) => {
+                                            const cat = (assortment && !fullCatalog ? p.storeCategory : null) || p.category || "Other";
                                             acc[cat] = (acc[cat] || 0) + 1;
                                             return acc;
                                         }, {})
@@ -792,7 +833,7 @@ export default function EditStorePage() {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {savedProducts.map((p, i) => (
+                                        {viewProducts.map((p, i) => (
                                             <tr key={p.id || i} className="border-t border-white/5 hover:bg-white/5 transition">
                                                 <td className="px-4 py-2">
                                                     <div className="h-10 w-10 rounded bg-neutral-800 overflow-hidden">
@@ -808,7 +849,7 @@ export default function EditStorePage() {
                                                     <div className="text-xs text-neutral-500 font-mono">{p.externalId}</div>
                                                 </td>
                                                 <td className="px-4 py-2">
-                                                    <span className="px-2 py-0.5 rounded bg-white/5 text-xs text-neutral-300">{p.category}</span>
+                                                    <span className="px-2 py-0.5 rounded bg-white/5 text-xs text-neutral-300">{(assortment && !fullCatalog ? p.storeCategory : null) || p.category}</span>
                                                 </td>
                                                 <td className="px-4 py-2 text-right text-white font-medium">
                                                     ${p.price}
@@ -851,6 +892,27 @@ export default function EditStorePage() {
                                 </table>
                             </div>
                         </div>
+                    )}
+
+                    {assortment && assortment.unmatched.length > 0 && !fullCatalog && (
+                        <details className="rounded-xl border border-white/10 bg-neutral-900/50 p-4">
+                            <summary className="cursor-pointer text-sm text-neutral-300">
+                                {assortment.unmatched.length} more items on the store's listing <span className="text-neutral-500">· not in the brand's online catalogue, so not shown in the app</span>
+                            </summary>
+                            <div className="mt-3 grid gap-2 sm:grid-cols-2 max-h-80 overflow-auto">
+                                {assortment.unmatched.map((u: any) => (
+                                    <div key={u.sku} className="flex items-center gap-3 rounded-lg bg-black/40 p-2">
+                                        <div className="h-10 w-10 shrink-0 rounded bg-neutral-800 overflow-hidden">
+                                            {u.image ? <img src={u.image} alt="" className="h-full w-full object-cover" /> : <Package className="h-5 w-5 text-neutral-600 m-auto mt-2.5" />}
+                                        </div>
+                                        <div className="min-w-0 text-xs">
+                                            <div className="text-white truncate">{u.name}</div>
+                                            <div className="text-neutral-500">{u.category} · {u.price != null ? `$${u.price}` : "—"} · <span className={u.status === "out_of_stock" ? "text-red-400" : u.status === "low_stock" ? "text-amber-400" : "text-green-400"}>{u.status.replace(/_/g, " ")}</span></div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </details>
                     )}
 
                     {savedProducts.length > 0 && (
