@@ -397,7 +397,7 @@ export default function EditStorePage() {
                     Live Inventory
                     {savedProducts.length > 0 && (
                         <span className="ml-2 px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 text-xs font-mono">
-                            {assortment ? (assortment.report?.listed ?? listed.length) : savedProducts.length}
+                            {assortment ? (assortment.report?.products ?? listed.length) : savedProducts.length}
                         </span>
                     )}
                 </button>
@@ -788,7 +788,7 @@ export default function EditStorePage() {
                                     <h4 className="font-semibold text-white">Current Inventory</h4>
                                     {assortment ? (
                                         <p className="text-xs text-neutral-400 mt-0.5">
-                                            {savedProducts.filter(p => p.isActive !== false).length} shown in app · {assortment.report?.listed ?? listed.length} on the store's listing
+                                            {savedProducts.filter(p => p.isActive !== false).length} shown in app · {assortment.report?.products ?? listed.length} products at the store <span className="text-neutral-500">({assortment.report?.listed ?? "—"} DoorDash items: some products are listed once per size)</span>
                                             <button onClick={() => setFullCatalog(v => !v)} className="ml-2 text-neutral-500 hover:text-white underline-offset-2 hover:underline">
                                                 {fullCatalog ? "Show store listing only" : `Show full online catalog (${savedProducts.length})`}
                                             </button>
@@ -870,7 +870,9 @@ export default function EditStorePage() {
                                                         const inStock = vals.filter(v => v === "in_stock").length;
                                                         if (p.atStore === "in_stock" || p.atStore === "low_stock") {
                                                             const low = p.atStore === "low_stock";
-                                                            return <span className={low ? "text-amber-400" : "text-green-400"}>{low ? "Low at store" : "In store"}<span className="ml-1.5 text-[10px] uppercase tracking-wide text-neutral-500">{inStock}/{vals.length} sizes online</span></span>;
+                                                            const ss = p.atStoreSizes ? Object.values(p.atStoreSizes) as string[] : null;
+                                                            const note = ss ? `${ss.filter(x => x !== "out_of_stock").length}/${ss.length} sizes at store` : `${inStock}/${vals.length} sizes online`;
+                                                            return <span className={low ? "text-amber-400" : "text-green-400"}>{low ? "Low at store" : "In store"}<span className="ml-1.5 text-[10px] uppercase tracking-wide text-neutral-500">{note}</span></span>;
                                                         }
                                                         if (!vals.length || p.availabilitySource === "none") return <span className="text-neutral-500">not checked yet</span>;
                                                         const src = p.availabilitySource === "zara" || p.availabilitySource === "bergdorf" ? "at store"

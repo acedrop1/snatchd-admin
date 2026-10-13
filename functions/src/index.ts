@@ -6,7 +6,7 @@ import Stripe from 'stripe';
 import { fetchSkimsProduct, fetchSkimsCollectionHandles, fetchSkimsStores } from './skims';
 import { fetchShopifyCatalog, fetchShopifyProduct, SHOPIFY_FEED_CAP } from './shopify';
 import { fetchZaraCatalog, fetchZaraProduct } from './zara';
-import { fetchDoorDashAssortment } from './doordash';
+import { fetchDoorDashAssortment, AssortmentRow as AssortmentRowT } from './doordash';
 import { SourceProduct, StoreSource, SizeState, SourceKind, sleep } from './types';
 
 admin.initializeApp();
@@ -343,20 +343,33 @@ const listedAtStore = (atStore: unknown) => atStore === 'in_stock' || atStore ==
 const storeOverridesOnline = (a: Record<string, SizeState>) =>
     Object.fromEntries(Object.entries(a).map(([k, v]) => [k, v === 'out_of_stock' ? 'unknown' : v])) as Record<string, SizeState>;
 
-function patchFor(p: SourceProduct, source: SourceKind, atStore?: unknown) {
+type StoreListing = { atStore?: unknown; atStoreSizes?: Record<string, string> | null };
+const listingOf = (d: any): StoreListing => ({ atStore: d?.atStore, atStoreSizes: d?.atStoreSizes });
+
+/** Apply the store's own per-size answer on top of availability. */
+const withStoreSizes = (a: Record<string, SizeState>, sizes?: Record<string, string> | null) => {
+    if (!sizes) return a;
+    const out = { ...a };
+    for (const [size, st] of Object.entries(sizes)) out[size] = st === 'out_of_stock' ? 'out_of_stock' : 'in_stock';
+    return out;
+};
+
+function patchFor(p: SourceProduct, source: SourceKind, listing?: StoreListing) {
+    const atStore = listing?.atStore;
     let availability = (source === 'bergdorf' || source === 'zara') && p.storeAvailability ? p.storeAvailability : p.availability;
     // For a store whose shelf we read (Skims Fifth Ave via DoorDash), the store's
     // listing beats the website: an item sold out online but listed in the store
     // is in stock, and its online-sold-out sizes become unknown — the Snatcher
     // confirms the size. Without this, half the rack reads "sold out".
     const storeListed = listedAtStore(atStore);
-    if (storeListed) availability = storeOverridesOnline(availability);
+    if (storeListed) availability = withStoreSizes(storeOverridesOnline(availability), listing?.atStoreSizes);
     const states = Object.values(availability);
     // No per-size data yet (a listing-only catalog row) is UNKNOWN, not sold out.
     // Claiming out-of-stock from an empty set is the one mistake this whole
     // model exists to prevent: it hides real products and reads as "sold out".
     const unchecked = states.length === 0;
-    const inStock = unchecked || storeListed ? true : states.some(s => s === 'in_stock');
+    const finalStates = Object.values(availability);
+    const inStock = unchecked ? true : storeListed ? finalStates.some(s => s !== 'out_of_stock') : states.some(s => s === 'in_stock');
     return {
         title: p.title, handle: p.handle, externalId: p.externalId, productUrl: p.productUrl,
         price: p.price, compareAtPrice: p.compareAtPrice,
@@ -432,12 +445,12 @@ export const syncStoreCatalog = onRequest({ cors: true, timeoutSeconds: 540, mem
 
         const existing = await db.collection('products').where('storeId', '==', storeId).get();
         const prints = new Map(existing.docs.map(d => [d.id, d.get('fingerprint')]));
-        const atStoreById = new Map(existing.docs.map(d => [d.id, d.get('atStore')]));
+        const listingById = new Map(existing.docs.map(d => [d.id, listingOf(d.data())]));
         const writes: Parameters<typeof commitChunked>[0] = [];
         let added = 0, unchanged = 0;
         for (const p of products) {
             const id = `${source}_${p.externalId}_${storeId}`;
-            const data: any = { ...patchFor(p, source, atStoreById.get(id)), brand: p.brand || store.brand, storeId, deliveryTime: '45 Mins' };
+            const data: any = { ...patchFor(p, source, listingById.get(id)), brand: p.brand || store.brand, storeId, deliveryTime: '45 Mins' };
             const known = prints.has(id);
             if (known && prints.get(id) === data.fingerprint) { unchanged++; continue; }
             if (!known) {
@@ -502,7 +515,7 @@ async function refreshAllStock(kinds?: SourceKind[]): Promise<Record<string, { u
                 for (const doc of snap.docs) {
                     const p = byHandle.get(doc.get('handle'));
                     if (p) {
-                        const data: any = patchFor(p, 'shopify', doc.get('atStore'));
+                        const data: any = patchFor(p, 'shopify', listingOf(doc.data()));
                         if (doc.get('discontinued') === true) {
                             // It's back: restore what the customer could see before
                             data.discontinued = false;
@@ -535,7 +548,7 @@ async function refreshAllStock(kinds?: SourceKind[]): Promise<Record<string, { u
                 const sizes: string[] = doc.get('sizes') || [];
                 if (tripped || !handle) { writes.push({ ref: doc.ref, data: unknownPatch(sizes), merge: true }); unknown++; continue; }
                 try {
-                    writes.push({ ref: doc.ref, data: patchFor(await fetchOne(store, handle), store.inventorySource, doc.get('atStore')), merge: true });
+                    writes.push({ ref: doc.ref, data: patchFor(await fetchOne(store, handle), store.inventorySource, listingOf(doc.data())), merge: true });
                     updated++; failures = 0;
                 } catch (e: any) {
                     failures++; unknown++;
@@ -602,7 +615,7 @@ export const checkAvailability = onRequest({ cors: true, timeoutSeconds: 30 }, a
         } else if (source !== 'manual' && handle && stale && storeSnap) {
             try {
                 const store = await loadStore(storeSnap.id);
-                const patch = patchFor(await fetchOne(store, handle), source, d.atStore);
+                const patch = patchFor(await fetchOne(store, handle), source, listingOf(d));
                 await ref.set(patch, { merge: true });
                 d = { ...d, ...patch, availabilityCheckedAt: admin.firestore.Timestamp.now() };
             } catch (e: any) { console.warn(`live refresh failed for ${productId}: ${e.message}`); }
@@ -727,12 +740,12 @@ async function syncAllCatalogs(): Promise<Record<string, any>> {
             const { products } = await fetchCatalog(store, Infinity);
             const existing = await db.collection('products').where('storeId', '==', store.id).get();
             const prints = new Map(existing.docs.map(d => [d.id, d.get('fingerprint')]));
-            const atStoreById = new Map(existing.docs.map(d => [d.id, d.get('atStore')]));
+            const listingById = new Map(existing.docs.map(d => [d.id, listingOf(d.data())]));
             const writes: Parameters<typeof commitChunked>[0] = [];
             let added = 0;
             for (const p of products) {
                 const id = `${store.inventorySource}_${p.externalId}_${store.id}`;
-                const data: any = { ...patchFor(p, store.inventorySource, atStoreById.get(id)), brand: p.brand || store.brand, storeId: store.id, deliveryTime: '45 Mins' };
+                const data: any = { ...patchFor(p, store.inventorySource, listingById.get(id)), brand: p.brand || store.brand, storeId: store.id, deliveryTime: '45 Mins' };
                 if (prints.has(id)) { if (prints.get(id) === data.fingerprint) continue; }
                 else { data.createdAt = now(); data.isActive = false; added++; }
                 writes.push({ ref: db.doc(`products/${id}`), data, merge: true });
@@ -813,21 +826,29 @@ async function applyAssortment(storeId: string): Promise<Record<string, any>> {
         return { skipped: true, rows: rows.length, prev };
     }
     const bySku = new Map(rows.map(r => [r.sku, r]));
-    const snap = await db.collection('products').where('storeId', '==', storeId).select('variants', 'isActive', 'discontinued', 'atStore', 'availability', 'availabilitySource', 'storeCategory').get();
+    const snap = await db.collection('products').where('storeId', '==', storeId).select('variants', 'isActive', 'discontinued', 'atStore', 'atStoreSizes', 'availability', 'availabilitySource', 'storeCategory').get();
     const writes: Parameters<typeof commitChunked>[0] = [];
     let shown = 0, hidden = 0, soldOut = 0;
     const matchedSkus = new Set<string>();
     for (const doc of snap.docs) {
-        const hit = (doc.get('variants') || []).map((v: any) => bySku.get(String(v.sku || '').toUpperCase())).find(Boolean);
-        if (hit) matchedSkus.add(hit.sku);
-        const visible = !!hit && hit.status !== 'out_of_stock' && doc.get('discontinued') !== true;
+        // DoorDash lists some products once per size: collect every row for this product
+        const rowsHere: { size: string; row: AssortmentRowT }[] = [];
+        for (const v of doc.get('variants') || []) {
+            const r = bySku.get(String(v.sku || '').toUpperCase());
+            if (r) { rowsHere.push({ size: String(v.size || ''), row: r }); matchedSkus.add(r.sku); }
+        }
+        const rank = { in_stock: 2, low_stock: 1, out_of_stock: 0 } as const;
+        const best = rowsHere.reduce<AssortmentRowT | null>((b, x) => (!b || rank[x.row.status] > rank[b.status] ? x.row : b), null);
+        const atStore = best ? best.status : null;
+        // Per-size store answer only when DoorDash listed more than one size
+        const atStoreSizes = rowsHere.length > 1 ? Object.fromEntries(rowsHere.map(x => [x.size, x.row.status])) : null;
+        const visible = !!best && best.status !== 'out_of_stock' && doc.get('discontinued') !== true;
         visible ? shown++ : hidden++;
-        if (hit?.status === 'out_of_stock') soldOut++;
-        const atStore = hit ? hit.status : null;
-        const storeCategory = hit ? hit.category || null : null;
-        const data: any = { isActive: visible, atStore, storeCategory, atStoreCheckedAt: now() };
+        if (best?.status === 'out_of_stock') soldOut++;
+        const storeCategory = best ? best.category || null : null;
+        const data: any = { isActive: visible, atStore, atStoreSizes, storeCategory, atStoreCheckedAt: now() };
         if (listedAtStore(atStore)) {
-            data.availability = storeOverridesOnline(doc.get('availability') || {});
+            data.availability = withStoreSizes(storeOverridesOnline(doc.get('availability') || {}), atStoreSizes);
             data.availabilitySource = 'store_listed';
             data.inStock = true;
         } else if (doc.get('availabilitySource') === 'store_listed') {
@@ -836,11 +857,13 @@ async function applyAssortment(storeId: string): Promise<Record<string, any>> {
             data.fingerprint = null;
         }
         const sourceSame = data.availabilitySource === undefined || doc.get('availabilitySource') === data.availabilitySource;
-        if (doc.get('isActive') === visible && doc.get('atStore') === atStore && (doc.get('storeCategory') ?? null) === storeCategory && sourceSame) continue;
+        const sizesSame = JSON.stringify(doc.get('atStoreSizes') ?? null) === JSON.stringify(atStoreSizes);
+        if (doc.get('isActive') === visible && doc.get('atStore') === atStore && (doc.get('storeCategory') ?? null) === storeCategory && sizesSame && sourceSame) continue;
         writes.push({ ref: doc.ref, merge: true, data });
     }
     await commitChunked(writes);
-    const report = { rows: rows.length, listed, matched: matchedSkus.size, shown, hidden, soldOut, written: writes.length };
+    const products = shown + soldOut + snap.docs.filter(d => d.get('discontinued') === true && (d.get('variants') || []).some((v: any) => bySku.has(String(v.sku || '').toUpperCase()))).length;
+    const report = { rows: rows.length, listed, matched: matchedSkus.size, products, shown, hidden, soldOut, written: writes.length };
     // Items on the store's listing we have no product record for (store-only colours etc.), so the portal can show the whole listing
     const unmatched = rows.filter(r => !matchedSkus.has(r.sku)).slice(0, 300)
         .map(r => ({ sku: r.sku, name: r.name, category: r.category, price: r.price, image: r.image, status: r.status }));
