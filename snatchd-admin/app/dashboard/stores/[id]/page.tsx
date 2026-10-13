@@ -105,6 +105,8 @@ export default function EditStorePage() {
     const [sourceDomain, setSourceDomain] = useState("");
     const [sourceStoreId, setSourceStoreId] = useState("3862");   // Zara SoHo, 503 Broadway
     const [sourceQuery, setSourceQuery] = useState("");
+    // What the physical store carries, read daily from its DoorDash listing
+    const [assortment, setAssortment] = useState<{ ddId: string; report: any; checkedAt: Date | null } | null>(null);
     const [savingSource, setSavingSource] = useState(false);
     const [sourceSaved, setSourceSaved] = useState(false);
     const [syncing, setSyncing] = useState(false);
@@ -134,6 +136,11 @@ export default function EditStorePage() {
                     setSourceDomain(data.sourceDomain || "");
                     setSourceStoreId(String(data.sourceStoreId || "3862"));
                     setSourceQuery(data.sourceQuery || "");
+                    setAssortment(data.doordashStoreId ? {
+                        ddId: String(data.doordashStoreId),
+                        report: data.assortmentReport || null,
+                        checkedAt: data.assortmentCheckedAt?.toDate?.() ?? null,
+                    } : null);
                     setRating(data.rating?.toString() || "5.0");
                     setDeliveryTime(data.deliveryTime || "30-45 min");
                     setCurrentLogo(data.logo || "");
@@ -748,6 +755,13 @@ export default function EditStorePage() {
                                 <div>
                                     <h4 className="font-semibold text-white">Current Inventory</h4>
                                     <p className="text-xs text-neutral-400 mt-0.5">{savedProducts.filter(p => p.isActive !== false).length} shown in app · {savedProducts.length} total</p>
+                                    {assortment && (
+                                        <p className="text-xs text-green-400/90 mt-1">
+                                            Store listing: {assortment.report?.listed ?? "—"} items at this store (DoorDash #{assortment.ddId}) · {assortment.report?.matched ?? "—"} matched · {assortment.report?.soldOut ?? 0} sold out
+                                            {assortment.checkedAt && <span className="text-neutral-500"> · read {assortment.checkedAt.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>}
+                                            <span className="text-neutral-500"> · refreshes daily 9:30am</span>
+                                        </p>
+                                    )}
                                 </div>
                                 <div className="flex flex-wrap gap-2">
                                     {/* Category breakdown */}
@@ -813,6 +827,10 @@ export default function EditStorePage() {
                                                     {(() => {
                                                         const a = p.availability || {}; const vals = Object.values(a) as string[];
                                                         const inStock = vals.filter(v => v === "in_stock").length;
+                                                        if (p.atStore === "in_stock" || p.atStore === "low_stock") {
+                                                            const low = p.atStore === "low_stock";
+                                                            return <span className={low ? "text-amber-400" : "text-green-400"}>{low ? "Low at store" : "In store"}<span className="ml-1.5 text-[10px] uppercase tracking-wide text-neutral-500">{inStock}/{vals.length} sizes online</span></span>;
+                                                        }
                                                         if (!vals.length || p.availabilitySource === "none") return <span className="text-neutral-500">not checked yet</span>;
                                                         const src = p.availabilitySource === "zara" || p.availabilitySource === "bergdorf" ? "at store"
                                                             : p.availabilitySource === "zara_online" || p.availabilitySource === "shopify" || p.availabilitySource === "skims" ? "online" : "";
