@@ -32,7 +32,8 @@ async function zaraGet(endpoint: string, params: Record<string, string>): Promis
         // POST with a JSON body: GET on this API stalled 2 min then answered a false 401 (2026-10-13)
         const res = await axios.post(`${BASE}/${endpoint}`, params, { headers: { 'X-API-Key': key, 'Content-Type': 'application/json' }, timeout: 180000, validateStatus: () => true });
         if (res.status === 200 && res.data?.status === 'success') return res.data.data;
-        if (res.status === 401) throw new Error('parse.bot: bad API key (401)');
+        // parse.bot answers a false 401 now and then after a 2-min stall (2 of 4 calls on 2026-10-13); retry before believing it
+        if (res.status === 401) { if (attempt < 2) continue; throw new Error('parse.bot: bad API key (401)'); }
         if (res.status === 402) throw new Error('parse.bot: out of credits (402)');
         const err = res.data?.error || {};
         const msg = String(err.message || err.error || '');
