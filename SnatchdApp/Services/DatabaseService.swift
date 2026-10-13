@@ -205,6 +205,7 @@ class DatabaseService: ObservableObject {
         )
         product.storeCategory = data["storeCategory"] as? String
         product.storeRank = (data["storeRank"] as? NSNumber)?.intValue
+        product.bestSellerRank = (data["bestSellerRank"] as? NSNumber)?.intValue
         return product
     }
 

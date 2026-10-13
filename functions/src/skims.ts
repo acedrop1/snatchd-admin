@@ -165,6 +165,16 @@ export async function fetchSkimsCollectionHandles(collection: string): Promise<s
     return [...handles];
 }
 
+/** Product links in the site's header/footer: they're on every page, even a missing one,
+ *  so collection reads drop them (Skims promotes one bra in the header on every page). */
+export async function fetchSkimsChromeHandles(): Promise<Set<string>> {
+    const res = await axios.get(`${BASE}/collections/snatchd-no-such-collection.data`, {
+        headers: { 'User-Agent': UA, 'Accept': 'text/x-script, */*' }, timeout: 15000,
+        responseType: 'text', transformResponse: r => r, validateStatus: () => true,
+    });
+    return new Set([...String(res.data).matchAll(/\/products\/([a-z0-9][a-z0-9-]{2,})/g)].map(m => m[1]));
+}
+
 // ── Stores (Stockist) ──────────────────────────────────────────────────────
 export async function fetchSkimsStores(): Promise<SkimsStore[]> {
     const res = await axios.get(`https://stockist.co/api/v1/${STOCKIST_TAG}/locations/all`, {

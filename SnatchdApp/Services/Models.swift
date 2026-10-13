@@ -27,6 +27,8 @@ struct Product: Identifiable {
     // The store's own section and position (Skims: its DoorDash menu), when the store gives one
     var storeCategory: String? = nil
     var storeRank: Int? = nil
+    // Position in the brand's own best sellers (all colours of a best-selling style share it)
+    var bestSellerRank: Int? = nil
 
     init(id: String = UUID().uuidString, storeId: String = "", title: String, brand: String, price: Double, imageName: String, imageURL: String? = nil, images: [String] = [], deliveryTime: String, category: String, gender: String = "", sizes: [String] = [], styles: [String] = [], description: String = "", inStock: Bool = true, availability: [String: String] = [:], availabilitySource: String = "none", availabilityCheckedAt: Date? = nil, createdAt: Date? = nil) {
         self.id = id

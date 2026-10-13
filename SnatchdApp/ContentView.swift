@@ -30,7 +30,7 @@ struct ContentView: View {
             get: { selectedTab },
             set: { tab in
                 // On a store page, search means "search this store", not the whole app
-                if tab == .search && selectedTab == .stores && StoreScreen.isOpen {
+                if tab == .search && StoreScreen.isOpen {
                     NotificationCenter.default.post(name: .searchInStore, object: nil)
                     return
                 }

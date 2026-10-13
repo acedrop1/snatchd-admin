@@ -3,7 +3,7 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import * as admin from 'firebase-admin';
 import axios from 'axios';
 import Stripe from 'stripe';
-import { fetchSkimsProduct, fetchSkimsCollectionHandles, fetchSkimsStores } from './skims';
+import { fetchSkimsProduct, fetchSkimsCollectionHandles, fetchSkimsChromeHandles, fetchSkimsStores } from './skims';
 import { fetchShopifyCatalog, fetchShopifyProduct, SHOPIFY_FEED_CAP } from './shopify';
 import { fetchZaraCatalog, fetchZaraProduct } from './zara';
 import { fetchDoorDashAssortment, AssortmentRow as AssortmentRowT } from './doordash';
@@ -831,7 +831,27 @@ async function applyAssortment(storeId: string): Promise<Record<string, any>> {
     const bySku = new Map(rows.map(r => [r.sku, r]));
     // DoorDash returns the store's menu in order (section by section), so a row's index is the store's own order
     const position = new Map(rows.map((r, i) => [r, i]));
-    const snap = await db.collection('products').where('storeId', '==', storeId).select('variants', 'isActive', 'discontinued', 'atStore', 'atStoreSizes', 'availability', 'availabilitySource', 'storeCategory', 'storeRank').get();
+    const snap = await db.collection('products').where('storeId', '==', storeId).select('variants', 'isActive', 'discontinued', 'atStore', 'atStoreSizes', 'availability', 'availabilitySource', 'storeCategory', 'storeRank', 'bestSellerRank', 'handle', 'title').get();
+    // What sells most at the brand: its own best-seller collections, in its order. Skims lists one
+    // colour per best seller and the store often has another, so the rank goes to every colour of the style.
+    const style = (t: unknown) => String(t || '').split(' | ')[0].trim();
+    const styleOf = new Map(snap.docs.map(d => [d.get('handle'), style(d.get('title'))]));
+    let bestSeller: Map<string, number> | null = null;
+    const bsCollections = String(storeDoc.get('bestSellerCollections') || '').split(',').map(x => x.trim()).filter(Boolean);
+    try {
+        if (bsCollections.length) {
+            bestSeller = new Map();
+            const chrome = await fetchSkimsChromeHandles();
+            for (const c of bsCollections) {
+                let i = 0;
+                for (const h of await fetchSkimsCollectionHandles(c)) {
+                    const st = chrome.has(h) ? undefined : styleOf.get(h);
+                    if (st && (bestSeller.get(st) ?? Infinity) > i) bestSeller.set(st, i);
+                    if (st) i++;
+                }
+            }
+        }
+    } catch (e: any) { bestSeller = null; console.warn(`best sellers unavailable, keeping last ranks: ${e.message}`); }
     const writes: Parameters<typeof commitChunked>[0] = [];
     let shown = 0, hidden = 0, soldOut = 0;
     const matchedSkus = new Set<string>();
@@ -855,6 +875,8 @@ async function applyAssortment(storeId: string): Promise<Record<string, any>> {
         const storeCategory = best ? best.category || null : null;
         const storeRank = rowsHere.length ? Math.min(...rowsHere.map(x => position.get(x.row)!)) : null;
         const data: any = { isActive: visible, atStore, atStoreSizes, storeCategory, storeRank, atStoreCheckedAt: now() };
+        const bestSellerRank = bestSeller ? bestSeller.get(style(doc.get('title'))) ?? null : doc.get('bestSellerRank') ?? null;
+        data.bestSellerRank = bestSellerRank;
         if (listedAtStore(atStore)) {
             data.availability = withStoreSizes(storeOverridesOnline(doc.get('availability') || {}), atStoreSizes);
             data.availabilitySource = 'store_listed';
@@ -866,7 +888,7 @@ async function applyAssortment(storeId: string): Promise<Record<string, any>> {
         }
         const sourceSame = data.availabilitySource === undefined || doc.get('availabilitySource') === data.availabilitySource;
         const sizesSame = JSON.stringify(doc.get('atStoreSizes') ?? null) === JSON.stringify(atStoreSizes);
-        if (doc.get('isActive') === visible && doc.get('atStore') === atStore && (doc.get('storeCategory') ?? null) === storeCategory && (doc.get('storeRank') ?? null) === storeRank && sizesSame && sourceSame) continue;
+        if (doc.get('isActive') === visible && doc.get('atStore') === atStore && (doc.get('storeCategory') ?? null) === storeCategory && (doc.get('storeRank') ?? null) === storeRank && (doc.get('bestSellerRank') ?? null) === bestSellerRank && sizesSame && sourceSame) continue;
         writes.push({ ref: doc.ref, merge: true, data });
     }
     await commitChunked(writes);
@@ -885,9 +907,10 @@ export const syncAssortment = onRequest({ cors: true, timeoutSeconds: 540, memor
     const viaRunner = !!process.env.RUNNER_TOKEN && req.get('x-runner-token') === process.env.RUNNER_TOKEN;
     if (!viaRunner && !(await requireAdmin(req, res))) return;
     try {
-        const { storeId, doordashStoreId } = req.body || {};
+        const { storeId, doordashStoreId, bestSellerCollections } = req.body || {};
         if (!storeId) { res.status(400).json({ error: 'storeId required' }); return; }
         if (doordashStoreId) await db.doc(`stores/${storeId}`).set({ doordashStoreId: String(doordashStoreId) }, { merge: true });
+        if (bestSellerCollections != null) await db.doc(`stores/${storeId}`).set({ bestSellerCollections: String(bestSellerCollections) }, { merge: true });
         res.json(await applyAssortment(storeId));
     } catch (error: any) { res.status(500).json({ error: error.message }); }
 });

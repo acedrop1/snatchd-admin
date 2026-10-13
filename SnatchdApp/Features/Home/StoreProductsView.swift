@@ -95,9 +95,9 @@ struct StoreProductsView: View {
         case "High to Low":
             results.sort { $0.price > $1.price }
         default:
-            // Featured: the store's own order (stable, so ties keep their place)
+            // Featured: the brand's best sellers first, then the store's own order
             results = results.enumerated()
-                .sorted { ($0.element.storeRank ?? .max, $0.offset) < ($1.element.storeRank ?? .max, $1.offset) }
+                .sorted { ($0.element.bestSellerRank ?? .max, $0.element.storeRank ?? .max, $0.offset) < ($1.element.bestSellerRank ?? .max, $1.element.storeRank ?? .max, $1.offset) }
                 .map(\.element)
         }
         return results
