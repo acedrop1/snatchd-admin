@@ -214,7 +214,7 @@ export default function EditStorePage() {
                 name, description, externalId, brand: brand.trim() || name.split(" ")[0],
                 inventorySource, sourceDomain: sourceDomain.trim() || null,
                 sourceStoreId: inventorySource === "zara" ? sourceStoreId.trim() : null, sourceQuery: sourceQuery.trim() || null,
-                sourceCategories: inventorySource === "zara" ? "2420954:211,2642765:290,2431948:500" : null,
+                sourceCategories: inventorySource === "zara" ? "500=2420954,2546081;500=2544454,2431948:300" : null,
                 logo: logoUrl, image: bannerUrl,
                 categories: categories.split(",").map(c => c.trim()).filter(c => c.length > 0),
                 rating: parseFloat(rating),
@@ -307,7 +307,7 @@ export default function EditStorePage() {
             await updateDoc(doc(db, "stores", storeId), {
                 inventorySource, sourceDomain: sourceDomain.trim() || null, brand: brand.trim() || name.split(" ")[0],
                 sourceStoreId: inventorySource === "zara" ? sourceStoreId.trim() : null, sourceQuery: sourceQuery.trim() || null,
-                sourceCategories: inventorySource === "zara" ? "2420954:211,2642765:290,2431948:500" : null,
+                sourceCategories: inventorySource === "zara" ? "500=2420954,2546081;500=2544454,2431948:300" : null,
             });
             setSourceSaved(true);
             setTimeout(() => setSourceSaved(false), 4000);

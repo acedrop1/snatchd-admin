@@ -82,29 +82,51 @@ function baseProduct(p: any, c: any, brand: string): SourceProduct {
 }
 const titleCase = (s: string) => s.toLowerCase().replace(/\b\w/g, m => m.toUpperCase());
 
-/** Catalog seed: one listing row per colour, from a few search queries. Sizes
- *  and stock arrive when the product is shown (same two-phase model as Bergdorf). */
+// Zara's own category feed is public and free; parse.bot (10 credits) is the fallback.
+async function zaraCategory(id: string): Promise<any[]> {
+    try {
+        const r = await axios.get(`https://www.zara.com/us/en/category/${id}/products?ajax=true`, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36', Accept: 'application/json' }, timeout: 30000,
+        });
+        const rows = (r.data?.productGroups || []).flatMap((g: any) => (g.elements || []).flatMap((e: any) => e.commercialComponents || []));
+        if (rows.length) return rows.filter((c: any) => c.type === 'Product');
+    } catch (e: any) { console.log(`  zara category ${id}: zara.com ${e.response?.status || e.message}, using parse.bot`); }
+    return (await zaraGet('get_category_products', { category_id: id }))?.products || [];
+}
+
+// Clothing, shoes and bags a Snatcher can pick up: no Zara Home, no perfume, nothing unreleased.
+const sellable = (p: any) => p.brand?.brandGroupCode !== 'zarahome' && p.sectionName !== 'HOME'
+    && p.kind !== 'Fragance' && p.availability !== 'coming_soon' && p.availability !== 'out_of_stock';
+
+export const ZARA_MAX = 1000;
+
 /**
- * Seed list from Zara categories, in Zara's own order, each capped:
- * "2420954:211,2642765:290,2431948:500" = Women's best sellers (all 211),
- * newest 290 Women's arrivals, top 500 Men's best sellers. One call per
- * category (10 credits); rows carry seoProductId but no sizes or photos.
+ * Seed list from Zara categories, in Zara's own order. Groups are split by ';',
+ * each "cap=cat[:cap],cat[:cap]" fills its cap from its categories in order:
+ * "500=2420954,2546081;500=2544454,2431948:300" = Women: all best sellers, then
+ * newest arrivals up to 500; Men: all new in, then up to 300 best sellers, to 500.
+ * The unit is the listed colour (what Zara shows), so the app gets exactly these.
  */
-export async function zaraCategorySeoIds(spec: string): Promise<string[]> {
+export async function zaraCategoryHandles(spec: string): Promise<string[]> {
     const out: string[] = [];
     const seen = new Set<string>();
-    for (const part of spec.split(',').map(x => x.trim()).filter(Boolean)) {
-        const [id, capStr] = part.split(':');
-        const cap = Number(capStr) || Infinity;
-        const data = await zaraGet('get_category_products', { category_id: id });
-        let taken = 0;
-        for (const p of data?.products || []) {
-            if (taken >= cap) break;
-            const seoId = p.seo?.seoProductId;
-            if (!seoId || seen.has(String(seoId))) continue;
-            seen.add(String(seoId)); out.push(String(seoId)); taken++;
+    for (const group of spec.split(';').map(x => x.trim()).filter(Boolean)) {
+        const [groupCap, cats] = group.includes('=') ? [Number(group.split('=')[0]), group.split('=')[1]] : [Infinity, group];
+        let inGroup = 0;
+        for (const part of cats.split(',').map(x => x.trim()).filter(Boolean)) {
+            const [id, capStr] = part.split(':');
+            const cap = Number(capStr) || Infinity;
+            let taken = 0;
+            for (const p of await zaraCategory(id)) {
+                if (taken >= cap || inGroup >= groupCap || out.length >= ZARA_MAX) break;
+                const seoId = p.seo?.seoProductId, colorId = p.detail?.colors?.[0]?.id;
+                if (!seoId || !colorId || !sellable(p)) continue;
+                const h = handleOf(String(seoId), String(colorId));
+                if (seen.has(h)) continue;
+                seen.add(h); out.push(h); taken++; inGroup++;
+            }
+            console.log(`  zara category ${id}: took ${taken}`);
         }
-        console.log(`  zara category ${id}: took ${taken}`);
     }
     return out;
 }
@@ -113,7 +135,9 @@ export async function fetchZaraCatalog(queries: string[], brand: string, limit =
     // Search finds the products (1 credit a term) but carries one photo and no
     // sizes. Details has both, and one call covers every colour of a product,
     // so we take the seoIds from search and resolve each once (1 credit).
-    const seoIds = new Set<string>(categories ? await zaraCategorySeoIds(categories) : []);
+    // Category seeds name exact colours; search seeds take every colour of a style.
+    const wanted = categories ? new Set(await zaraCategoryHandles(categories)) : null;
+    const seoIds = new Set<string>([...(wanted || [])].map(h => splitHandle(h).seoId));
     for (const q of categories ? [] : queries) {
         const data = await zaraGet('search_products', { query: q });
         for (const p of data?.products || []) {
@@ -129,6 +153,7 @@ export async function fetchZaraCatalog(queries: string[], brand: string, limit =
         try { d = await zaraGet('get_product_details', { product_id: seoId }); }
         catch (e: any) { console.log(`  zara ${seoId}: ${e.message}`); continue; }
         for (const c of d?.detail?.colors || []) {
+            if (wanted && !wanted.has(handleOf(seoId, String(c.id)))) continue;
             const sp = baseProduct(d, c, brand);
             if (sp.price <= 0) continue;
             sp.sizes = [...new Set<string>((c.sizes || []).map((z: any) => String(z.name)))];
@@ -144,6 +169,8 @@ export async function fetchZaraCatalog(queries: string[], brand: string, limit =
     }
     return [...byId.values()];
 }
+
+const storeChecks = new Map<string, { at: number; res: Promise<any> }>();
 
 /** One colour, fully resolved: online availability per size (details) and the
  *  retailer's own count at OUR store (check_store_availability). */
@@ -178,7 +205,13 @@ export async function fetchZaraProduct(handle: string, brand: string, storeId: s
 
     // The store's own count for this colour. Any unit at the store (floor or
     // stockroom) counts: the Snatcher can ask for it.
-    const st = await zaraGet('check_store_availability', { product_id: seoId, store_ids: storeId });
+    // One call answers every colour of a style, so colours share it (5 credits a style, not a colour).
+    // ponytail: in-memory per instance; a count runs in one instance, so that's enough.
+    const key = `${seoId}|${storeId}`;
+    const hit = storeChecks.get(key);
+    if (!hit || Date.now() - hit.at > 15 * 60000) storeChecks.set(key, { at: Date.now(), res: zaraGet('check_store_availability', { product_id: seoId, store_ids: storeId }) });
+    let st: any;
+    try { st = await storeChecks.get(key)!.res; } catch (e) { storeChecks.delete(key); throw e; }
     const store = (st.stores || []).find((s: any) => String(s.store_id) === String(storeId));
     if (store) {
         const at: Record<string, SizeState> = {};

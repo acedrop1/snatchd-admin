@@ -548,7 +548,7 @@ async function refreshAllStock(kinds?: SourceKind[]): Promise<Record<string, { u
                 const sizes: string[] = doc.get('sizes') || [];
                 if (tripped || !handle) { writes.push({ ref: doc.ref, data: unknownPatch(sizes), merge: true }); unknown++; continue; }
                 try {
-                    writes.push({ ref: doc.ref, data: patchFor(await fetchOne(store, handle), store.inventorySource, listingOf(doc.data())), merge: true });
+                    writes.push({ ref: doc.ref, data: patchFor(await fetchOne(store, handle, doc.data()), store.inventorySource, listingOf(doc.data())), merge: true });
                     updated++; failures = 0;
                 } catch (e: any) {
                     failures++; unknown++;
@@ -735,7 +735,8 @@ export const pendingChecks = onRequest({ cors: false, timeoutSeconds: 60 }, asyn
  */
 async function syncAllCatalogs(): Promise<Record<string, any>> {
     const report: Record<string, any> = {};
-    for (const store of await liveStores(['shopify', 'skims', 'zara'])) {
+    // Zara is metered (~760 credits a load), so it reloads on demand from the portal, not nightly.
+    for (const store of await liveStores(['shopify', 'skims'])) {
         try {
             const { products } = await fetchCatalog(store, Infinity);
             const existing = await db.collection('products').where('storeId', '==', store.id).get();
