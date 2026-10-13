@@ -7,7 +7,8 @@
 import axios from 'axios';
 import { SourceProduct, SizeState, sleep } from './types';
 
-const BASE = 'https://api.parse.bot/scraper/7b6ae3c4-c891-4e4b-84e6-b2f8a6a86c7f';
+// Each parse.bot account has its own copy of the scraper; set PARSE_SCRAPER_ID per account.
+const BASE = `https://api.parse.bot/scraper/${process.env.PARSE_SCRAPER_ID || '7b6ae3c4-c891-4e4b-84e6-b2f8a6a86c7f'}`;
 
 // parse.bot allows a burst of 30 calls, then refills at 5 a minute. Pace
 // ourselves so we never trip it — a 429 still counts against the daily cap.
@@ -80,12 +81,37 @@ const titleCase = (s: string) => s.toLowerCase().replace(/\b\w/g, m => m.toUpper
 
 /** Catalog seed: one listing row per colour, from a few search queries. Sizes
  *  and stock arrive when the product is shown (same two-phase model as Bergdorf). */
-export async function fetchZaraCatalog(queries: string[], brand: string, limit = Infinity): Promise<SourceProduct[]> {
+/**
+ * Seed list from Zara categories, in Zara's own order, each capped:
+ * "2420954:211,2642765:290,2431948:500" = Women's best sellers (all 211),
+ * newest 290 Women's arrivals, top 500 Men's best sellers. One call per
+ * category (10 credits); rows carry seoProductId but no sizes or photos.
+ */
+export async function zaraCategorySeoIds(spec: string): Promise<string[]> {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const part of spec.split(',').map(x => x.trim()).filter(Boolean)) {
+        const [id, capStr] = part.split(':');
+        const cap = Number(capStr) || Infinity;
+        const data = await zaraGet('get_category_products', { category_id: id });
+        let taken = 0;
+        for (const p of data?.products || []) {
+            if (taken >= cap) break;
+            const seoId = p.seo?.seoProductId;
+            if (!seoId || seen.has(String(seoId))) continue;
+            seen.add(String(seoId)); out.push(String(seoId)); taken++;
+        }
+        console.log(`  zara category ${id}: took ${taken}`);
+    }
+    return out;
+}
+
+export async function fetchZaraCatalog(queries: string[], brand: string, limit = Infinity, categories?: string): Promise<SourceProduct[]> {
     // Search finds the products (1 credit a term) but carries one photo and no
     // sizes. Details has both, and one call covers every colour of a product,
     // so we take the seoIds from search and resolve each once (1 credit).
-    const seoIds = new Set<string>();
-    for (const q of queries) {
+    const seoIds = new Set<string>(categories ? await zaraCategorySeoIds(categories) : []);
+    for (const q of categories ? [] : queries) {
         const data = await zaraGet('search_products', { query: q });
         for (const p of data?.products || []) {
             const id = p.seo?.seoProductId || String(p.detail?.reference || '').split('-')[0];

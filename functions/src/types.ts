@@ -43,6 +43,7 @@ export interface StoreSource {
     sourceCollection?: string;  // skims: collection handle, default best-sellers
     sourceStoreId?: string;     // zara: physical store id (SoHo 3862, Fifth 3818)
     sourceQuery?: string;       // zara: comma-separated search terms that seed the catalogue
+    sourceCategories?: string;  // zara: "categoryId:cap,..." seed list; wins over sourceQuery
 }
 
 export const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));

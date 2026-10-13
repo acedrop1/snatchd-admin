@@ -281,7 +281,7 @@ async function loadStore(storeId: string): Promise<StoreSource> {
         id: snap.id, name: d.name || '', brand: d.brand || d.name || '',
         inventorySource: (d.inventorySource || 'manual') as SourceKind,
         sourceDomain: d.sourceDomain, sourceCollection: d.sourceCollection,
-        sourceStoreId: d.sourceStoreId ? String(d.sourceStoreId) : undefined, sourceQuery: d.sourceQuery,
+        sourceStoreId: d.sourceStoreId ? String(d.sourceStoreId) : undefined, sourceQuery: d.sourceQuery, sourceCategories: d.sourceCategories,
     };
 }
 
@@ -316,7 +316,7 @@ async function fetchCatalog(store: StoreSource, limit: number): Promise<{ produc
     }
     if (store.inventorySource === 'zara') {
         const queries = (store.sourceQuery || 'blazer, jeans, dress, coat, knit, shirt, trousers, skirt').split(',').map(q => q.trim()).filter(Boolean);
-        return { products: await fetchZaraCatalog(queries, store.brand, limit), failed: [] };
+        return { products: await fetchZaraCatalog(queries, store.brand, limit, store.sourceCategories), failed: [] };
     }
     if (store.inventorySource === 'skims') {
         const handles = (await fetchSkimsCollectionHandles(store.sourceCollection || 'best-sellers')).slice(0, limit);
@@ -422,7 +422,7 @@ export const syncStoreCatalog = onRequest({ cors: true, timeoutSeconds: 540, mem
         // script bootstrap a store without a portal round-trip.
         if (sourceSpec && ['shopify', 'skims', 'bergdorf', 'zara', 'manual'].includes(sourceSpec.inventorySource)) {
             const patch: any = { inventorySource: sourceSpec.inventorySource };
-            for (const k of ['sourceDomain', 'sourceStoreId', 'sourceQuery', 'sourceCollection', 'brand']) if (sourceSpec[k] != null) patch[k] = String(sourceSpec[k]);
+            for (const k of ['sourceDomain', 'sourceStoreId', 'sourceQuery', 'sourceCategories', 'sourceCollection', 'brand']) if (sourceSpec[k] != null) patch[k] = String(sourceSpec[k]);
             await db.doc(`stores/${storeId}`).set(patch, { merge: true });
         }
         if (!storeId) { res.status(400).json({ error: 'Missing storeId' }); return; }
