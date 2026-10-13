@@ -29,8 +29,11 @@ async function zaraGet(endpoint: string, params: Record<string, string>): Promis
     if (!key) throw new Error('PARSE_API_KEY is not set (functions/.env)');
     for (let attempt = 0; attempt < 6; attempt++) {
         await pace();
-        const res = await axios.get(`${BASE}/${endpoint}`, { params, headers: { 'X-API-Key': key }, timeout: 180000, validateStatus: () => true });
+        // parse.bot's documented shape: POST /scraper/{id}/{endpoint} with a JSON body
+        const res = await axios.post(`${BASE}/${endpoint}`, params, { headers: { 'X-API-Key': key, 'Content-Type': 'application/json' }, timeout: 180000, validateStatus: () => true });
         if (res.status === 200 && res.data?.status === 'success') return res.data.data;
+        if (res.status === 401) throw new Error('parse.bot: bad API key (401)');
+        if (res.status === 402) throw new Error('parse.bot: out of credits (402)');
         const err = res.data?.error || {};
         const msg = String(err.message || err.error || '');
         if (res.status === 429) {
