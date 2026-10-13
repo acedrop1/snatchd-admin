@@ -829,7 +829,9 @@ async function applyAssortment(storeId: string): Promise<Record<string, any>> {
         return { skipped: true, rows: rows.length, prev };
     }
     const bySku = new Map(rows.map(r => [r.sku, r]));
-    const snap = await db.collection('products').where('storeId', '==', storeId).select('variants', 'isActive', 'discontinued', 'atStore', 'atStoreSizes', 'availability', 'availabilitySource', 'storeCategory').get();
+    // DoorDash returns the store's menu in order (section by section), so a row's index is the store's own order
+    const position = new Map(rows.map((r, i) => [r, i]));
+    const snap = await db.collection('products').where('storeId', '==', storeId).select('variants', 'isActive', 'discontinued', 'atStore', 'atStoreSizes', 'availability', 'availabilitySource', 'storeCategory', 'storeRank').get();
     const writes: Parameters<typeof commitChunked>[0] = [];
     let shown = 0, hidden = 0, soldOut = 0;
     const matchedSkus = new Set<string>();
@@ -851,7 +853,8 @@ async function applyAssortment(storeId: string): Promise<Record<string, any>> {
         visible ? shown++ : hidden++;
         if (best?.status === 'out_of_stock') soldOut++;
         const storeCategory = best ? best.category || null : null;
-        const data: any = { isActive: visible, atStore, atStoreSizes, storeCategory, atStoreCheckedAt: now() };
+        const storeRank = rowsHere.length ? Math.min(...rowsHere.map(x => position.get(x.row)!)) : null;
+        const data: any = { isActive: visible, atStore, atStoreSizes, storeCategory, storeRank, atStoreCheckedAt: now() };
         if (listedAtStore(atStore)) {
             data.availability = withStoreSizes(storeOverridesOnline(doc.get('availability') || {}), atStoreSizes);
             data.availabilitySource = 'store_listed';
@@ -863,7 +866,7 @@ async function applyAssortment(storeId: string): Promise<Record<string, any>> {
         }
         const sourceSame = data.availabilitySource === undefined || doc.get('availabilitySource') === data.availabilitySource;
         const sizesSame = JSON.stringify(doc.get('atStoreSizes') ?? null) === JSON.stringify(atStoreSizes);
-        if (doc.get('isActive') === visible && doc.get('atStore') === atStore && (doc.get('storeCategory') ?? null) === storeCategory && sizesSame && sourceSame) continue;
+        if (doc.get('isActive') === visible && doc.get('atStore') === atStore && (doc.get('storeCategory') ?? null) === storeCategory && (doc.get('storeRank') ?? null) === storeRank && sizesSame && sourceSame) continue;
         writes.push({ ref: doc.ref, merge: true, data });
     }
     await commitChunked(writes);

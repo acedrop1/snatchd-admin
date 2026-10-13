@@ -1,5 +1,9 @@
 import SwiftUI
 
+extension Notification.Name { static let searchInStore = Notification.Name("searchInStore") }
+/// True while a store page is on screen, so the tab bar's search button searches that store.
+enum StoreScreen { static var isOpen = false }
+
 struct StoreProductsView: View {
     let store: Store
     var initialProduct: Product? = nil
@@ -17,41 +21,40 @@ struct StoreProductsView: View {
     @State private var cartScale: CGFloat = 1.0
     @State private var showFilters = false
 
-    // Search
+    // Search (opened from the tab bar's search button)
     @State private var isSearching = false
     @State private var searchQuery = ""
+    @FocusState private var searchFocused: Bool
 
     // Filter sheet state
     @State private var filterGender = "All"
-    @State private var filterSortBy = "New"
+    @State private var filterSortBy = "Featured"
     @State private var filterMinPrice: Double = 0
     @State private var filterMaxPrice: Double = 2000
 
     // Applied filters (committed when user taps Apply)
     // Gender is remembered across stores: pick Men once and every store opens on Men.
     @AppStorage("preferredGender") private var appliedGender = "Women"
-    @State private var appliedSortBy = "New"
+    @State private var appliedSortBy = "Featured"
     @State private var appliedMinPrice: Double = 0
     @State private var appliedMaxPrice: Double = 2000
 
-    // Dynamically build category tabs — scoped to the selected gender
+    /// The store's own section when it gives one (Skims: its DoorDash menu), else the brand's product type.
+    func shelf(_ p: Product) -> String {
+        guard let s = p.storeCategory, !s.isEmpty else { return p.category.capitalized }
+        // The Women | Men bar already says whose it is
+        for prefix in ["Women's ", "Men's "] where s.hasPrefix(prefix) { return String(s.dropFirst(prefix.count)) }
+        return s
+    }
+
+    /// Sections for the selected gender, in the store's own order (A–Z when it gives none).
     var categories: [String] {
-        let storeProducts = databaseService.products.filter {
-            $0.storeId == store.firestoreId && genderMatch(product: $0, gender: appliedGender)
+        var first: [String: Int] = [:]
+        for p in databaseService.products where p.storeId == store.firestoreId && genderMatch(product: p, gender: appliedGender) {
+            let s = shelf(p)
+            if !s.isEmpty { first[s] = min(first[s] ?? .max, p.storeRank ?? .max) }
         }
-        let unique = Array(Set(storeProducts.map { $0.category })).filter { !$0.isEmpty }
-        let preferredOrder = [
-            "Dresses", "Tops", "Skirts", "Jackets", "Pants", "Shorts", "Swimwear",
-            "Bras & Bodysuits", "Underwear", "Shapewear", "Loungewear", "Activewear", "Maternity", "Men's",
-            "Clothing", "Bags", "Shoes", "Accessories"
-        ]
-        let sorted = unique.sorted { a, b in
-            let ai = preferredOrder.firstIndex(of: a) ?? Int.max
-            let bi = preferredOrder.firstIndex(of: b) ?? Int.max
-            if ai != bi { return ai < bi }
-            return a < b
-        }
-        return ["All"] + sorted
+        return ["All"] + first.keys.sorted { (first[$0]!, $0) < (first[$1]!, $1) }
     }
 
     /// Genders this store actually carries, in display order. The switch only
@@ -77,13 +80,13 @@ struct StoreProductsView: View {
     var filteredProducts: [Product] {
         var results = databaseService.products.filter { product in
             let storeMatch = product.storeId == store.firestoreId
-            let categoryMatch = selectedCategory == "All" || product.category == selectedCategory
+            let categoryMatch = selectedCategory == "All" || shelf(product) == selectedCategory
             let genderMatch = genderMatch(product: product, gender: appliedGender)
             let priceMatch = product.price >= appliedMinPrice && product.price <= appliedMaxPrice
             let searchMatch = searchQuery.isEmpty ||
                 product.title.localizedCaseInsensitiveContains(searchQuery) ||
                 product.brand.localizedCaseInsensitiveContains(searchQuery) ||
-                product.category.localizedCaseInsensitiveContains(searchQuery)
+                shelf(product).localizedCaseInsensitiveContains(searchQuery)
             return storeMatch && categoryMatch && genderMatch && priceMatch && searchMatch
         }
         switch appliedSortBy {
@@ -92,14 +95,17 @@ struct StoreProductsView: View {
         case "High to Low":
             results.sort { $0.price > $1.price }
         default:
-            break // "New" — keep original order
+            // Featured: the store's own order (stable, so ties keep their place)
+            results = results.enumerated()
+                .sorted { ($0.element.storeRank ?? .max, $0.offset) < ($1.element.storeRank ?? .max, $1.offset) }
+                .map(\.element)
         }
         return results
     }
 
     // Whether any non-default filter is active
     var filtersActive: Bool {
-        appliedGender != "All" || appliedSortBy != "New" || appliedMinPrice > 0 || appliedMaxPrice < 2000
+        appliedSortBy != "Featured" || appliedMinPrice > 0 || appliedMaxPrice < 2000
     }
 
     var body: some View {
@@ -180,153 +186,88 @@ struct StoreProductsView: View {
                     }
                     .frame(height: 300)
 
-                    // ── Filter Bar ──────────────────────────────────────────────
-                    VStack(spacing: 0) {
-                        if isSearching {
-                            // Search mode: full-width text field
-                            HStack(spacing: 10) {
-                                Image("search")
-                                    .resizable()
-                                    .renderingMode(.template)
-                                    .foregroundColor(.white.opacity(0.6))
-                                    .frame(width: 14, height: 14)
-
-                                TextField("", text: $searchQuery)
-                                    .font(.custom("Montserrat-Regular", size: 13))
-                                    .foregroundColor(.white)
-                                    .placeholder(when: searchQuery.isEmpty) {
-                                        Text("Search \(store.name)...")
-                                            .font(.custom("Montserrat-Regular", size: 13))
-                                            .foregroundColor(.white.opacity(0.35))
-                                    }
-                                    .autocorrectionDisabled()
-                                    .frame(maxWidth: .infinity)
-
-                                Button(action: {
-                                    searchQuery = ""
-                                    isSearching = false
-                                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                                }) {
-                                    Text("Cancel")
-                                        .font(.custom("Montserrat-Regular", size: 12))
-                                        .foregroundColor(.white.opacity(0.5))
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-
-                        } else {
-                            // Women | Men — only when the store has both. One glass bar,
-                            // like the native tab bar: a highlight slides to the selection.
-                            if storeGenders.count >= 2 {
-                                GlassEffectContainer {
-                                    HStack(spacing: 0) {
-                                        ForEach(storeGenders, id: \.self) { g in
-                                            let on = appliedGender == g
-                                            Button {
-                                                withAnimation(.snappy(duration: 0.28)) { appliedGender = g; selectedCategory = "All" }
-                                            } label: {
-                                                Text(g.uppercased())
-                                                    .font(.custom(on ? "Montserrat-Bold" : "Montserrat-SemiBold", size: 12))
-                                                    .foregroundStyle(on ? .white : .white.opacity(0.6))
-                                                    .padding(.horizontal, 22)
-                                                    .padding(.vertical, 10)
-                                                    .background {
-                                                        // The selection is a clear glass lens, like the tab bar's
-                                                        if on {
-                                                            Color.clear
-                                                                .glassEffect(.regular.tint(.white.opacity(0.22)), in: .capsule)
-                                                                .matchedGeometryEffect(id: "gender-highlight", in: genderGlass)
-                                                        }
+                    // ── Women | Men, then the store's sections as glass pills ──
+                    VStack(spacing: 12) {
+                        // Only when the store has both. One glass bar, like the native
+                        // tab bar: a clear lens slides to the selection.
+                        if storeGenders.count >= 2 {
+                            GlassEffectContainer {
+                                HStack(spacing: 0) {
+                                    ForEach(storeGenders, id: \.self) { g in
+                                        let on = appliedGender == g
+                                        Button {
+                                            withAnimation(.snappy(duration: 0.28)) { appliedGender = g; selectedCategory = "All" }
+                                        } label: {
+                                            Text(g.uppercased())
+                                                .font(.custom(on ? "Montserrat-Bold" : "Montserrat-SemiBold", size: 12))
+                                                .foregroundStyle(on ? .white : .white.opacity(0.6))
+                                                .padding(.horizontal, 22)
+                                                .padding(.vertical, 10)
+                                                .background {
+                                                    if on {
+                                                        Color.clear
+                                                            .glassEffect(.regular.tint(.white.opacity(0.22)), in: .capsule)
+                                                            .matchedGeometryEffect(id: "gender-highlight", in: genderGlass)
                                                     }
+                                                }
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                                .padding(4)
+                                .glassEffect(.regular.interactive(), in: .capsule)
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+
+                        HStack(spacing: 8) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                GlassEffectContainer(spacing: 8) {
+                                    HStack(spacing: 8) {
+                                        ForEach(categories, id: \.self) { category in
+                                            let on = selectedCategory == category
+                                            Button {
+                                                withAnimation(.snappy(duration: 0.25)) { selectedCategory = category }
+                                            } label: {
+                                                Text(category.uppercased())
+                                                    .font(.custom(on ? "Montserrat-Bold" : "Montserrat-SemiBold", size: 11))
+                                                    .foregroundStyle(on ? .white : .white.opacity(0.65))
+                                                    .fixedSize()
+                                                    .padding(.horizontal, 16)
+                                                    .padding(.vertical, 10)
+                                                    .glassEffect(on ? .regular.tint(.white.opacity(0.22)).interactive() : .regular.interactive(), in: .capsule)
                                             }
                                             .buttonStyle(.plain)
                                         }
                                     }
-                                    .padding(4)
-                                    .glassEffect(.regular.interactive(), in: .capsule)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.top, 10)
-                                .padding(.bottom, 4)
-                            }
-
-                            // Normal mode: categories + search icon + filters
-                            HStack(alignment: .center, spacing: 0) {
-                                // Horizontal scrolling category text tabs
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 20) {
-                                        ForEach(categories, id: \.self) { category in
-                                            Button(action: {
-                                                selectedCategory = category
-                                            }) {
-                                                Text(category.uppercased())
-                                                    .font(selectedCategory == category
-                                                          ? .custom("Montserrat-Bold", size: 12)
-                                                          : .custom("Montserrat-Regular", size: 12))
-                                                    .foregroundColor(selectedCategory == category ? .white : .white.opacity(0.45))
-                                                    .fixedSize()
-                                            }
-                                        }
-                                    }
+                                    .padding(.vertical, 4)
                                     .padding(.leading, 16)
-                                    .padding(.trailing, 8)
-                                }
-
-                                // Divider
-                                Rectangle()
-                                    .fill(Color.white.opacity(0.2))
-                                    .frame(width: 1, height: 18)
-
-                                // Search icon button
-                                Button(action: {
-                                    isSearching = true
-                                }) {
-                                    Image("search")
-                                        .resizable()
-                                        .renderingMode(.template)
-                                        .foregroundColor(.white.opacity(0.65))
-                                        .frame(width: 15, height: 15)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 12)
-                                }
-
-                                // Divider
-                                Rectangle()
-                                    .fill(Color.white.opacity(0.2))
-                                    .frame(width: 1, height: 18)
-
-                                // Filters text button
-                                Button(action: {
-                                    filterGender = appliedGender
-                                    filterSortBy = appliedSortBy
-                                    filterMinPrice = appliedMinPrice
-                                    filterMaxPrice = appliedMaxPrice
-                                    showFilters = true
-                                }) {
-                                    HStack(spacing: 4) {
-                                        Text("FILTERS")
-                                            .font(.custom("Montserrat-SemiBold", size: 11))
-                                            .foregroundColor(filtersActive ? .white : .white.opacity(0.65))
-                                        if filtersActive {
-                                            Circle()
-                                                .fill(Color.white)
-                                                .frame(width: 5, height: 5)
-                                        }
-                                    }
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 12)
                                 }
                             }
+
+                            // Filters: sort and price
+                            Button {
+                                filterGender = appliedGender
+                                filterSortBy = appliedSortBy
+                                filterMinPrice = appliedMinPrice
+                                filterMaxPrice = appliedMaxPrice
+                                showFilters = true
+                            } label: {
+                                Image(systemName: "line.3.horizontal.decrease")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 38, height: 38)
+                                    .glassEffect(filtersActive ? .regular.tint(.white.opacity(0.22)).interactive() : .regular.interactive(), in: .circle)
+                                    .overlay(alignment: .topTrailing) {
+                                        if filtersActive { Circle().fill(.white).frame(width: 7, height: 7).offset(x: -2, y: 2) }
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.trailing, 16)
                         }
                     }
-                    .background(Color.black)
-
-                    // Thin separator line
-                    Rectangle()
-                        .fill(Color.white.opacity(0.1))
-                        .frame(height: 0.5)
-                        .padding(.bottom, 14)
+                    .padding(.top, 14)
+                    .padding(.bottom, 16)
 
                     // Products Grid
                     LazyVGrid(columns: columns, spacing: 15) {
@@ -461,8 +402,53 @@ struct StoreProductsView: View {
             .padding(.trailing, 16)
 
         }
+        // In-store search: the tab bar's search button opens this field instead of the app-wide search
+        .safeAreaInset(edge: .bottom) {
+            if isSearching {
+                HStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+                        TextField("Search \(store.name)", text: $searchQuery)
+                            .font(.custom("Montserrat-Regular", size: 14))
+                            .foregroundStyle(.white)
+                            .focused($searchFocused)
+                            .submitLabel(.search)
+                            .autocorrectionDisabled()
+                        if !searchQuery.isEmpty {
+                            Button { searchQuery = "" } label: {
+                                Image(systemName: "xmark.circle.fill").foregroundStyle(.white.opacity(0.5))
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(height: 48)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+
+                    Button {
+                        withAnimation(.snappy) { searchQuery = ""; isSearching = false; searchFocused = false }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 48, height: 48)
+                            .glassEffect(.regular.interactive(), in: .circle)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .searchInStore)) { _ in
+            withAnimation(.snappy) { isSearching = true }
+            searchFocused = true
+        }
+        .onAppear { StoreScreen.isOpen = true }
+        .onDisappear { StoreScreen.isOpen = false }
         .navigationBarHidden(true)
-        .toolbar(.hidden, for: .tabBar)
         .enableSwipeBack()
         // navigationDestination is lazy — ProductDetailView is only created when showProductDetail = true
         .navigationDestination(isPresented: $showProductDetail) {
@@ -500,11 +486,10 @@ struct StoreProductsView: View {
                 },
                 onClear: {
                     filterGender = "All"
-                    filterSortBy = "New"
+                    filterSortBy = "Featured"
                     filterMinPrice = 0
                     filterMaxPrice = 2000
-                    appliedGender = "All"
-                    appliedSortBy = "New"
+                    appliedSortBy = "Featured"
                     appliedMinPrice = 0
                     appliedMaxPrice = 2000
                     selectedCategory = "All"
@@ -528,7 +513,7 @@ struct FiltersSheet: View {
     let onApply: () -> Void
     let onClear: () -> Void
 
-    let sortOptions = ["New", "Low to High", "High to Low"]
+    let sortOptions = ["Featured", "Low to High", "High to Low"]
     let genderOptions = ["All", "Men", "Women"]
 
     var body: some View {
@@ -578,27 +563,6 @@ struct FiltersSheet: View {
                                 }
                                 if option != sortOptions.last {
                                     Divider().background(Color.white.opacity(0.06))
-                                }
-                            }
-                        }
-                    }
-
-                    Divider().background(Color.white.opacity(0.1))
-
-                    // GENDER
-                    FilterSection(title: "GENDER") {
-                        HStack(spacing: 10) {
-                            ForEach(genderOptions, id: \.self) { option in
-                                Button(action: { selectedGender = option }) {
-                                    Text(option)
-                                        .font(selectedGender == option
-                                              ? .custom("Montserrat-SemiBold", size: 13)
-                                              : .custom("Montserrat-Regular", size: 13))
-                                        .foregroundColor(selectedGender == option ? .black : .white.opacity(0.7))
-                                        .padding(.horizontal, 20)
-                                        .padding(.vertical, 10)
-                                        .background(selectedGender == option ? Color.white : Color.white.opacity(0.08))
-                                        .cornerRadius(4)
                                 }
                             }
                         }

@@ -182,7 +182,7 @@ class DatabaseService: ObservableObject {
         let images = strings("images")
         let availability = (data["availability"] as? [String: Any])?.compactMapValues { $0 as? String } ?? [:]
 
-        return Product(
+        var product = Product(
             id: doc.documentID,
             storeId: data["storeId"] as? String ?? "",
             title: data["title"] as? String ?? "",
@@ -203,6 +203,9 @@ class DatabaseService: ObservableObject {
             availabilityCheckedAt: (data["availabilityCheckedAt"] as? Timestamp)?.dateValue(),
             createdAt: (data["createdAt"] as? Timestamp)?.dateValue()
         )
+        product.storeCategory = data["storeCategory"] as? String
+        product.storeRank = (data["storeRank"] as? NSNumber)?.intValue
+        return product
     }
 
     // MARK: - Real-Time Products Listener
