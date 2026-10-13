@@ -8,7 +8,7 @@ import axios from 'axios';
 import { SourceProduct, SizeState, sleep } from './types';
 
 // Each parse.bot account has its own copy of the scraper; set PARSE_SCRAPER_ID per account.
-const BASE = `https://api.parse.bot/scraper/${process.env.PARSE_SCRAPER_ID || '7b6ae3c4-c891-4e4b-84e6-b2f8a6a86c7f'}`;
+const BASE = `https://api.parse.bot/scraper/${process.env.PARSE_SCRAPER_ID || 'b9d60cde-b8ae-4802-a1d2-c6a96aaaa36e'}`;
 
 // parse.bot allows a burst of 30 calls, then refills at 5 a minute. Pace
 // ourselves so we never trip it — a 429 still counts against the daily cap.
@@ -29,7 +29,7 @@ async function zaraGet(endpoint: string, params: Record<string, string>): Promis
     if (!key) throw new Error('PARSE_API_KEY is not set (functions/.env)');
     for (let attempt = 0; attempt < 6; attempt++) {
         await pace();
-        // parse.bot's documented shape: POST /scraper/{id}/{endpoint} with a JSON body
+        // POST with a JSON body: GET on this API stalled 2 min then answered a false 401 (2026-10-13)
         const res = await axios.post(`${BASE}/${endpoint}`, params, { headers: { 'X-API-Key': key, 'Content-Type': 'application/json' }, timeout: 180000, validateStatus: () => true });
         if (res.status === 200 && res.data?.status === 'success') return res.data.data;
         if (res.status === 401) throw new Error('parse.bot: bad API key (401)');
@@ -158,7 +158,7 @@ export async function fetchZaraCatalog(queries: string[], brand: string, limit =
             if (sp.price <= 0) continue;
             sp.sizes = [...new Set<string>((c.sizes || []).map((z: any) => String(z.name)))];
             for (const z of c.sizes || []) {
-                const st: SizeState = z.availability === 'in_stock' || z.availability === 'low' ? 'in_stock'
+                const st: SizeState = z.availability === 'in_stock' || z.availability === 'low' || z.availability === 'low_on_stock' ? 'in_stock'
                     : z.availability === 'out_of_stock' ? 'out_of_stock' : 'unknown';
                 sp.availability[z.name] = st;
                 sp.variants.push({ id: String(z.sku || `${sp.externalId}-${z.name}`), sku: String(z.sku || ''), size: z.name, availableForSale: st === 'in_stock', price: sp.price, compareAtPrice: null });
@@ -194,7 +194,7 @@ export async function fetchZaraProduct(handle: string, brand: string, storeId: s
         sp = baseProduct(d, color, brand);
         const online: Record<string, SizeState> = {};
         for (const s of color.sizes || []) {
-            const st: SizeState = s.availability === 'in_stock' || s.availability === 'low' ? 'in_stock'
+            const st: SizeState = s.availability === 'in_stock' || s.availability === 'low' || s.availability === 'low_on_stock' ? 'in_stock'
                 : s.availability === 'out_of_stock' ? 'out_of_stock' : 'unknown';
             online[s.name] = st;
             sp.variants.push({ id: String(s.sku || `${sp.externalId}-${s.name}`), sku: String(s.sku || ''), size: s.name, availableForSale: st === 'in_stock', price: sp.price, compareAtPrice: null });

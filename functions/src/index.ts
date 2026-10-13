@@ -776,6 +776,8 @@ export const scheduledCatalogSync = onSchedule({ schedule: 'every day 04:00', ti
 
 /** Zara: twice a day, shown products only — two parse.bot calls per product. */
 export const scheduledZaraStock = onSchedule({ schedule: '30 10,15 * * *', timeZone: 'America/New_York', timeoutSeconds: 540, memory: '512MiB' }, async () => {
+    // Off until a count frequency is chosen: one SoHo count of 1,000 items is ~3,800 parse credits.
+    if (process.env.ZARA_COUNT_SCHEDULE !== 'on') return;
     try { await refreshAllStock(['zara']); }
     catch (error: any) { await alert(`scheduledZaraStock crashed: ${error.message}`); }
 });
