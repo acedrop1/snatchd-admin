@@ -6,6 +6,7 @@ import Stripe from 'stripe';
 import { fetchSkimsProduct, fetchSkimsCollectionHandles, fetchSkimsStores } from './skims';
 import { fetchShopifyCatalog, fetchShopifyProduct, SHOPIFY_FEED_CAP } from './shopify';
 import { fetchZaraCatalog, fetchZaraProduct } from './zara';
+import { fetchDoorDashAssortment } from './doordash';
 import { SourceProduct, StoreSource, SizeState, SourceKind, sleep } from './types';
 
 admin.initializeApp();
@@ -776,4 +777,65 @@ export const adminProducts = onRequest({ cors: true, timeoutSeconds: 300, memory
         }
         res.json({ action, affected: targets.length, sample: targets.slice(0, 5).map(d => d.get('title')) });
     } catch (error: any) { res.status(500).json({ error: error.message }); }
+});
+
+/**
+ * Show exactly what one physical store carries. For a store with
+ * `doordashStoreId`, read its DoorDash listing, match each row to our products
+ * by variant SKU, and make the carried, not-sold-out ones visible and everything
+ * else hidden. Records `atStore` (in_stock | low_stock | out_of_stock) on each
+ * carried product. Refuses to touch visibility on a suspiciously small read, so
+ * one bad scrape can never empty the store.
+ */
+async function applyAssortment(storeId: string): Promise<Record<string, any>> {
+    const storeDoc = await db.doc(`stores/${storeId}`).get();
+    const ddId = storeDoc.get('doordashStoreId');
+    if (!ddId) throw new Error(`${storeDoc.get('name')}: no doordashStoreId`);
+    const { rows, listed } = await fetchDoorDashAssortment(String(ddId));
+    const prev = Number(storeDoc.get('assortmentRows') || 0);
+    if (rows.length < 50 || (prev && rows.length < prev * 0.5)) {
+        await alert(`${storeDoc.get('name')}: DoorDash returned ${rows.length} rows (last time ${prev}). Visibility left unchanged.`);
+        return { skipped: true, rows: rows.length, prev };
+    }
+    const bySku = new Map(rows.map(r => [r.sku, r]));
+    const snap = await db.collection('products').where('storeId', '==', storeId).select('variants', 'isActive', 'discontinued', 'atStore').get();
+    const writes: Parameters<typeof commitChunked>[0] = [];
+    let shown = 0, hidden = 0, soldOut = 0;
+    const matchedSkus = new Set<string>();
+    for (const doc of snap.docs) {
+        const hit = (doc.get('variants') || []).map((v: any) => bySku.get(String(v.sku || '').toUpperCase())).find(Boolean);
+        if (hit) matchedSkus.add(hit.sku);
+        const visible = !!hit && hit.status !== 'out_of_stock' && doc.get('discontinued') !== true;
+        visible ? shown++ : hidden++;
+        if (hit?.status === 'out_of_stock') soldOut++;
+        const atStore = hit ? hit.status : null;
+        if (doc.get('isActive') === visible && doc.get('atStore') === atStore) continue;
+        writes.push({ ref: doc.ref, merge: true, data: { isActive: visible, atStore, atStoreCheckedAt: now() } });
+    }
+    await commitChunked(writes);
+    const report = { rows: rows.length, listed, matched: matchedSkus.size, shown, hidden, soldOut, written: writes.length };
+    await storeDoc.ref.set({ assortmentRows: rows.length, assortmentCheckedAt: now(), assortmentReport: report }, { merge: true });
+    console.log(`✅ ${storeDoc.get('name')} assortment:`, JSON.stringify(report));
+    return report;
+}
+
+/** POST { storeId, doordashStoreId? } — run the assortment now (runner token or admin). */
+export const syncAssortment = onRequest({ cors: true, timeoutSeconds: 540, memory: '512MiB' }, async (req, res) => {
+    const viaRunner = !!process.env.RUNNER_TOKEN && req.get('x-runner-token') === process.env.RUNNER_TOKEN;
+    if (!viaRunner && !(await requireAdmin(req, res))) return;
+    try {
+        const { storeId, doordashStoreId } = req.body || {};
+        if (!storeId) { res.status(400).json({ error: 'storeId required' }); return; }
+        if (doordashStoreId) await db.doc(`stores/${storeId}`).set({ doordashStoreId: String(doordashStoreId) }, { merge: true });
+        res.json(await applyAssortment(storeId));
+    } catch (error: any) { res.status(500).json({ error: error.message }); }
+});
+
+/** Every morning before stores open: what each DoorDash-linked store carries today. */
+export const scheduledAssortment = onSchedule({ schedule: 'every day 09:30', timeZone: 'America/New_York', timeoutSeconds: 540, memory: '512MiB' }, async () => {
+    const stores = await db.collection('stores').where('doordashStoreId', '!=', null).get();
+    for (const s of stores.docs) {
+        try { await applyAssortment(s.id); }
+        catch (e: any) { await alert(`assortment failed for ${s.get('name')}: ${e.message}`); }
+    }
 });
