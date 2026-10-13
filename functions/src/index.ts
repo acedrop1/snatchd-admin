@@ -336,14 +336,27 @@ function fingerprint(p: SourceProduct, availability: Record<string, SizeState>) 
         Object.entries(availability).sort().map(([k, v]) => `${k}:${v}`).join(',')].join('~');
 }
 
-function patchFor(p: SourceProduct, source: SourceKind) {
-    const availability = (source === 'bergdorf' || source === 'zara') && p.storeAvailability ? p.storeAvailability : p.availability;
+/** True when the store's own listing (DoorDash assortment) says the item is on its shelf today. */
+const listedAtStore = (atStore: unknown) => atStore === 'in_stock' || atStore === 'low_stock';
+
+/** Online stock says a size MIGHT be gone; it can't overrule a store that lists the item. */
+const storeOverridesOnline = (a: Record<string, SizeState>) =>
+    Object.fromEntries(Object.entries(a).map(([k, v]) => [k, v === 'out_of_stock' ? 'unknown' : v])) as Record<string, SizeState>;
+
+function patchFor(p: SourceProduct, source: SourceKind, atStore?: unknown) {
+    let availability = (source === 'bergdorf' || source === 'zara') && p.storeAvailability ? p.storeAvailability : p.availability;
+    // For a store whose shelf we read (Skims Fifth Ave via DoorDash), the store's
+    // listing beats the website: an item sold out online but listed in the store
+    // is in stock, and its online-sold-out sizes become unknown — the Snatcher
+    // confirms the size. Without this, half the rack reads "sold out".
+    const storeListed = listedAtStore(atStore);
+    if (storeListed) availability = storeOverridesOnline(availability);
     const states = Object.values(availability);
     // No per-size data yet (a listing-only catalog row) is UNKNOWN, not sold out.
     // Claiming out-of-stock from an empty set is the one mistake this whole
     // model exists to prevent: it hides real products and reads as "sold out".
     const unchecked = states.length === 0;
-    const inStock = unchecked ? true : states.some(s => s === 'in_stock');
+    const inStock = unchecked || storeListed ? true : states.some(s => s === 'in_stock');
     return {
         title: p.title, handle: p.handle, externalId: p.externalId, productUrl: p.productUrl,
         price: p.price, compareAtPrice: p.compareAtPrice,
@@ -352,7 +365,7 @@ function patchFor(p: SourceProduct, source: SourceKind) {
         variants: p.variants,
         // A Zara row that has no store count yet carries zara.com's online availability;
         // label it so nothing downstream mistakes it for the floor.
-        availability, availabilitySource: unchecked ? 'none' : (source === 'zara' && !p.storeAvailability ? 'zara_online' : source),
+        availability, availabilitySource: storeListed ? 'store_listed' : unchecked ? 'none' : (source === 'zara' && !p.storeAvailability ? 'zara_online' : source),
         availabilityCheckedAt: now(), inStock, fingerprint: fingerprint(p, availability),
         updatedAt: now(),
     };
@@ -419,11 +432,12 @@ export const syncStoreCatalog = onRequest({ cors: true, timeoutSeconds: 540, mem
 
         const existing = await db.collection('products').where('storeId', '==', storeId).get();
         const prints = new Map(existing.docs.map(d => [d.id, d.get('fingerprint')]));
+        const atStoreById = new Map(existing.docs.map(d => [d.id, d.get('atStore')]));
         const writes: Parameters<typeof commitChunked>[0] = [];
         let added = 0, unchanged = 0;
         for (const p of products) {
             const id = `${source}_${p.externalId}_${storeId}`;
-            const data: any = { ...patchFor(p, source), brand: p.brand || store.brand, storeId, deliveryTime: '45 Mins' };
+            const data: any = { ...patchFor(p, source, atStoreById.get(id)), brand: p.brand || store.brand, storeId, deliveryTime: '45 Mins' };
             const known = prints.has(id);
             if (known && prints.get(id) === data.fingerprint) { unchanged++; continue; }
             if (!known) {
@@ -488,7 +502,7 @@ async function refreshAllStock(kinds?: SourceKind[]): Promise<Record<string, { u
                 for (const doc of snap.docs) {
                     const p = byHandle.get(doc.get('handle'));
                     if (p) {
-                        const data: any = patchFor(p, 'shopify');
+                        const data: any = patchFor(p, 'shopify', doc.get('atStore'));
                         if (doc.get('discontinued') === true) {
                             // It's back: restore what the customer could see before
                             data.discontinued = false;
@@ -521,7 +535,7 @@ async function refreshAllStock(kinds?: SourceKind[]): Promise<Record<string, { u
                 const sizes: string[] = doc.get('sizes') || [];
                 if (tripped || !handle) { writes.push({ ref: doc.ref, data: unknownPatch(sizes), merge: true }); unknown++; continue; }
                 try {
-                    writes.push({ ref: doc.ref, data: patchFor(await fetchOne(store, handle), store.inventorySource), merge: true });
+                    writes.push({ ref: doc.ref, data: patchFor(await fetchOne(store, handle), store.inventorySource, doc.get('atStore')), merge: true });
                     updated++; failures = 0;
                 } catch (e: any) {
                     failures++; unknown++;
@@ -588,7 +602,7 @@ export const checkAvailability = onRequest({ cors: true, timeoutSeconds: 30 }, a
         } else if (source !== 'manual' && handle && stale && storeSnap) {
             try {
                 const store = await loadStore(storeSnap.id);
-                const patch = patchFor(await fetchOne(store, handle), source);
+                const patch = patchFor(await fetchOne(store, handle), source, d.atStore);
                 await ref.set(patch, { merge: true });
                 d = { ...d, ...patch, availabilityCheckedAt: admin.firestore.Timestamp.now() };
             } catch (e: any) { console.warn(`live refresh failed for ${productId}: ${e.message}`); }
@@ -713,11 +727,12 @@ async function syncAllCatalogs(): Promise<Record<string, any>> {
             const { products } = await fetchCatalog(store, Infinity);
             const existing = await db.collection('products').where('storeId', '==', store.id).get();
             const prints = new Map(existing.docs.map(d => [d.id, d.get('fingerprint')]));
+            const atStoreById = new Map(existing.docs.map(d => [d.id, d.get('atStore')]));
             const writes: Parameters<typeof commitChunked>[0] = [];
             let added = 0;
             for (const p of products) {
                 const id = `${store.inventorySource}_${p.externalId}_${store.id}`;
-                const data: any = { ...patchFor(p, store.inventorySource), brand: p.brand || store.brand, storeId: store.id, deliveryTime: '45 Mins' };
+                const data: any = { ...patchFor(p, store.inventorySource, atStoreById.get(id)), brand: p.brand || store.brand, storeId: store.id, deliveryTime: '45 Mins' };
                 if (prints.has(id)) { if (prints.get(id) === data.fingerprint) continue; }
                 else { data.createdAt = now(); data.isActive = false; added++; }
                 writes.push({ ref: db.doc(`products/${id}`), data, merge: true });
@@ -798,7 +813,7 @@ async function applyAssortment(storeId: string): Promise<Record<string, any>> {
         return { skipped: true, rows: rows.length, prev };
     }
     const bySku = new Map(rows.map(r => [r.sku, r]));
-    const snap = await db.collection('products').where('storeId', '==', storeId).select('variants', 'isActive', 'discontinued', 'atStore').get();
+    const snap = await db.collection('products').where('storeId', '==', storeId).select('variants', 'isActive', 'discontinued', 'atStore', 'availability', 'availabilitySource').get();
     const writes: Parameters<typeof commitChunked>[0] = [];
     let shown = 0, hidden = 0, soldOut = 0;
     const matchedSkus = new Set<string>();
@@ -809,8 +824,19 @@ async function applyAssortment(storeId: string): Promise<Record<string, any>> {
         visible ? shown++ : hidden++;
         if (hit?.status === 'out_of_stock') soldOut++;
         const atStore = hit ? hit.status : null;
-        if (doc.get('isActive') === visible && doc.get('atStore') === atStore) continue;
-        writes.push({ ref: doc.ref, merge: true, data: { isActive: visible, atStore, atStoreCheckedAt: now() } });
+        const data: any = { isActive: visible, atStore, atStoreCheckedAt: now() };
+        if (listedAtStore(atStore)) {
+            data.availability = storeOverridesOnline(doc.get('availability') || {});
+            data.availabilitySource = 'store_listed';
+            data.inStock = true;
+        } else if (doc.get('availabilitySource') === 'store_listed') {
+            // No longer listed: fall back to plain online stock on the next refresh
+            data.availabilitySource = 'shopify';
+            data.fingerprint = null;
+        }
+        const sourceSame = data.availabilitySource === undefined || doc.get('availabilitySource') === data.availabilitySource;
+        if (doc.get('isActive') === visible && doc.get('atStore') === atStore && sourceSame) continue;
+        writes.push({ ref: doc.ref, merge: true, data });
     }
     await commitChunked(writes);
     const report = { rows: rows.length, listed, matched: matchedSkus.size, shown, hidden, soldOut, written: writes.length };
@@ -831,10 +857,18 @@ export const syncAssortment = onRequest({ cors: true, timeoutSeconds: 540, memor
     } catch (error: any) { res.status(500).json({ error: error.message }); }
 });
 
-/** Every morning before stores open: what each DoorDash-linked store carries today. */
-export const scheduledAssortment = onSchedule({ schedule: 'every day 09:30', timeZone: 'America/New_York', timeoutSeconds: 540, memory: '512MiB' }, async () => {
+/**
+ * Every morning before stores open: what each DoorDash-linked store carries today.
+ * DoorDash's bot protection sometimes blocks a read (verified: HTTP 403 on a run
+ * minutes after two good ones), so try at 09:30, 10:30 and 11:30 and stop once a
+ * store has a good read today.
+ */
+export const scheduledAssortment = onSchedule({ schedule: '30 9,10,11 * * *', timeZone: 'America/New_York', timeoutSeconds: 540, memory: '512MiB' }, async () => {
+    const today = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' });
     const stores = await db.collection('stores').where('doordashStoreId', '!=', null).get();
     for (const s of stores.docs) {
+        const last: FirebaseFirestore.Timestamp | undefined = s.get('assortmentCheckedAt');
+        if (last && last.toDate().toLocaleDateString('en-US', { timeZone: 'America/New_York' }) === today) continue;
         try { await applyAssortment(s.id); }
         catch (e: any) { await alert(`assortment failed for ${s.get('name')}: ${e.message}`); }
     }
